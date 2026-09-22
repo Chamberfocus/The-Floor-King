@@ -6,7 +6,15 @@ import {
   type LineType,
   type MeasureUnit,
 } from "@/lib/types";
-import { billedQtyToSqft, isAreaUnit, isCountPricedLine, lineUnitKey, normalizeUnit } from "@/lib/units";
+import {
+  billedQtyToSqft,
+  isCountPricedLine,
+  lineUnitKey,
+  normalizeUnit,
+  lineIsBoxedCartonTbd as unitLineIsBoxedCartonTbd,
+  lineIsCountNotTapedSqft as unitLineIsCountNotTapedSqft,
+  lineSkipsAreaCartonMath as unitLineSkipsAreaCartonMath,
+} from "@/lib/units";
 
 /** Signed square feet of one measured piece (subtract = a cutout). */
 export function measurementSqft(m: LineMeasurement): number {
@@ -99,7 +107,7 @@ export function lineIsStairWrapTbd(line: { description?: string | null }): boole
  * as the order, and never an invented box size.
  */
 export function lineIsBoxedCartonTbd(line: { description?: string | null }): boolean {
-  return /carton coverage TBD/i.test((line.description ?? "").trim());
+  return unitLineIsBoxedCartonTbd(line);
 }
 
 /**
@@ -107,7 +115,7 @@ export function lineIsBoxedCartonTbd(line: { description?: string | null }): boo
  * — leftover taped sq ft is not the order, and not a 30-yard roll.
  */
 export function lineIsCountNotTapedSqft(line: { description?: string | null }): boolean {
-  return /not taped sq ft/i.test((line.description ?? "").trim());
+  return unitLineIsCountNotTapedSqft(line);
 }
 
 /**
@@ -119,15 +127,7 @@ export function lineSkipsAreaCartonMath(line: {
   description?: string | null;
   unit?: string | null;
 }): boolean {
-  if (
-    lineIsStairWrapTbd(line) ||
-    lineIsBoxedCartonTbd(line) ||
-    lineIsCountNotTapedSqft(line)
-  ) {
-    return true;
-  }
-  const u = (line.unit ?? "").trim();
-  return !!u && !isAreaUnit(u);
+  return unitLineSkipsAreaCartonMath(line);
 }
 
 type AreaCartonLine = {

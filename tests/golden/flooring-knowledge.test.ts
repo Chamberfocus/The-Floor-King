@@ -122643,6 +122643,57 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     ).toBe(false);
   });
 
+  it("printed unit and Review do not treat leftover taped sq ft as sq ft on count How many", () => {
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    const cartonTbd = {
+      description:
+        "Lifeproof Oak — carton coverage TBD (not How many boxes from leftover taped sq ft)",
+      unit: "",
+      measure_unit: "sqft" as const,
+      sqft: 450,
+      category: "lvp",
+    };
+    expect(lineSkipsAreaCartonMath(cartonTbd)).toBe(true);
+    expect(isCountPricedLine(cartonTbd)).toBe(true);
+    expect(lineUnitKey(cartonTbd)).toBe("");
+    expect(lineDisplayUnit(cartonTbd)).toBe("");
+    const wrapTbd = {
+      description: "Stair wrap — wrap qty TBD (not an automatic sq ft/step order)",
+      unit: "sq ft",
+      measure_unit: "sqft" as const,
+      sqft: 104,
+      category: "lvp",
+    };
+    expect(lineSkipsAreaCartonMath(wrapTbd)).toBe(true);
+    expect(isCountPricedLine(wrapTbd)).toBe(true);
+    expect(lineUnitKey(wrapTbd)).toBe("");
+    expect(lineDisplayUnit(wrapTbd)).toBe("");
+    expect(
+      lineUnitKey({
+        unit: "sq yd",
+        measure_unit: "sqyd" as const,
+        sqft: 450,
+        category: "carpet",
+      }),
+    ).toBe("sqyd");
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/l\.sqft && !lineSkipsAreaCartonMath\(l\)/);
+    const units = readFileSync(join(root, "src/lib/units.ts"), "utf8");
+    expect(units).toMatch(/if \(lineSkipsAreaCartonMath\(line\)\) return ""/);
+    expect(units).toMatch(/lineIsStairWrapTbd\(line\) \|\|/);
+    expect(
+      jobIsExclusiveCarpetOnly(
+        installContextFromValByKey({
+          project_type: ["Carpet", "Hard surface"],
+          surface_type: ["LVP / LVT"],
+          carpet_install: ["Stretch-in"],
+          install_method: ["Floating / click"],
+        }),
+      ),
+    ).toBe(false);
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],

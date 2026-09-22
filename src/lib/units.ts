@@ -120,6 +120,42 @@ function hasMeasuredArea(sqft: number | string | null | undefined): boolean {
   return Number.isFinite(n) && n > 0;
 }
 
+/** Hard-surface stair wrap from Guided Estimate. Extra boxes / EACH. */
+export function lineIsStairWrapTbd(line: { description?: string | null }): boolean {
+  const d = (line.description ?? "").trim();
+  return /wrap qty TBD|not an automatic sq ft\/step order/i.test(d);
+}
+
+/** Boxed flooring sold by the carton when coverage is missing. How many / Unit TBD. */
+export function lineIsBoxedCartonTbd(line: { description?: string | null }): boolean {
+  return /carton coverage TBD/i.test((line.description ?? "").trim());
+}
+
+/** Main / extra count SKU identity. How many / Unit TBD — not leftover taped sq ft. */
+export function lineIsCountNotTapedSqft(line: { description?: string | null }): boolean {
+  return /not taped sq ft/i.test((line.description ?? "").trim());
+}
+
+/**
+ * Wrap / carton-coverage TBD / qty TBD How many is already the order.
+ * A count unit (box / each / roll) is already How many. Do not treat leftover
+ * taped sq ft — or a leftover product unit of sq ft — as the printed unit.
+ */
+export function lineSkipsAreaCartonMath(line: {
+  description?: string | null;
+  unit?: string | null;
+}): boolean {
+  if (
+    lineIsStairWrapTbd(line) ||
+    lineIsBoxedCartonTbd(line) ||
+    lineIsCountNotTapedSqft(line)
+  ) {
+    return true;
+  }
+  const u = (line.unit ?? "").trim();
+  return !!u && !isAreaUnit(u);
+}
+
 /**
  * Canonical unit KEY for a line (sqft / sqyd / each / lnft / step…).
  *
@@ -135,10 +171,14 @@ export function lineUnitKey(line: {
   measure_unit?: string | null;
   sqft?: number | string | null;
   category?: string | null;
+  description?: string | null;
 }): string {
   const raw = (line.unit ?? "").trim();
   const fromUnit = normalizeUnit(raw);
   if (fromUnit && !isAreaUnit(fromUnit)) return fromUnit;
+  // Wrap / carton TBD / qty TBD How many is already the order. Leftover
+  // taped sq ft and leftover product unit sq ft are not the printed unit.
+  if (lineSkipsAreaCartonMath(line)) return "";
   if (fromUnit === "sqyd") return "sqyd";
   if (fromUnit === "sqft") return "sqft";
   // Pricing does not treat leftover planted sqft as measured area on Unit TBD (empty unit) count lines — leftover quantity is How many, not taped square feet.
@@ -159,6 +199,7 @@ export function lineDisplayUnit(line: {
   measure_unit?: string | null;
   sqft?: number | string | null;
   category?: string | null;
+  description?: string | null;
 }): string {
   const key = lineUnitKey(line);
   return unitLabel(key) || key;
@@ -270,7 +311,17 @@ export function isCountPricedLine(line: {
   measure_unit?: string | null;
   sqft?: number | string | null;
   category?: string | null;
+  description?: string | null;
 }): boolean {
+  // Wrap / carton TBD / qty TBD How many is already the order — leftover
+  // taped sq ft and leftover product unit sq ft do not flip it to area.
+  if (
+    lineIsStairWrapTbd(line) ||
+    lineIsBoxedCartonTbd(line) ||
+    lineIsCountNotTapedSqft(line)
+  ) {
+    return true;
+  }
   const raw = (line.unit ?? "").trim();
   if (raw) return !isAreaUnit(raw);
   // Pricing does not treat leftover planted sqft as measured area on Unit TBD (empty unit) count lines — leftover quantity is How many, not taped square feet.

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { billedQtyToSqft, catalogRateToBillingUnit, isAreaUnit, lineDisplayUnit, normalizeUnit, pickedProductUnit, unitIsSqyd, unitLabel } from "@/lib/units";
+import { billedQtyToSqft, catalogRateToBillingUnit, isAreaUnit, lineDisplayUnit, lineSkipsAreaCartonMath, normalizeUnit, pickedProductUnit, unitIsSqyd, unitLabel } from "@/lib/units";
 import { productLabel } from "@/lib/product-label";
 import { catalogRateInLineUnit, catalogUnitCost, PRICE_NEEDED } from "@/lib/catalog-pricing";
 import { toast } from "sonner";
@@ -3375,7 +3375,9 @@ export function Questionnaire({
                         {rollOrderTbd
                           ? `${l.sqft ? `measured ${l.sqft} sq ft` : ""} · order TBD (enter cuts — not sq ft ÷ 9)`
                           : `${l.quantity} ${lineDisplayUnit(l)}${
-                              l.sqft ? ` · measured ${l.sqft} sq ft` : ""
+                              l.sqft && !lineSkipsAreaCartonMath(l)
+                                ? ` · measured ${l.sqft} sq ft`
+                                : ""
                             }${l.waste_pct ? ` · ${l.waste_pct}% waste` : ""}`}
                         {/* Exclusive carpet-tile Guided Estimate Review carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
                         {/* Hard-surface Guided Estimate Review carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
