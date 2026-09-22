@@ -122771,6 +122771,13 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(ai).toMatch(/sqft: measuredSqft/);
     expect(ai).not.toMatch(/sqft: l\.sqft && l\.sqft > 0 \? l\.sqft : null/);
+    const builder = readFileSync(
+      join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
+      "utf8",
+    );
+    expect(builder).toMatch(/const qty = sf > 0 \? String\(Math\.round\(\(sf \/ 9\) \* 100\) \/ 100\) : ""/);
+    expect(builder).toMatch(/updateLine\(oi, li, \{ sqft: v, quantity: qty \}\)/);
+    expect(builder).toMatch(/onChange=\{\(v\) => updateLine\(oi, li, \{ sqft: v, quantity: "" \}\)/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

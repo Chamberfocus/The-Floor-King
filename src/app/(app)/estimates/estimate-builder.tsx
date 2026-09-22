@@ -2728,7 +2728,14 @@ export function EstimateBuilder({
                                   label="Measured sq ft"
                                   width="w-28"
                                   value={line.sqft}
-                                  onChange={(v) => updateLine(oi, li, { sqft: v, quantity: "" })}
+                                  onChange={(v) => {
+                                    // Exclusive tile bills leftover sq yd from leftover measured
+                                    // coverage. Do not wipe leftover order qty — leftover taped
+                                    // sq ft is not the order, and clearing How many zeros the line.
+                                    const sf = num(v);
+                                    const qty = sf > 0 ? String(Math.round((sf / 9) * 100) / 100) : "";
+                                    updateLine(oi, li, { sqft: v, quantity: qty });
+                                  }}
                                 />
                                 {num(line.sqft) > 0 ? (
                                   <div className="pb-2 text-xs text-muted-foreground">
