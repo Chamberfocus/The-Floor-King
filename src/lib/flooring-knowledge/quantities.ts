@@ -842,6 +842,82 @@ export function formatTakeoffStrip(t: MaterialTakeoff): string {
 }
 
 /**
+ * One line while the salesperson is still answering questions.
+ * Uses the same measured / order / billing numbers as the takeoff.
+ * Does not explain the engine.
+ */
+export function formatCompactRunningTakeoff(t: MaterialTakeoff): string {
+  const name = takeoffDisplayTitle(t);
+  const measured = `Measured: ${formatSqft(t.measured.sqft)}`;
+  if (t.orderBasis === "none") {
+    const roll = isRollGoodsFamily(t.family) || (t.family === "carpet" && t.measured.sqft > 0);
+    return roll && t.measured.sqft > 0
+      ? `${measured} | ${name} order: enter cuts`
+      : t.measured.sqft > 0
+        ? `${measured} | ${name} order: TBD`
+        : measured;
+  }
+  if (t.cartons && t.cartons.cartonCount > 0) {
+    const n = t.cartons.cartonCount;
+    return `${measured} | ${name} order: ${n} carton${n === 1 ? "" : "s"}`;
+  }
+  if (normalizeUnit(t.billingUnit) === "sqyd" && t.billingQty > 0) {
+    return `${measured} | ${name} order: ${formatSqyd(t.billingQty)}`;
+  }
+  if (t.orderSqft > 0) {
+    return `${measured} | ${name} order: ${formatSqft(t.orderSqft)}`;
+  }
+  return measured;
+}
+
+/**
+ * Review / Builder rows for the salesperson. Same five concepts as
+ * takeoffConceptRows, without the crew-note clauses. Job notes still use
+ * takeoffConceptRows so stored records keep measured vs order vs billing.
+ */
+export function salespersonTakeoffDisplayRows(t: MaterialTakeoff): TakeoffConceptRow[] {
+  const waste =
+    t.orderBasis === "measured_plus_waste" || t.orderBasis === "measured_plus_waste_estimated"
+      ? t.wastePct
+        ? `${t.wastePct}% (${formatSqft(t.wasteSqft)})`
+        : "0%"
+      : "0%";
+  let order = "TBD";
+  if (t.orderBasis === "none") {
+    order =
+      (isRollGoodsFamily(t.family) || t.family === "carpet") && t.measured.sqft > 0
+        ? "Enter cuts"
+        : "TBD";
+  } else if (t.orderBasis === "cuts") {
+    order = `${formatSqft(t.orderSqft)} · ${formatSqyd(t.billingQty)}`;
+  } else if (t.cartons) {
+    const n = t.cartons.cartonCount;
+    order = `${formatSqft(t.cartons.orderedCoverageSqft)} (${n} carton${n === 1 ? "" : "s"})`;
+  } else if (t.billingUnit === "sqyd") {
+    order = `${formatSqft(t.orderSqft)} · ${formatSqyd(t.billingQty)}`;
+  } else if (t.orderSqft > 0) {
+    order = formatSqft(t.orderSqft);
+  }
+  const billing =
+    t.orderBasis === "none" || !(t.billingQty > 0)
+      ? "TBD"
+      : formatBillingQty(t.billingQty, t.billingUnit);
+  return [
+    { label: "Measured", value: formatSqft(t.measured.sqft) },
+    { label: "Waste", value: waste },
+    ...(t.cartons
+      ? [
+          { label: "Carton coverage", value: `${t.cartons.coverageSqft} sq ft` },
+          { label: "Cartons", value: String(t.cartons.cartonCount) },
+        ]
+      : []),
+    { label: "Order", value: order, tone: t.orderBasis === "none" ? "warn" : "ok" },
+    { label: "Billing", value: billing, tone: billing === "TBD" ? "warn" : undefined },
+    { label: "Unit", value: takeoffUnitKeyLabel(t.billingUnit) },
+  ];
+}
+
+/**
  * Canonical accessory unit from the trim *type*.
  * T-mold must not match generic "mold" and become linear feet.
  * Quarter round / shoe / base are never square feet.

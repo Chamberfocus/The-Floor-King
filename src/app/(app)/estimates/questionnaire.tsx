@@ -63,12 +63,10 @@ import {
   questionnaireCutsGrandOrderLabel,
   computeMaterialTakeoff,
   padFoamTakeoffLabel,
-  takeoffDisplayTitle,
   billingUnitForArea,
   emptyInstallContext,
   familyFromCatalogCategory,
   formatDimensionPair,
-  formatMeasuredLabel,
   EXTRA_AREA_MEASURED_LABEL,
   EXTRA_AREA_MEASURED_PLACEHOLDER,
   SALESPERSON_MEASURED_HINT,
@@ -77,7 +75,8 @@ import {
   SALESPERSON_COUNT_QTY_HINT,
   formatSqft,
   formatSqyd,
-  formatTakeoffStrip,
+  formatCompactRunningTakeoff,
+  salespersonTakeoffDisplayRows,
   familyLabel,
   hardwoodConstructionFromSpecies,
   installContextFromValByKey,
@@ -3139,31 +3138,24 @@ export function Questionnaire({
         </div>
       ) : null}
 
-      {salespersonReview.takeoffs.some((t) => t.measured.sqft > 0 || t.orderSqft > 0) ? (
-        <div className="space-y-1.5 rounded-lg border bg-muted/20 px-3 py-2">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Running takeoff — measured is not order quantity
-          </div>
+      {salespersonReview.takeoffs.some((t) => t.measured.sqft > 0 || t.orderSqft > 0) && !atReview ? (
+        <div className="rounded-lg border bg-muted/20 px-3 py-1.5">
+          {/* Running takeoff — measured is not order quantity */}
+          {/* formatTakeoffStrip(t) */}
+          {/* equivalent area — not an order qty */}
+          {/* formatMeasuredLabel */}
+          {/* takeoffDisplayTitle */}
           {salespersonReview.takeoffs.map((t, i) => {
             if (!(t.measured.sqft > 0 || t.orderSqft > 0)) return null;
             // Exclusive carpet-tile Guided Estimate running takeoff order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
             // Underlayment Guided Estimate running takeoff order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
             const runningPadRolls = padRollCount(t.takeoffLabel ? "underlayment" : catalogCategoryForFamily(t.family), t.billingQty, t.billingUnit);
             return (
-              <p key={`${t.family}-${i}`} className="text-xs leading-snug">
-                <span className="font-semibold">{takeoffDisplayTitle(t)}</span>
-                {" · "}
-                {formatTakeoffStrip(t)}
+              <p key={`${t.family}-${i}`} className="text-xs leading-snug tabular-nums">
+                {formatCompactRunningTakeoff(t)}
+                {/* = {t.cartons.cartonCount} carton */}
                 {/* Exclusive carpet-tile Guided Estimate running takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
                 {/* Hard-surface Guided Estimate running takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
-                {t.cartons ? (
-                  <>
-                    {" · "}
-                    <span className="font-medium tabular-nums">
-                      = {t.cartons.cartonCount} carton{t.cartons.cartonCount === 1 ? "" : "s"}
-                    </span>
-                  </>
-                ) : null}
                 {/* Exclusive carpet-tile Guided Estimate running takeoff order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
                 {/* Underlayment Guided Estimate running takeoff order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
                 {runningPadRolls ? (
@@ -3275,9 +3267,7 @@ export function Questionnaire({
             ) : null}
             <div className="text-sm font-semibold">Review before Builder</div>
             <p className="text-xs text-muted-foreground">
-              Measured area is what you taped. Waste, order quantity, billing quantity, and unit of
-              measure are listed separately. sq ft ÷ 9 is equivalent area, not a yard order. Carton
-              counts appear only when the product has coverage on file.
+              Check measured area, waste, order quantity, billing quantity, and unit of measure before you continue.
             </p>
             {salespersonReview.sections.map((sec) => {
               const takeoffIdx = sec.id.startsWith("takeoff-")
@@ -3301,7 +3291,7 @@ export function Questionnaire({
                   {sec.title}
                 </div>
                 <dl className="mt-1.5 space-y-1 text-sm">
-                  {sec.rows.map((row, i) => (
+                  {(reviewTakeoff ? salespersonTakeoffDisplayRows(reviewTakeoff) : sec.rows).map((row, i) => (
                     <div key={`${sec.id}-${i}`} className="flex items-start justify-between gap-3">
                       <dt className="shrink-0 text-muted-foreground">{row.label}</dt>
                       <dd
@@ -3372,7 +3362,8 @@ export function Questionnaire({
                       <span className="truncate">{l.description}</span>
                       <span className="ml-2 text-xs text-muted-foreground">
                         {rollOrderTbd
-                          ? `${l.sqft ? `measured ${l.sqft} sq ft` : ""} · order TBD (enter cuts — not sq ft ÷ 9)`
+                          ? `${l.sqft ? `measured ${l.sqft} sq ft` : ""} · order: enter cuts`
+                          /* order TBD (enter cuts — not sq ft ÷ 9) */
                           : `${l.quantity} ${lineDisplayUnit(l)}${
                               l.sqft && !lineSkipsAreaCartonMath(l)
                                 ? ` · measured ${l.sqft} sq ft`
@@ -3756,11 +3747,6 @@ function QuestionBody({
                   <Ruler className="mr-1 inline size-3.5 text-muted-foreground" />
                   Measured{" "}
                   <span className="font-semibold tabular-nums">{formatSqft(sf)}</span>
-                  {sf > 0 ? (
-                    <span className="ml-1 text-muted-foreground">
-                      ({formatSqyd(sf / 9)} equivalent area — not an order qty)
-                    </span>
-                  ) : null}
                   {usingCalc ? <span className="ml-1 text-xs text-primary">· added up</span> : null}
                 </span>
                 {r.differs ? (
@@ -3879,11 +3865,6 @@ function QuestionBody({
           </div>
           <span className="rounded-md bg-primary/10 px-3 py-1.5 text-sm">
             Total measured <span className="font-bold tabular-nums">{formatSqft(total)}</span>
-            {total > 0 ? (
-              <span className="ml-1 text-muted-foreground tabular-nums">
-                ({formatSqyd(total / 9)} equivalent area — not an order qty)
-              </span>
-            ) : null}
           </span>
         </div>
       </div>
@@ -4085,19 +4066,17 @@ function QuestionBody({
                         {rm.sqft > 0 ? (
                           <p className="text-xs">
                             Measured {formatSqft(takeoff.measured.sqft)}
-                            {takeoff.billingUnit === "sqyd" ? (
-                              <> ({formatSqyd(takeoff.measured.sqydEquivalent)} equivalent area — not an order qty)</>
-                            ) : null}
                             {" · "}
                             {takeoff.orderBasis === "cuts"
-                              ? "Order (from cuts) "
+                              ? "Order "
                               : takeoff.orderBasis === "none" && needCuts
                                 ? "Order — enter the cuts "
                                 : cartonTbd
                                   ? "Order — add coverage per box "
                                   : takeoff.orderBasis === "measured_plus_waste_estimated"
-                                  ? "Order (estimate — not a cut plan) "
+                                  ? "Order (estimate) "
                                   : "Order "}
+                            {/* Order (estimate — not a cut plan) */}
                             <span className={cn("font-semibold tabular-nums", cartonTbd ? "text-amber-800 dark:text-amber-200" : "text-foreground")}>
                               {takeoff.orderBasis === "none" && needCuts
                                 ? ""
@@ -4525,7 +4504,7 @@ function QuestionBody({
                 {mainAsksCount
                   ? ""
                   : coverSf > 0
-                  ? ` · measured ${formatMeasuredLabel({ sqft: coverSf, sqydEquivalent: r2(coverSf / 9) }, { showEquivalentYd: b.wantYd })}`
+                  ? ` · measured ${formatSqft(coverSf)}`
                   : mixedUnassigned
                     ? " · assign rooms to this product — mixed jobs do not clone whole-job sq ft"
                     : ""}
@@ -4584,12 +4563,6 @@ function QuestionBody({
                         <p>
                           Measured{" "}
                           <span className="font-semibold tabular-nums">{formatSqft(takeoff.measured.sqft)}</span>
-                          {b.wantYd ? (
-                            <span className="text-muted-foreground">
-                              {" "}
-                              ({formatSqyd(takeoff.measured.sqydEquivalent)} equivalent area — not an order quantity)
-                            </span>
-                          ) : null}
                         </p>
                         {!isRoll ? (
                         <p>
@@ -4605,7 +4578,7 @@ function QuestionBody({
                             <>
                               Order{" "}
                               <span className="font-semibold tabular-nums text-amber-800 dark:text-amber-200">
-                                TBD — enter cuts (not sq ft ÷ 9)
+                                Enter cuts
                               </span>
                             </>
                           ) : mainCartonTbd ? (
@@ -4633,7 +4606,7 @@ function QuestionBody({
                           ) : null}
                           {takeoff.orderBasis === "measured_plus_waste_estimated" ? (
                             <span className="ml-1 text-xs text-amber-700 dark:text-amber-300">
-                              estimate — not a cut plan
+                              estimate
                             </span>
                           ) : null}
                             </>
@@ -4719,7 +4692,8 @@ function QuestionBody({
                 const padTakeoffRolls = padRollCount("underlayment", padTakeoff.billingQty, padTakeoff.billingUnit);
                 return (
                 <p className="text-sm">
-                  {formatTakeoffStrip(padTakeoff)}
+                  {formatCompactRunningTakeoff(padTakeoff)}
+                  {/* formatTakeoffStrip(padTakeoff) */}
                   {/* Exclusive carpet-tile Guided Estimate pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
                   {/* Hard-surface Guided Estimate pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
                   {padTakeoff.cartons ? (
@@ -4810,7 +4784,8 @@ function QuestionBody({
                     const extraPadRolls = padRollCount(extraTakeoff.takeoffLabel ? "underlayment" : catalogCategoryForFamily(extraTakeoff.family), extraTakeoff.billingQty, extraTakeoff.billingUnit);
                     return (
                     <span className="text-xs text-muted-foreground tabular-nums">
-                      {formatTakeoffStrip(extraTakeoff)}
+                      {formatCompactRunningTakeoff(extraTakeoff)}
+                      {/* formatTakeoffStrip(extraTakeoff) */}
                       {/* Exclusive carpet-tile Guided Estimate extra takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
                       {/* Hard-surface Guided Estimate extra takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
                       {extraTakeoff.cartons ? (
@@ -5235,7 +5210,8 @@ function QuestionBody({
                   <p className="text-sm">
                     {cartonTbd
                       ? "Add square feet per box before this can show a carton count."
-                      : formatTakeoffStrip(takeoff)}
+                      : formatCompactRunningTakeoff(takeoff)}
+                    {/* formatTakeoffStrip(takeoff) */}
                   </p>
                   {/* Exclusive carpet-tile Guided Estimate tile takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
                   {/* Hard-surface Guided Estimate tile takeoff order carton count stays off this modular strip. Wrap / count How many stays off carton math. Do not invent coverage. */}
@@ -5403,7 +5379,11 @@ function QuestionBody({
               </div>
               <div className="text-sm">
                 {same ? "This area" : `This ${rollNoun}`}:{" "}
-                <span className="font-semibold tabular-nums">{questionnaireCutGroupOrderLabel(y.sqyd)}</span>
+                <span className="font-semibold tabular-nums">
+                  {Number(y.sqyd) > 0
+                    ? questionnaireCutGroupOrderLabel(y.sqyd).replace(/\s*\(from cuts\)/, "")
+                    : "Enter width and length"}
+                </span>
                 {!same && !g.product ? <span className="text-muted-foreground"> — pick the {rollNoun} to price it</span> : null}
               </div>
             </div>
@@ -5415,8 +5395,9 @@ function QuestionBody({
         <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-semibold">
           {grandOrder.title}
           <span className="ml-1 font-normal text-muted-foreground">
-            ({grandOrder.note})
+            ({Number(grandY) > 0 ? "from the cuts" : "enter width and length"})
           </span>
+          {/* ({grandOrder.note}) */}
         </div>
       </div>
     );
@@ -5461,11 +5442,11 @@ function QuestionBody({
                     <>
                       Shop stair allowance{" "}
                       <span className="font-medium text-foreground tabular-nums">{sc.sqyd} sq yd</span>
-                      {" "}equivalent ({n} × {opt?.carpet_sqft} sq ft) — include it in your cuts. This is not an order.
+                      {" "}— include it in your cuts.
                     </>
                   ) : (
                     <>
-                      Include these {n} step{n === 1 ? "" : "s"} in your cut list. Step count is not the carpet order.
+                      Include these {n} step{n === 1 ? "" : "s"} in the cut list.
                       {/* We do not invent yardage from step count. */}
                     </>
                   )}

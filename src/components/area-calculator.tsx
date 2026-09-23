@@ -13,7 +13,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { equivalentSqyd, formatEquivalentSqyd } from "@/lib/flooring-knowledge";
 
 const n = (v: string) => {
   const x = parseFloat(v);
@@ -105,8 +104,7 @@ export function AreaCalculator({
               room, add each rectangle; tap <strong>+</strong> to switch a row to
               <strong> − cut out</strong> to subtract an island, hearth, or other
               area that isn&apos;t getting floor. It totals MEASURED square
-              footage. Square yards shown are equivalent area (÷ 9) — not a
-              carpet order.
+              footage.
             </DialogDescription>
           </DialogHeader>
 
@@ -226,19 +224,8 @@ export function AreaCalculator({
                   {r2(totalSqft)}
                 </div>
               </div>
-              <div>
-                <div className="text-xs text-muted-foreground">
-                  Equivalent sq yd — not an order
-                </div>
-                <div className="text-lg font-semibold tabular-nums text-muted-foreground">
-                  {r2(equivalentSqyd(totalSqft))}
-                </div>
-                {totalSqft > 0 ? (
-                  <div className="max-w-[14rem] text-[11px] leading-snug text-muted-foreground">
-                    {formatEquivalentSqyd(totalSqft)}
-                  </div>
-                ) : null}
-              </div>
+              {/* Equivalent sq yd — not an order */}
+              {/* formatEquivalentSqyd */}
             </div>
             <button
               type="button"
