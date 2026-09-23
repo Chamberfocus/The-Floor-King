@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Menu,
   LogOut,
@@ -26,16 +26,20 @@ import { ImportJobsBanner } from "@/components/import-jobs-banner";
 import { AreaCalculator } from "@/components/area-calculator";
 import { FieldAssistant } from "@/components/field-assistant";
 import { OnMyWayFab } from "@/components/on-my-way-fab";
+import { QuickCreate } from "@/components/quick-create";
+import { UxMobileNav, UxShellNav } from "@/components/ux-shell-nav";
 import { cn } from "@/lib/utils";
 import {
   APP_NAME,
   COMPANY_NAME,
+  UX_SHELL_COOKIE,
   homeHrefForRole,
   navItemsForRole,
   navGroupsForRole,
   pinnedItemsForRole,
   settingsItemForRole,
   type NavItem,
+  type UxShellMode,
 } from "@/lib/nav";
 import { ROLE_LABELS, type OrgSettings, type Profile } from "@/lib/types";
 import { signout } from "@/app/(app)/actions";
@@ -242,7 +246,26 @@ function Brand({ org, homeHref }: { org?: OrgSettings; homeHref?: string }) {
   );
 }
 
-function UserCard({ profile }: { profile: Profile }) {
+function ShellSwitch({ shell }: { shell: UxShellMode }) {
+  const router = useRouter();
+  const next = shell === "new" ? "classic" : "new";
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className="mt-1 w-full justify-start text-muted-foreground"
+      onClick={() => {
+        document.cookie = `${UX_SHELL_COOKIE}=${next}; path=/; max-age=31536000; samesite=lax`;
+        router.refresh();
+      }}
+    >
+      {shell === "new" ? "Use current navigation" : "Try new navigation"}
+    </Button>
+  );
+}
+
+function UserCard({ profile, shell }: { profile: Profile; shell: UxShellMode }) {
   return (
     <div className="mt-auto border-t border-sidebar-border p-3">
       <div className="flex items-center gap-3 px-2 py-2">
@@ -270,6 +293,7 @@ function UserCard({ profile }: { profile: Profile }) {
           My page setup
         </Button>
       ) : null}
+      <ShellSwitch shell={shell} />
       <form action={signout}>
         <Button
           type="submit"
@@ -340,12 +364,15 @@ export function AppShell({
   profile,
   org,
   defaultCollapsed = false,
+  shell = "classic",
   children,
 }: {
   profile: Profile;
   org?: OrgSettings;
   /** Read from the cookie on the server so there's no flash on first paint. */
   defaultCollapsed?: boolean;
+  /** Phase A shell. Classic stays the default until the cookie or env opts in. */
+  shell?: UxShellMode;
   children: React.ReactNode;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -364,15 +391,25 @@ export function AppShell({
           whole width back (wide tables: customers, the estimate builder). */}
       <aside
         className={cn(
-          "hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground print:!hidden",
+          "hidden shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground print:!hidden",
+          shell === "new" ? "w-72" : "w-64",
           collapsed ? "md:hidden" : "md:flex",
         )}
       >
         <Brand org={org} homeHref={homeHref} />
         <div className="flex-1 overflow-y-auto py-2">
-          <NavLinks role={profile.role} />
+          {shell === "new" ? (
+            <div className="px-3 pb-4">
+              <QuickCreate role={profile.role} fullWidth />
+            </div>
+          ) : null}
+          {shell === "new" ? (
+            <UxShellNav role={profile.role} />
+          ) : (
+            <NavLinks role={profile.role} />
+          )}
         </div>
-        <UserCard profile={profile} />
+        <UserCard profile={profile} shell={shell} />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -391,12 +428,28 @@ export function AppShell({
                 <SheetTitle className="sr-only">Navigation</SheetTitle>
                 <Brand org={org} homeHref={homeHref} />
                 <div className="flex-1 overflow-y-auto py-2">
-                  <NavLinks
-                    role={profile.role}
-                    onNavigate={() => setMobileOpen(false)}
-                  />
+                  {shell === "new" ? (
+                    <div className="px-3 pb-4">
+                      <QuickCreate
+                        role={profile.role}
+                        fullWidth
+                        onNavigate={() => setMobileOpen(false)}
+                      />
+                    </div>
+                  ) : null}
+                  {shell === "new" ? (
+                    <UxShellNav
+                      role={profile.role}
+                      onNavigate={() => setMobileOpen(false)}
+                    />
+                  ) : (
+                    <NavLinks
+                      role={profile.role}
+                      onNavigate={() => setMobileOpen(false)}
+                    />
+                  )}
                 </div>
-                <UserCard profile={profile} />
+                <UserCard profile={profile} shell={shell} />
               </SheetContent>
             </Sheet>
           </div>
@@ -430,6 +483,7 @@ export function AppShell({
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <GlobalSearch className="w-full max-w-xl" />
           </div>
+          {shell === "new" ? <QuickCreate role={profile.role} className="shrink-0" /> : null}
           {profile.role !== "customer" ? (
             <AreaCalculator
               triggerLabel="Calculator"
@@ -447,7 +501,11 @@ export function AppShell({
         </main>
       </div>
 
-      <MobileBottomNav role={profile.role} onMore={() => setMobileOpen(true)} />
+      {shell === "new" ? (
+        <UxMobileNav role={profile.role} onMore={() => setMobileOpen(true)} />
+      ) : (
+        <MobileBottomNav role={profile.role} onMore={() => setMobileOpen(true)} />
+      )}
       {profile.role !== "customer" ? <FieldAssistant /> : null}
       {profile.role !== "customer" ? <OnMyWayFab /> : null}
     </div>

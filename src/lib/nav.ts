@@ -1,4 +1,5 @@
 import {
+  Home,
   LayoutDashboard,
   Users,
   CalendarDays,
@@ -262,4 +263,298 @@ export function navItemsForRole(role: UserRole): NavItem[] {
   const settings = settingsItemForRole(role);
   if (settings) flat.push(settings);
   return flat;
+}
+
+// ---------------------------------------------------------------------------
+// Phase A shell. Presentation only: every link copies its roles from the
+// classic item with the same href. The classic groups above stay the fallback.
+// ---------------------------------------------------------------------------
+
+/** Cookie wins over the env default so one browser can compare both shells. */
+export const UX_SHELL_COOKIE = "fk_ux_shell";
+
+export type UxShellMode = "new" | "classic";
+
+/**
+ * `fk_ux_shell=new|classic` overrides `NEXT_PUBLIC_UX_SHELL`.
+ * Anything else, including an unset cookie and an unset env var, is classic.
+ */
+export function resolveUxShell(cookieValue: string | undefined | null): UxShellMode {
+  if (cookieValue === "new" || cookieValue === "classic") return cookieValue;
+  const env = process.env.NEXT_PUBLIC_UX_SHELL;
+  if (env === "new" || env === "classic") return env;
+  return "classic";
+}
+
+export type ShellSectionId =
+  | "home"
+  | "customers"
+  | "sales"
+  | "jobs"
+  | "schedule"
+  | "money"
+  | "inventory"
+  | "more";
+
+export interface ShellSection {
+  id: ShellSectionId;
+  label: string;
+  items: NavItem[];
+}
+
+const CLASSIC_BY_HREF: Map<string, NavItem> = new Map(
+  [...PINNED_ITEMS, ...NAV_GROUPS.flatMap((g) => g.items), SETTINGS_ITEM].map(
+    (item) => [item.href, item],
+  ),
+);
+
+/** Same destination as the classic nav. Optional label is employee-facing copy. */
+function shellItem(href: string, label?: string): NavItem | null {
+  const base = CLASSIC_BY_HREF.get(href);
+  if (!base) return null;
+  return label ? { ...base, label } : base;
+}
+
+/**
+ * Approved top-level order. Home is filled per role from homeHrefForRole.
+ * Items the role cannot already open are dropped. Empty sections are dropped.
+ * Route (/schedule/route) is intentionally absent: without a rep and a date it
+ * redirects away, so a sidebar link would be a dead end. It stays linked from
+ * the measure calendar.
+ */
+const SHELL_BLUEPRINT: {
+  id: ShellSectionId;
+  label: string;
+  items: { href: string; label?: string }[];
+}[] = [
+  { id: "home", label: "Home", items: [] },
+  { id: "customers", label: "Customers", items: [{ href: "/customers" }] },
+  {
+    id: "sales",
+    label: "Sales",
+    items: [
+      { href: "/estimates" },
+      { href: "/client-status", label: "Sales pipeline" },
+      { href: "/samples" },
+      { href: "/saved", label: "Saved for later" },
+      { href: "/quick-order", label: "Quick order" },
+      { href: "/counter-sale", label: "Counter sale" },
+      { href: "/orders", label: "Customer orders" },
+    ],
+  },
+  {
+    id: "jobs",
+    label: "Jobs",
+    items: [
+      { href: "/jobs" },
+      { href: "/board", label: "Job board" },
+      { href: "/service" },
+      { href: "/jobs/new", label: "New job" },
+      { href: "/installer", label: "My Work" },
+    ],
+  },
+  {
+    id: "schedule",
+    label: "Schedule",
+    items: [
+      { href: "/calendar", label: "Measures" },
+      { href: "/install-scheduler", label: "Install schedule" },
+      { href: "/team", label: "Who's working" },
+    ],
+  },
+  {
+    id: "money",
+    label: "Money",
+    items: [
+      { href: "/invoices" },
+      { href: "/bills", label: "Bills (A/P)" },
+      { href: "/pulse", label: "Business pulse" },
+    ],
+  },
+  {
+    id: "inventory",
+    label: "Inventory",
+    items: [
+      { href: "/catalog" },
+      { href: "/inventory" },
+      { href: "/warehouse" },
+      { href: "/purchase-orders" },
+    ],
+  },
+  {
+    id: "more",
+    label: "More",
+    items: [
+      { href: "/dashboard" },
+      { href: "/reports" },
+      { href: "/accounting" },
+      { href: "/settings" },
+    ],
+  },
+];
+
+/** Staff shell only. The customer role is sent to the portal before this renders. */
+export function shellSectionsForRole(role: UserRole): ShellSection[] {
+  if (role === "customer") return [];
+  const allowed = new Set(navItemsForRole(role).map((item) => item.href));
+  const homeHref = homeHrefForRole(role);
+  const sections: ShellSection[] = [];
+
+  for (const blueprint of SHELL_BLUEPRINT) {
+    if (blueprint.id === "home") {
+      if (!allowed.has(homeHref)) continue;
+      const classic = CLASSIC_BY_HREF.get(homeHref);
+      sections.push({
+        id: "home",
+        label: "Home",
+        items: [
+          {
+            label: "Home",
+            href: homeHref,
+            icon: Home,
+            roles: classic?.roles ?? [],
+          },
+        ],
+      });
+      continue;
+    }
+
+    const items: NavItem[] = [];
+    for (const def of blueprint.items) {
+      if (!allowed.has(def.href)) continue;
+      // Crew already land on My Work via Home. Don't list it twice.
+      if (def.href === homeHref && def.href === "/installer") continue;
+      const item = shellItem(def.href, def.label);
+      if (item && item.roles.includes(role)) items.push(item);
+    }
+    if (items.length) sections.push({ id: blueprint.id, label: blueprint.label, items });
+  }
+  return sections;
+}
+
+/** Paths that are not sidebar links but should still light up their group. */
+const SECTION_ALIASES: { prefix: string; id: ShellSectionId }[] = [
+  { prefix: "/leads", id: "customers" },
+  { prefix: "/pipeline", id: "sales" },
+  { prefix: "/schedule", id: "schedule" },
+  { prefix: "/financials", id: "money" },
+  { prefix: "/search", id: "more" },
+  { prefix: "/carry-over", id: "jobs" },
+];
+
+function hrefMatches(pathname: string, href: string): boolean {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+/**
+ * Longest matching href wins, so /jobs/new highlights New job rather than Jobs.
+ * A tie prefers the real module over the Home alias (Home and Customers can
+ * share /customers until Phase B gives Home its own page).
+ */
+export function activeShellLink(
+  pathname: string,
+  role: UserRole,
+): { sectionId: ShellSectionId; href: string } | null {
+  let best: { sectionId: ShellSectionId; href: string; isHome: boolean } | null = null;
+  for (const section of shellSectionsForRole(role)) {
+    for (const item of section.items) {
+      if (!hrefMatches(pathname, item.href)) continue;
+      const isHome = section.id === "home";
+      if (
+        !best ||
+        item.href.length > best.href.length ||
+        (item.href.length === best.href.length && best.isHome && !isHome)
+      ) {
+        best = { sectionId: section.id, href: item.href, isHome };
+      }
+    }
+  }
+  if (best) return { sectionId: best.sectionId, href: best.href };
+  for (const alias of SECTION_ALIASES) {
+    if (!hrefMatches(pathname, alias.prefix)) continue;
+    if (shellSectionsForRole(role).some((section) => section.id === alias.id)) {
+      return { sectionId: alias.id, href: alias.prefix };
+    }
+  }
+  return null;
+}
+
+export function activeShellSection(
+  pathname: string,
+  role: UserRole,
+): ShellSectionId | null {
+  return activeShellLink(pathname, role)?.sectionId ?? null;
+}
+
+/**
+ * Bottom bar is a chosen set of high-frequency pages, not "the first four
+ * sorted links". Every href is dropped unless the classic nav already allows it.
+ */
+const MOBILE_TABS: Record<UserRole, string[]> = {
+  admin: ["/customers", "/jobs", "/calendar", "/invoices"],
+  office: ["/customers", "/jobs", "/calendar", "/invoices"],
+  sales_manager: ["/customers", "/estimates", "/jobs", "/calendar"],
+  salesman: ["/customers", "/estimates", "/client-status", "/calendar"],
+  scheduler: ["/customers", "/jobs", "/install-scheduler", "/calendar"],
+  crew: ["/installer", "/jobs", "/board"],
+  warehouse: ["/warehouse", "/inventory"],
+  customer: [],
+};
+
+const MOBILE_LABEL: Record<string, string> = {
+  "/customers": "Customers",
+  "/estimates": "Estimates",
+  "/client-status": "Pipeline",
+  "/jobs": "Jobs",
+  "/board": "Board",
+  "/calendar": "Measures",
+  "/install-scheduler": "Installs",
+  "/invoices": "Invoices",
+  "/installer": "My Work",
+  "/warehouse": "Warehouse",
+  "/inventory": "Inventory",
+};
+
+export function mobileTabsForRole(role: UserRole): NavItem[] {
+  if (role === "customer") return [];
+  const allowed = new Set(navItemsForRole(role).map((item) => item.href));
+  const tabs: NavItem[] = [];
+  for (const href of MOBILE_TABS[role] ?? []) {
+    if (!allowed.has(href)) continue;
+    const item = shellItem(href, MOBILE_LABEL[href]);
+    if (item) tabs.push(item);
+  }
+  return tabs;
+}
+
+export interface QuickCreateAction {
+  id: string;
+  label: string;
+  href: string;
+  /** Roles that already have this create flow in the classic product. */
+  roles: UserRole[];
+}
+
+/**
+ * Existing create screens only.
+ * Payment has no generic form — it is recorded on an invoice.
+ * Purchase orders are created from a job/estimate or as a stock PO on the
+ * inventory page, not from a blank global form.
+ * Tasks are created inside the dashboard card, which is not its own screen.
+ */
+export const QUICK_CREATE: QuickCreateAction[] = [
+  { id: "customer", label: "Customer", href: "/customers/new", roles: SALES_VIEW },
+  { id: "estimate", label: "Estimate", href: "/estimates/start", roles: SALES },
+  { id: "measure", label: "Measure", href: "/calendar", roles: SALES_VIEW },
+  {
+    id: "job",
+    label: "Job",
+    href: "/jobs/new",
+    roles: ["admin", "office", "sales_manager", "salesman", "scheduler"],
+  },
+];
+
+export function quickCreateForRole(role: UserRole): QuickCreateAction[] {
+  if (role === "customer") return [];
+  return QUICK_CREATE.filter((action) => action.roles.includes(role));
 }

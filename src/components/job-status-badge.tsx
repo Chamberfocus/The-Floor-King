@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { StatusBadge } from "@/components/status-badge";
 import { JOB_STATUS_BADGE, JOB_STATUS_LABELS, type JobStatus } from "@/lib/types";
 
 export function JobStatusBadge({
@@ -9,14 +10,9 @@ export function JobStatusBadge({
   className?: string;
 }) {
   return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-        JOB_STATUS_BADGE[status],
-        className,
-      )}
-    >
-      {JOB_STATUS_LABELS[status]}
-    </span>
+    <StatusBadge
+      label={JOB_STATUS_LABELS[status]}
+      className={cn(JOB_STATUS_BADGE[status], className)}
+    />
   );
 }
