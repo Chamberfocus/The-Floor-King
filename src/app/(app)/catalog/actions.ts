@@ -28,11 +28,21 @@ import { reorderAlertsFor, type ReorderAlert } from "@/lib/data/stock-rolls";
  *  still findable, and returns a larger, relevance-ranked result set. */
 export async function searchCatalogProducts(
   query: string,
-  opts: { purpose?: CatalogPricePurpose } = {},
+  opts: {
+    purpose?: CatalogPricePurpose;
+    /** Narrow to these categories. Omitted searches the whole catalog. */
+    categories?: string[] | null;
+    /** Empty-browse words. Not a compatibility rule. */
+    browseTokens?: string[] | null;
+  } = {},
 ): Promise<Product[]> {
   const purpose = opts.purpose ?? "sell";
   const [rows, profile] = await Promise.all([
-    searchCatalog(query, { limit: 60 }),
+    searchCatalog(query, {
+      limit: 60,
+      categories: opts.categories,
+      browseTokens: opts.browseTokens,
+    }),
     getProfile(),
   ]);
   const role = profile?.role ?? null;

@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { catalogUnitCost, hydrateCatalogPricing } from "@/lib/catalog-pricing";
+import { rankCatalogProducts } from "@/lib/catalog-search";
 import type { Product, ProductVendor, SupplierKind } from "@/lib/types";
 
 /**
@@ -104,10 +105,18 @@ async function attachProductVendors(db: Db, products: Product[]): Promise<Produc
   }
 }
 
+/** Margin and freight change rarely. A picker keystroke must not re-read both rows. */
+let pricingMemo: {
+  at: number;
+  value: { targetMarginPct: number; freightMarkupPct: number };
+} | null = null;
+const PRICING_MEMO_MS = 60_000;
+
 async function catalogPricingContext(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: { from: (t: string) => any },
 ): Promise<{ targetMarginPct: number; freightMarkupPct: number }> {
+  if (pricingMemo && Date.now() - pricingMemo.at < PRICING_MEMO_MS) return pricingMemo.value;
   let targetMarginPct = 40;
   let freightMarkupPct = 0;
   try {
@@ -128,7 +137,9 @@ async function catalogPricingContext(
   } catch {
     /* defaults */
   }
-  return { targetMarginPct, freightMarkupPct };
+  const value = { targetMarginPct, freightMarkupPct };
+  pricingMemo = { at: Date.now(), value };
+  return value;
 }
 
 /** Vendor costs + computed catalog_cost / catalog_sell. Fail-open. */
@@ -300,9 +311,22 @@ export function tokenAliases(token: string): string[] {
  * cheers" all match. Case-insensitive; handles fractions & special characters.
  * Empty query returns the first `limit` by name.
  */
+export interface CatalogSearchOpts {
+  activeOnly?: boolean;
+  limit?: number;
+  includeLabor?: boolean;
+  /**
+   * When set, search these categories with equality — do not score the
+   * whole catalog. Null/omitted keeps the unscoped search_products path.
+   */
+  categories?: string[] | null;
+  /** Empty-browse words OR'd against name / sku / search_text. Not compatibility. */
+  browseTokens?: string[] | null;
+}
+
 export async function searchCatalog(
   query: string,
-  opts: { activeOnly?: boolean; limit?: number; includeLabor?: boolean } = {},
+  opts: CatalogSearchOpts = {},
 ): Promise<Product[]> {
   return searchCatalogWith(await createClient(), query, opts);
 }
@@ -317,10 +341,18 @@ export async function searchCatalogWith(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: { from: (t: string) => any; rpc?: (fn: string, args: object) => any },
   query: string,
-  opts: { activeOnly?: boolean; limit?: number; includeLabor?: boolean } = {},
+  opts: CatalogSearchOpts = {},
 ): Promise<Product[]> {
   const displayLimit = opts.limit ?? 50;
   const tokens = query.trim().split(/\s+/).filter(Boolean);
+
+  let scoped: Product[] | null = null;
+  try {
+    scoped = await searchCatalogScoped(supabase, query, tokens, displayLimit, opts);
+  } catch {
+    scoped = null;
+  }
+  if (scoped) return scoped;
 
   /**
    * Search and rank in Postgres, where the trigram index can be used.
@@ -377,8 +409,9 @@ export async function searchCatalogWith(
         const catRows = ((byCat.data ?? []) as Product[]).filter(
           (p) => !seen.has(p.id) && (opts.includeLabor || p.category !== "labor"),
         );
-        merged.push(...(rest.length ? rankProducts(catRows, rest) : catRows));
-        return enrichCatalogProducts(supabase, merged.slice(0, displayLimit));
+        const textRanked = tokens.length ? rankCatalogProducts(merged, query) : merged;
+        const catRanked = rest.length ? rankCatalogProducts(catRows, rest.join(" ")) : catRows;
+        return enrichCatalogProducts(supabase, [...textRanked, ...catRanked].slice(0, displayLimit));
       }
     } catch {
       // Falls through to the original path — see below.
@@ -414,39 +447,70 @@ export async function searchCatalogWith(
   }
   return enrichCatalogProducts(
     supabase,
-    rankProducts(rows, tokens).slice(0, displayLimit),
+    rankCatalogProducts(rows, query).slice(0, displayLimit),
   );
 }
 
-
 /**
- * Relevance rank: matches in the NAME beat matches in other fields, a name that
- * STARTS with the query beats a mid-name match, all-tokens-in-name beats a
- * scattered match, and active products edge out inactive ones. Tie-break by name.
+ * Category (or adhesive-word) search. Skips search_products, which scores
+ * every row in the catalog with similarity. Equality on category uses the
+ * category index. Ranking then runs only on this small set.
+ * Returns null when the caller did not narrow the catalog.
  */
-function rankProducts(rows: Product[], tokens: string[]): Product[] {
-  const low = tokens.map((t) => t.toLowerCase());
-  const joined = low.join(" ");
-  const score = (p: Product): number => {
-    const name = (p.name ?? "").toLowerCase();
-    const other = [p.manufacturer, p.style, p.color, p.sku, p.supplier]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-    let s = 0;
-    if (name.includes(joined)) s += 120; // whole query appears in the name
-    if (name.startsWith(low[0])) s += 40; // name starts with the first word
-    for (const t of low) {
-      if (name.includes(t)) s += 15;
-      else if (other.includes(t)) s += 4;
+async function searchCatalogScoped(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: { from: (t: string) => any },
+  query: string,
+  tokens: string[],
+  displayLimit: number,
+  opts: CatalogSearchOpts,
+): Promise<Product[] | null> {
+  const categories = (opts.categories ?? []).map((c) => c.trim()).filter(Boolean);
+  const browse = (opts.browseTokens ?? []).map((t) => t.trim()).filter(Boolean);
+  if (!categories.length && !browse.length) return null;
+
+  const pool = tokens.length ? Math.min(Math.max(displayLimit * 3, 80), 150) : displayLimit;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let q: any = supabase
+    .from("products")
+    .select(CATALOG_PRODUCT_COLUMNS)
+    .order("name", { ascending: true })
+    .limit(pool);
+  if (opts.activeOnly !== false) q = q.eq("active", true);
+  if (categories.length === 1) q = q.eq("category", categories[0]);
+  else if (categories.length > 1) q = q.in("category", categories);
+
+  if (!tokens.length && browse.length) {
+    const parts: string[] = [];
+    for (const token of browse) {
+      const pat = likePattern(token);
+      parts.push(`search_text.ilike.${pat}`, `name.ilike.${pat}`, `sku.ilike.${pat}`);
     }
-    if (p.active !== false) s += 3;
-    return s;
-  };
-  return rows
-    .map((p) => ({ p, s: score(p) }))
-    .sort((a, b) => b.s - a.s || (a.p.name ?? "").localeCompare(b.p.name ?? ""))
-    .map((x) => x.p);
+    q = q.or(parts.join(","));
+  }
+  for (const token of tokens) {
+    const parts: string[] = [];
+    for (const alias of tokenAliases(token)) {
+      const pat = alias === token ? likePattern(token) : likePattern(alias);
+      parts.push(`search_text.ilike.${pat}`, `name.ilike.${pat}`, `sku.ilike.${pat}`);
+    }
+    q = q.or(parts.join(","));
+  }
+
+  const { data, error } = await q;
+  if (error) return null;
+  let rows = ((data ?? []) as Product[]).filter(
+    (p) => opts.includeLabor || p.category !== "labor",
+  );
+  if (tokens.length) rows = rankCatalogProducts(rows, query);
+  else if (browse.length) rows = rankCatalogProducts(rows, browse[0]);
+  if (!tokens.length && browse.length && !rows.length && categories.length) {
+    return searchCatalogScoped(supabase, query, tokens, displayLimit, {
+      ...opts,
+      browseTokens: null,
+    });
+  }
+  return enrichCatalogProducts(supabase, rows.slice(0, displayLimit));
 }
 
 export async function productCount(): Promise<number> {
