@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { StatusBadge } from "@/components/status-badge";
 import { LEAD_STAGE_BADGE, LEAD_STAGE_LABELS, type LeadStage } from "@/lib/types";
 
 export function StageBadge({
@@ -9,14 +10,9 @@ export function StageBadge({
   className?: string;
 }) {
   return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-        LEAD_STAGE_BADGE[stage],
-        className,
-      )}
-    >
-      {LEAD_STAGE_LABELS[stage]}
-    </span>
+    <StatusBadge
+      label={LEAD_STAGE_LABELS[stage]}
+      className={cn(LEAD_STAGE_BADGE[stage], className)}
+    />
   );
 }

@@ -90,9 +90,11 @@ export function AreaCalculator({
         variant={triggerVariant}
         size={triggerSize}
         className={triggerClassName}
+        aria-label={triggerLabel}
         onClick={() => setOpen(true)}
       >
-        <Calculator className="size-3.5" /> {triggerLabel}
+        <Calculator className="size-3.5" />
+        <span className="hidden lg:inline">{triggerLabel}</span>
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>

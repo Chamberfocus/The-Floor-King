@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { StatusBadge } from "@/components/status-badge";
 import {
   INVOICE_STATUS_BADGE,
   INVOICE_STATUS_LABELS,
@@ -13,14 +14,9 @@ export function InvoiceStatusBadge({
   className?: string;
 }) {
   return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-        INVOICE_STATUS_BADGE[status],
-        className,
-      )}
-    >
-      {INVOICE_STATUS_LABELS[status]}
-    </span>
+    <StatusBadge
+      label={INVOICE_STATUS_LABELS[status]}
+      className={cn(INVOICE_STATUS_BADGE[status], className)}
+    />
   );
 }

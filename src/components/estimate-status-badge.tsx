@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { StatusBadge } from "@/components/status-badge";
 import {
   ESTIMATE_STATUS_BADGE,
   ESTIMATE_STATUS_LABELS,
@@ -13,14 +14,9 @@ export function EstimateStatusBadge({
   className?: string;
 }) {
   return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-        ESTIMATE_STATUS_BADGE[status],
-        className,
-      )}
-    >
-      {ESTIMATE_STATUS_LABELS[status]}
-    </span>
+    <StatusBadge
+      label={ESTIMATE_STATUS_LABELS[status]}
+      className={cn(ESTIMATE_STATUS_BADGE[status], className)}
+    />
   );
 }
