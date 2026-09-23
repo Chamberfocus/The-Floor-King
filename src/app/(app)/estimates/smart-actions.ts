@@ -107,6 +107,8 @@ export interface SmartLine {
   style: string | null;
   color: string | null;
   from_stock?: boolean; // pulled from stock → kept off the PO
+  /** Salesperson typed this sell. Do not blank it on the way into Builder. */
+  sell_locked?: boolean;
   sqft_per_box?: number | null; // hard surface: coverage per carton
   is_fill?: boolean; // carpet: a fill / seam piece
   // Prep goods (self-leveler): coverage so the builder's bag calculator stays

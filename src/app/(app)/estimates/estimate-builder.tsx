@@ -63,6 +63,10 @@ import {
 } from "@/lib/units";
 import { catalogLineSnapshot, catalogToLineMeasure, PRICE_NEEDED } from "@/lib/catalog-pricing";
 import {
+  hydrateBuilderMaterialRate,
+  materialSellUnresolved,
+} from "@/lib/guided-estimate-price";
+import {
   bagsNeeded,
   coverageAt,
   hasCoverage,
@@ -596,7 +600,12 @@ export function EstimateBuilder({
         wid_ft: inToFt(widIn),
         wid_in: inToIn(widIn),
         measure_unit: l.measure_unit ?? "sqft",
-        material_rate: l.material_rate?.toString() ?? "",
+        material_rate: hydrateBuilderMaterialRate(
+          l.material_rate,
+          l.material_cost,
+          l.category,
+          l.labor_rate,
+        ),
         labor_rate: l.labor_rate?.toString() ?? "",
         installed_rate: l.installed_rate?.toString() ?? "",
         flat_amount: l.flat_amount?.toString() ?? "",
@@ -2560,10 +2569,12 @@ export function EstimateBuilder({
                         </div>
                         <div className="shrink-0 text-right">
                           <div className="text-base font-bold tabular-nums">
-                            {line.product_id &&
-                            !num(line.material_rate) &&
-                            !num(line.material_cost) &&
-                            line.material_rate.trim() === ""
+                            {materialSellUnresolved({
+                              category: line.category,
+                              material_rate: line.material_rate,
+                              material_cost: line.material_cost,
+                              labor_rate: line.labor_rate,
+                            })
                               ? PRICE_NEEDED
                               : formatMoney(sSell)}
                           </div>
@@ -3012,8 +3023,12 @@ export function EstimateBuilder({
                                   )}
                                 </div>
                                 {!labor &&
-                                line.material_cost.trim() === "" &&
-                                line.material_rate.trim() === "" ? (
+                                materialSellUnresolved({
+                                  category: line.category,
+                                  material_rate: line.material_rate,
+                                  material_cost: line.material_cost,
+                                  labor_rate: line.labor_rate,
+                                }) ? (
                                   <p className="text-xs font-medium text-amber-700">
                                     PRICE NEEDED — this product has no catalog or vendor cost on file.
                                   </p>

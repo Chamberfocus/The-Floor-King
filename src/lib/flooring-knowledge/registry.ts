@@ -502,6 +502,13 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
    * project_type or carpet_install.
    */
   { key: "toilets", purpose: "LABOR", phase: "details", quantityUnit: "each" },
+  /**
+   * Disconnect / move a fridge, range, dishwasher, or laundry pair.
+   * That is hard-surface site prep. Exclusive carpet hides this via
+   * CARPET_ONLY_BATH_HIDES_KEYS — carpet install does not pull appliances.
+   * Mixed carpet + hard surface still asks. Unanswered project type stays
+   * open (0142). Do not SQL-gate appliances on project_type.
+   */
   { key: "appliances", purpose: "LABOR", phase: "details", quantityUnit: "each" },
   { key: "doors_shave", purpose: "LABOR", phase: "details", quantityUnit: "each" },
   { key: "delivery_scope", purpose: "PURCHASING", phase: "details" },
@@ -630,14 +637,15 @@ export const MERGED_CURB_HIDES_KEYS = ["carpet_curb"] as const;
 export const CARPET_ONLY_HIDES_KEYS = ["install_method", "surface_type"] as const;
 
 /**
- * Wet-area construction and toilet pull/reset. Those are hard-surface bath
- * questions. Exclusive carpet (stretch-in, glue-down, or carpet tile) hides
- * them. Floor registers stay — carpet is cut around them. Mixed carpet +
- * LVP / tile / vinyl / hardwood / laminate still asks. Unanswered project
- * type stays open (0142). Do not SQL-gate wet_area or toilets on
- * carpet_install. Do not invent a carpet wet-area scenario to keep them.
+ * Wet-area construction, toilet pull/reset, and appliance moving. Those are
+ * hard-surface bath / site-prep questions. Exclusive carpet (stretch-in,
+ * glue-down, or carpet tile) hides them. Floor registers, furniture moving,
+ * pad/tack removal, stairs, transitions, and subfloor condition stay —
+ * those apply to carpet. Mixed carpet + LVP / tile / vinyl / hardwood /
+ * laminate still asks. Unanswered project type stays open (0142). Do not
+ * SQL-gate wet_area, toilets, or appliances on carpet_install.
  */
-export const CARPET_ONLY_BATH_HIDES_KEYS = ["wet_area", "toilets"] as const;
+export const CARPET_ONLY_BATH_HIDES_KEYS = ["wet_area", "toilets", "appliances"] as const;
 
 /**
  * Leftover generic stairs yes/no. Live stair questions are carpet_stairs /

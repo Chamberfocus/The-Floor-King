@@ -35,6 +35,8 @@ describe("carpet-only question applicability", () => {
       });
       expect(has(keys, "wet_area"), carpet_install).toBe(false);
       expect(has(keys, "toilets"), carpet_install).toBe(false);
+      expect(has(keys, "appliances"), carpet_install).toBe(false);
+      expect(has(keys, "hs_base_trim"), carpet_install).toBe(false);
       expect(has(keys, "tile_setting"), carpet_install).toBe(false);
       expect(has(keys, "vinyl_layout"), carpet_install).toBe(false);
       expect(has(keys, "hardwood_fasteners"), carpet_install).toBe(false);
@@ -59,6 +61,7 @@ describe("carpet-only question applicability", () => {
       "existing_tack",
       "hs_demo",
       "furniture_level",
+      "subfloor_condition",
       "substrate",
       "subfloor_condition",
       "radiant_heat",
@@ -97,6 +100,7 @@ describe("carpet-only question applicability", () => {
     const keys = visibleKnowledgeKeys({});
     expect(keys).toContain("wet_area");
     expect(keys).toContain("toilets");
+    expect(keys).toContain("appliances");
   });
 });
 
@@ -107,7 +111,7 @@ describe("each flooring family keeps its own questions", () => {
       surface_type: ["Sheet vinyl"],
       install_method: ["Glue-down"],
     });
-    for (const key of ["vinyl_layout", "vinyl_skim", "adhesive", "moisture_test", "wet_area", "toilets", "hs_transitions"]) {
+    for (const key of ["vinyl_layout", "vinyl_skim", "adhesive", "moisture_test", "wet_area", "toilets", "appliances", "hs_transitions"]) {
       expect(keys, key).toContain(key);
     }
     for (const key of ["tack_strip", "carpet_pad", "carpet_cuts", "tile_setting", "hardwood_fasteners", "attached_pad"]) {
@@ -210,6 +214,7 @@ describe("each flooring family keeps its own questions", () => {
     expect(keys).toContain("moisture_test");
     expect(keys).not.toContain("wet_area");
     expect(keys).not.toContain("toilets");
+    expect(keys).not.toContain("appliances");
     expect(keys).not.toContain("tack_strip");
     expect(keys).not.toContain("pattern_match");
     expect(keys).not.toContain("vapor_barrier");
@@ -227,6 +232,7 @@ describe("mixed flooring still asks each family", () => {
     for (const key of [
       "wet_area",
       "toilets",
+      "appliances",
       "carpet_cuts",
       "tack_strip",
       "carpet_pad",

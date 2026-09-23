@@ -4,6 +4,11 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { billedQtyToSqft, catalogRateToBillingUnit, isAreaUnit, lineDisplayUnit, lineSkipsAreaCartonMath, normalizeUnit, pickedProductUnit, unitIsSqyd, unitLabel } from "@/lib/units";
 import { productLabel } from "@/lib/product-label";
 import { catalogRateInLineUnit, catalogUnitCost, PRICE_NEEDED } from "@/lib/catalog-pricing";
+import {
+  guidedLineSellForSave,
+  guidedMaterialPriceLabel,
+  resolveGuidedProductRates,
+} from "@/lib/guided-estimate-price";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -233,6 +238,11 @@ interface ProductAns {
   productId: string; label: string; unit: string;
   category: string | null;   // catalog category → per-product billing (yd vs ft)
   materialRate: number; laborRate: number;
+  /**
+   * Customer selling price typed on this estimate, in the line billing unit.
+   * Blank uses the catalog sell. Never stored as cost.
+   */
+  sellPrice: string;
   manufacturer: string | null; style: string | null; color: string | null;
   supplierName: string | null;
   source: "order" | "stock"; vendor: string;
@@ -379,6 +389,7 @@ function toProductAns(p: Product): ProductAns {
     category: p.category ?? null,
     materialRate: catalogUnitCost(p).amount ?? 0,
     laborRate: Number(p.labor_rate) || 0,
+    sellPrice: "",
     manufacturer: p.manufacturer,
     style: p.style,
     color: p.color,
@@ -410,6 +421,7 @@ function customToProductAns(input: CustomProductInput): ProductAns {
     category: input.category || null,
     materialRate: numOr0(input.material_rate),
     laborRate: numOr0(input.labor_rate),
+    sellPrice: "",
     manufacturer: input.manufacturer.trim() || null,
     style: input.style.trim() || null,
     color: input.color.trim() || null,
@@ -559,6 +571,42 @@ function isPureLaborQuestion(q: EstimateQuestion): boolean {
   return false;
 }
 
+function SellPriceEditor({
+  p,
+  unitLabel,
+  onChange,
+}: {
+  p: ProductAns;
+  unitLabel: string;
+  onChange: (next: ProductAns) => void;
+}) {
+  const missing = !(p.materialRate > 0);
+  const entered = numv(p.sellPrice ?? "");
+  return (
+    <div className="mt-2 max-w-xs">
+      <label className="mb-1 block text-[11px] text-muted-foreground">
+        Selling price / {unitLabel}
+      </label>
+      <Input
+        value={p.sellPrice ?? ""}
+        onChange={(e) => onChange({ ...p, sellPrice: e.target.value })}
+        inputMode="decimal"
+        placeholder={missing ? PRICE_NEEDED : "uses catalog sell"}
+        className="h-9 w-36 text-base"
+      />
+      {missing && !(entered > 0) ? (
+        <p className="mt-1 text-[11px] font-medium text-amber-800 dark:text-amber-200">
+          PRICE NEEDED — type the customer selling price. This is not your cost, and it is not saved as $0.
+        </p>
+      ) : (
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          Customer sell on this estimate. Leave blank to use the catalog sell. Your cost stays separate.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function Questionnaire({
   customerId,
   customerName,
@@ -588,6 +636,24 @@ export function Questionnaire({
     c > 0 ? r2(sellMaterialFromTargetMargin(c, goal, freightMarkupPct)) : 0;
   const sellLab = (c: number) =>
     c > 0 ? r2(sellLaborFromTargetMargin(c, goal)) : 0;
+  /** Catalog cost stays cost. A typed selling price is the line sell, unchanged. */
+  const materialMoney = (
+    p: ProductAns,
+    lineCost: number,
+  ): { material_rate: number; material_cost: number; sell_locked: boolean } => {
+    const costMissing = !(p.materialRate > 0);
+    const resolved = resolveGuidedProductRates({
+      catalogCostInLineUnit: costMissing ? 0 : lineCost,
+      costMissing,
+      enteredSell: p.sellPrice ?? "",
+      derivedSell: costMissing ? 0 : sellMat(lineCost),
+    });
+    return {
+      material_rate: resolved.material_rate ?? 0,
+      material_cost: resolved.material_cost,
+      sell_locked: resolved.sellLocked,
+    };
+  };
 
   const buildDefaults = (): Record<string, Answer> => {
     const init: Record<string, Answer> = {};
@@ -1037,9 +1103,8 @@ export function Questionnaire({
         width_in: null,
         measurements: null,
         unit: "sq yd",
-        material_rate: sellMat(rateFor(p.materialRate, p.unit, true)),
+        ...materialMoney(p, rateFor(p.materialRate, p.unit, true)),
         labor_rate: 0,
-        material_cost: rateFor(p.materialRate, p.unit, true),
         labor_cost: 0,
         waste_pct: 0,
         product_id: p.productId || null,
@@ -1122,7 +1187,8 @@ export function Questionnaire({
               length_in: isRollGoodCategory(cat) ? null : rm.lenIn,
               width_in: isRollGoodCategory(cat) ? null : rm.widIn,
               unit: b.unitLabel,
-              material_rate: sellMat(
+              ...materialMoney(
+                p,
                 rateFor(p.materialRate, p.unit, b.wantYd, {
                   category: cat,
                   sqft_per_box: spb > 0 ? spb : null,
@@ -1130,11 +1196,6 @@ export function Questionnaire({
                 }),
               ),
               labor_rate: 0,
-              material_cost: rateFor(p.materialRate, p.unit, b.wantYd, {
-                category: cat,
-                sqft_per_box: spb > 0 ? spb : null,
-                carpetInstallSystems: carpetSystems,
-              }),
               labor_cost: 0,
               waste_pct: waste,
               product_id: p.productId || null,
@@ -1203,9 +1264,8 @@ export function Questionnaire({
             width_in: null,
             measurements: null,
             unit: countUnit,
-            material_rate: sellMat(rateFor(p.materialRate, p.unit, false)),
+            ...materialMoney(p, rateFor(p.materialRate, p.unit, false)),
             labor_rate: 0,
-            material_cost: rateFor(p.materialRate, p.unit, false),
             labor_cost: 0,
             waste_pct: 0,
             product_id: p.productId || null,
@@ -1316,7 +1376,8 @@ export function Questionnaire({
           width_in: measurements?.[0]?.width_in ?? (roll ? null : size?.widIn ?? null),
           measurements,
           unit: pb.unitLabel,
-          material_rate: sellMat(
+          ...materialMoney(
+            p,
             rateFor(p.materialRate, p.unit, pb.wantYd, {
               category: p.category || cat,
               sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
@@ -1324,11 +1385,6 @@ export function Questionnaire({
             }),
           ),
           labor_rate: 0,
-          material_cost: rateFor(p.materialRate, p.unit, pb.wantYd, {
-            category: p.category || cat,
-            sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
-            carpetInstallSystems: carpetSystems,
-          }),
           labor_cost: 0,
           waste_pct: wasteOf(p),
           product_id: p.productId || null,
@@ -1414,9 +1470,8 @@ export function Questionnaire({
                 length_in: null,
                 width_in: null,
                 unit: counted.unit,
-                material_rate: sellMat(rateFor(p.materialRate, p.unit, false)),
+                ...materialMoney(p, rateFor(p.materialRate, p.unit, false)),
                 labor_rate: 0,
-                material_cost: rateFor(p.materialRate, p.unit, false),
                 labor_cost: 0,
                 waste_pct: 0,
                 product_id: p.productId || null,
@@ -1437,9 +1492,8 @@ export function Questionnaire({
                 length_in: null,
                 width_in: null,
                 unit: countUnit,
-                material_rate: sellMat(rateFor(p.materialRate, p.unit, false)),
+                ...materialMoney(p, rateFor(p.materialRate, p.unit, false)),
                 labor_rate: 0,
-                material_cost: rateFor(p.materialRate, p.unit, false),
                 labor_cost: 0,
                 waste_pct: 0,
                 product_id: p.productId || null,
@@ -1539,9 +1593,8 @@ export function Questionnaire({
                 length_in: null,
                 width_in: null,
                 unit: counted.unit,
-                material_rate: sellMat(rateFor(ex.product.materialRate, ex.product.unit, false)),
+                ...materialMoney(ex.product, rateFor(ex.product.materialRate, ex.product.unit, false)),
                 labor_rate: 0,
-                material_cost: rateFor(ex.product.materialRate, ex.product.unit, false),
                 labor_cost: 0,
                 waste_pct: 0,
                 product_id: ex.product.productId || null,
@@ -1565,9 +1618,8 @@ export function Questionnaire({
               length_in: null,
               width_in: null,
               unit: countUnit,
-              material_rate: sellMat(rateFor(ex.product.materialRate, ex.product.unit, false)),
+              ...materialMoney(ex.product, rateFor(ex.product.materialRate, ex.product.unit, false)),
               labor_rate: 0,
-              material_cost: rateFor(ex.product.materialRate, ex.product.unit, false),
               labor_cost: 0,
               waste_pct: 0,
               product_id: ex.product.productId || null,
@@ -1593,7 +1645,10 @@ export function Questionnaire({
           // R&R re-uses the existing piece — no new material, labor only (remove &
           // re-install per linear foot). A normal row charges material as entered.
           const rrLabor = row.rr ? numv(row.rrRate ?? "") : 0;
-          const matCost = row.rr ? 0 : p ? p.materialRate : numv(row.cost);
+          const productMoney =
+            p && !row.rr ? materialMoney(p, rateFor(p.materialRate, p.unit, false)) : null;
+          const matCost = row.rr ? 0 : productMoney ? productMoney.material_cost : numv(row.cost);
+          const matSell = row.rr ? 0 : productMoney ? productMoney.material_rate : sellMat(matCost);
           const laborCost = (p && !row.rr ? p.laborRate : 0) + rrLabor;
           const desc =
             (p?.label ||
@@ -1610,9 +1665,10 @@ export function Questionnaire({
             length_in: null,
             width_in: null,
             unit,
-            material_rate: sellMat(matCost),
+            material_rate: matSell,
             labor_rate: sellLab(laborCost),
             material_cost: matCost,
+            sell_locked: productMoney?.sell_locked ?? false,
             labor_cost: laborCost,
             waste_pct: 0,
             product_id: p?.productId || null,
@@ -1686,9 +1742,8 @@ export function Questionnaire({
                   width_in: null,
                   measurements: null,
                   unit: countUnit,
-                  material_rate: sellMat(rateFor(p.materialRate, p.unit, true)),
+                  ...materialMoney(p, rateFor(p.materialRate, p.unit, true)),
                   labor_rate: 0,
-                  material_cost: rateFor(p.materialRate, p.unit, true),
                   labor_cost: 0,
                   waste_pct: 0,
                   product_id: p.productId || null,
@@ -1720,7 +1775,8 @@ export function Questionnaire({
                 width_in: null,
                 measurements: null,
                 unit: "sq yd",
-                material_rate: sellMat(
+                ...materialMoney(
+                  p,
                   rateFor(p.materialRate, p.unit, true, {
                     category: p.category || "carpet",
                     sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
@@ -1728,11 +1784,6 @@ export function Questionnaire({
                   }),
                 ),
                 labor_rate: 0,
-                material_cost: rateFor(p.materialRate, p.unit, true, {
-                  category: p.category || "carpet",
-                  sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
-                  carpetInstallSystems: carpetSystems,
-                }),
                 labor_cost: 0,
                 waste_pct: waste,
                 product_id: p.productId || null,
@@ -1815,8 +1866,9 @@ export function Questionnaire({
           roomLabel: string | null,
         ) => {
           if (!pieces.length) return;
-          const matSell = p ? sellMat(rateFor(p.materialRate, p.unit, true)) : 0;
-          const matCost = p ? rateFor(p.materialRate, p.unit, true) : 0;
+          const carpetMoney = p
+            ? materialMoney(p, rateFor(p.materialRate, p.unit, true))
+            : { material_rate: 0, material_cost: 0, sell_locked: false };
           const totalSqft = r2(pieces.reduce((s, x) => s + x.sqft, 0));
           const totalSqyd = r2(pieces.reduce((s, x) => s + x.sqyd, 0));
           if (totalSqyd <= 0) return;
@@ -1834,9 +1886,10 @@ export function Questionnaire({
             length_in: first.lenIn,
             width_in: first.widIn,
             unit: "sq yd",
-            material_rate: matSell,
+            material_rate: carpetMoney.material_rate,
             labor_rate: 0,
-            material_cost: matCost,
+            material_cost: carpetMoney.material_cost,
+            sell_locked: carpetMoney.sell_locked,
             labor_cost: 0,
             waste_pct: 0,
             product_id: p?.productId || null,
@@ -2039,7 +2092,7 @@ export function Questionnaire({
           const scopeLabel = a.treadRiser ? "tread + riser" : "tread only";
           const p = a.product;
           if (p && (p.productId || p.label)) {
-            const matCost = rateFor(p.materialRate, p.unit, false);
+            const wrapMoney = materialMoney(p, rateFor(p.materialRate, p.unit, false));
             const wrapFam = familyFromCatalogCategory(p.category);
             // Count wrap SKU emits How many in that unit — not leftover sq ft and not 8 sq ft/step. Area-unit wrap stays wrap qty TBD.
             const counted = extraCountQtyForEmit({
@@ -2062,9 +2115,10 @@ export function Questionnaire({
                 length_in: null,
                 width_in: null,
                 unit: counted.unit,
-                material_rate: sellMat(matCost),
+                material_rate: wrapMoney.material_rate,
                 labor_rate: 0,
-                material_cost: matCost,
+                material_cost: wrapMoney.material_cost,
+                sell_locked: wrapMoney.sell_locked,
                 labor_cost: 0,
                 waste_pct: 0,
                 product_id: p.productId || null,
@@ -2084,9 +2138,10 @@ export function Questionnaire({
                 length_in: null,
                 width_in: null,
                 unit: countUnit,
-                material_rate: sellMat(matCost),
+                material_rate: wrapMoney.material_rate,
                 labor_rate: 0,
-                material_cost: matCost,
+                material_cost: wrapMoney.material_cost,
+                sell_locked: wrapMoney.sell_locked,
                 labor_cost: 0,
                 waste_pct: 0,
                 product_id: p.productId || null,
@@ -2994,13 +3049,10 @@ export function Questionnaire({
       // Clearing it too meant arriving in the builder with no cost on any line,
       // so every margin read 100% and the margin slider had nothing to price
       // from — you'd have to re-enter the cost of every product by hand.
-      const built = blankCatalogPrices
-        ? raw.map((l) =>
-            l.product_id && l.category !== "labor"
-              ? { ...l, material_rate: 0 }
-              : l,
-          )
-        : raw;
+      const built = raw.map((l) => ({
+        ...l,
+        material_rate: guidedLineSellForSave(l, blankCatalogPrices),
+      }));
       // Save the measured areas to the customer (their dashboard card) first —
       // createSmartEstimate redirects on success.
       const areaRooms: AreaRow[] = [];
@@ -3382,7 +3434,12 @@ export function Questionnaire({
                       </span>
                     </span>
                     <span className="shrink-0 font-medium tabular-nums">
-                      {formatMoney(lineTotal(smartLineToCalcLine(l)))}
+                      {guidedMaterialPriceLabel(
+                        l,
+                        lineTotal(smartLineToCalcLine(l)),
+                        formatMoney,
+                      )}
+                      {/* formatMoney(lineTotal(smartLineToCalcLine(l))) */}
                     </span>
                   </div>
                   );
@@ -4005,7 +4062,10 @@ function QuestionBody({
                   {p.label} ·{" "}
                   {p.materialRate > 0
                     ? `sells ${formatMoney(sellMat(rateFor(p.materialRate, p.unit, b.wantYd, { category: p.category, sqft_per_box: p.sqftPerBox, carpetInstallSystems: carpetSystems })))}/${b.unitLabel}`
-                    : PRICE_NEEDED}
+                    : numv(p.sellPrice ?? "") > 0
+                      ? `selling price ${formatMoney(numv(p.sellPrice ?? ""))}/${b.unitLabel}`
+                      : PRICE_NEEDED}
+                  <SellPriceEditor p={p} unitLabel={b.unitLabel} onChange={(np) => setRoom(key, np)} />
                   {q.config.ask_source ? (
                     <span className="mt-1.5 block">
                       <SourceToggle p={p} compact onChange={(np) => setRoom(key, np)} />
@@ -4305,6 +4365,13 @@ function QuestionBody({
                 <Input value={row.color} onChange={(e) => patch(row.id, { color: e.target.value })} placeholder="e.g. white" className="h-10 w-28 text-base" />
               </div>
               {/* No material cost on an R&R row — we're re-using the existing piece. */}
+              {row.product && !row.rr ? (
+                <SellPriceEditor
+                  p={row.product}
+                  unitLabel={row.unit || row.product.unit || "unit"}
+                  onChange={(np) => patch(row.id, { product: np })}
+                />
+              ) : null}
               {!row.product && !row.rr ? (
                 <div>
                   <label className="mb-1 block text-xs text-muted-foreground">$ / {row.unit}</label>
@@ -4500,7 +4567,10 @@ function QuestionBody({
               <div className="text-xs text-muted-foreground">
                 {p.materialRate > 0
                   ? `${formatMoney(p.materialRate)}/${p.unit} → sells ${formatMoney(sellMat(rateFor(p.materialRate, p.unit, b.wantYd, { category: p.category, sqft_per_box: p.sqftPerBox, carpetInstallSystems: carpetSystems })))}/${b.unitLabel}`
-                  : PRICE_NEEDED}
+                  : numv(p.sellPrice ?? "") > 0
+                    ? `selling price ${formatMoney(numv(p.sellPrice ?? ""))}/${b.unitLabel}`
+                    : PRICE_NEEDED}
+                <SellPriceEditor p={p} unitLabel={b.unitLabel} onChange={setMain} />
                 {mainAsksCount
                   ? ""
                   : coverSf > 0
@@ -4752,6 +4822,17 @@ function QuestionBody({
                         setExtraProduct(ex.id, customToProductAns(input), ex)
                       }
                     />
+                    {ex.product ? (
+                      <SellPriceEditor
+                        p={ex.product}
+                        unitLabel={billing({
+                          category: ex.product.category || cat,
+                          key: q.key,
+                          productUnit: ex.product.unit,
+                        }).unitLabel}
+                        onChange={(np) => setExtraProduct(ex.id, np, ex)}
+                      />
+                    ) : null}
                   </div>
                   <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove" onClick={() => setExtras(extras.filter((x) => x.id !== ex.id))}>
                     <Trash2 className="size-4 text-destructive" />
@@ -5178,6 +5259,13 @@ function QuestionBody({
             onCreated={(prod) => setProduct(toProductAns(prod))}
             onUseOnce={(input) => setProduct(customToProductAns(input))}
           />
+          {p ? (
+            <SellPriceEditor
+              p={p}
+              unitLabel="sq yd"
+              onChange={setProduct}
+            />
+          ) : null}
           {p ? (
             <div className="space-y-2 rounded-md border border-dashed p-2.5">
               <div className="flex flex-wrap items-end gap-3">
