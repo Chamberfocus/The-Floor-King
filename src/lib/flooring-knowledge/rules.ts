@@ -49,6 +49,7 @@ import {
   CARPET_TILE_HIDES_KEYS,
   CARPET_TILE_VAPOR_HIDES_KEYS,
   CARPET_ONLY_HIDES_KEYS,
+  CARPET_ONLY_BATH_HIDES_KEYS,
   DEAD_STAIR_GATE_HIDES_KEYS,
   DEAD_STAIR_FOLLOWUP_HIDES_KEYS,
   CONCRETE_HIDES_KEYS,
@@ -528,6 +529,13 @@ export function questionApplies(
   if (
     q.key &&
     (CARPET_ONLY_HIDES_KEYS as readonly string[]).includes(q.key) &&
+    jobIsExclusiveCarpetOnly(install)
+  ) {
+    return false;
+  }
+  if (
+    q.key &&
+    (CARPET_ONLY_BATH_HIDES_KEYS as readonly string[]).includes(q.key) &&
     jobIsExclusiveCarpetOnly(install)
   ) {
     return false;
@@ -1305,7 +1313,7 @@ export function knowledgeHelpFor(
     return "Occupied vs vacant. Vacant hides furniture moving — empty house, do not invent a furniture charge. Exclusive wall tile also hides it — a backsplash is not a furniture-moving job. Exclusive new construction also hides it — a new slab has no furniture to move. Occupied and Unknown still ask light/medium/heavy. Unanswered stays open.";
   }
   if (key === "wet_area") {
-    return "Bath, laundry, or mudroom. Confirm the selected product is rated for a wet area. Catalog has no waterproof column — do not invent a SKU or a ban. Field verify if you have not seen the space.";
+    return "Bath, laundry, or mudroom. Confirm the selected product is rated for a wet area. Catalog has no waterproof column — do not invent a SKU or a ban. Field verify if you have not seen the space. Exclusive carpet hides this — a carpet-only job is not a wet-area floor. Mixed carpet and hard surface still asks. Unanswered project type stays open. Do not invent a wet-area carpet scenario to keep the question.";
   }
   if (key === "access_conditions") {
     return "Upper floor, elevator, long carry, unusual access — scope/schedule notes unless a Floor King labor item is added in Builder.";
@@ -1356,7 +1364,7 @@ export function knowledgeHelpFor(
     return "Stretch-in over pad is the residential default. Glue-down and carpet tile hide this — they do not use residential pad. Quantity follows carpet rooms on a mixed job — laminate foam is the underlayment step, not this pad. Additional pad for a specific area is MEASURED sq ft — not a 30-yard roll and not the billing unit. Billed in square yards unless the SKU itself is sold by the square foot. A pad SKU with no sold-by unit is TBD in Builder (How many / Unit TBD) without typing measured sq ft — do not plant leftover sq ft. Review takeoff shows measured area vs billing yards — not a 30-yard roll. Review takeoff ignores leftover measured sq ft on a count or TBD extra — do not plant leftover sq ft as pad yards. A pad SKU sold by the roll / each / gal asks How many in that unit — not taped square feet and not a 30-yard roll. Typed How many rides onto Review as that count — leftover taped sq ft still is not pad yards and not a 30-yard roll. A main pad SKU sold by roll / each / gal does not convert room square feet into pad yards on Review. A main pad SKU sold by the roll / each / gal asks How many in that unit — room square feet is not pad yards and not a 30-yard roll. Do not invent a 30-yard foam roll.";
   }
   if (key === "toilets") {
-    return "Count in EACH. Uses Floor King's pull & reset labor when you enter a number — do not type square feet. Exclusive New construction hides this — there is no toilet to pull. Mixed Replacement + New construction still asks. Appliances still ask.";
+    return "Count in EACH. Uses Floor King's pull & reset labor when you enter a number — do not type square feet. Exclusive New construction hides this — there is no toilet to pull. Mixed Replacement + New construction still asks. Appliances still ask. Exclusive carpet hides this — a normal carpet job has no toilet to pull. Mixed carpet and hard surface still asks. Do not invent a carpet toilet scenario to keep the question.";
   }
   if (key === "appliances") {
     return "Count in EACH (fridge, stove, washer/dryer). Uses Floor King's disconnect/move labor when you enter a number.";

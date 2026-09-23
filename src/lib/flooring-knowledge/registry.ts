@@ -483,12 +483,24 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   /**
    * Bath / laundry / mudroom. Catalog has no waterproof column — capture as
    * scope and warn. Do not invent a waterproof SKU or a ban.
+   * Exclusive carpet hides this via CARPET_ONLY_BATH_HIDES_KEYS — a
+   * carpet-only job is not a wet-area floor. Mixed carpet + hard surface
+   * still asks. Unanswered project type stays open (0142). Do not SQL-gate
+   * wet_area on project_type.
    */
   { key: "wet_area", purpose: "WARNING", phase: "details" },
   { key: "access_conditions", purpose: "SCHEDULING", phase: "details" },
   { key: "crew_entry", purpose: "SCHEDULING", phase: "details" },
   { key: "furniture_level", purpose: "LABOR", phase: "details" },
   { key: "furniture_heavy", purpose: "SCOPE", phase: "details" },
+  /**
+   * Pull-and-reset. Hard-surface baths still ask. Exclusive carpet hides
+   * this via CARPET_ONLY_BATH_HIDES_KEYS — there is no normal carpet
+   * scenario that pulls a toilet. Mixed carpet + hard surface still asks.
+   * Exclusive new construction hides via NEW_CONSTRUCTION_HIDES_KEYS.
+   * Unanswered project type stays open (0142). Do not SQL-gate toilets on
+   * project_type or carpet_install.
+   */
   { key: "toilets", purpose: "LABOR", phase: "details", quantityUnit: "each" },
   { key: "appliances", purpose: "LABOR", phase: "details", quantityUnit: "each" },
   { key: "doors_shave", purpose: "LABOR", phase: "details", quantityUnit: "each" },
@@ -616,6 +628,16 @@ export const MERGED_CURB_HIDES_KEYS = ["carpet_curb"] as const;
  * (0142). Do not SQL-gate install_method or surface_type on carpet_install.
  */
 export const CARPET_ONLY_HIDES_KEYS = ["install_method", "surface_type"] as const;
+
+/**
+ * Wet-area construction and toilet pull/reset. Those are hard-surface bath
+ * questions. Exclusive carpet (stretch-in, glue-down, or carpet tile) hides
+ * them. Floor registers stay — carpet is cut around them. Mixed carpet +
+ * LVP / tile / vinyl / hardwood / laminate still asks. Unanswered project
+ * type stays open (0142). Do not SQL-gate wet_area or toilets on
+ * carpet_install. Do not invent a carpet wet-area scenario to keep them.
+ */
+export const CARPET_ONLY_BATH_HIDES_KEYS = ["wet_area", "toilets"] as const;
 
 /**
  * Leftover generic stairs yes/no. Live stair questions are carpet_stairs /

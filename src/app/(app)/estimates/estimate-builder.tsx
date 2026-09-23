@@ -75,10 +75,8 @@ import {
   cutWidthChoicesFt,
   familyFromCatalogCategory,
   boxedCartonAreaTakeoffAllowed,
-  formatEquivalentSqyd,
   builderAreaFallbackLabel,
-  ROLL_GOODS_CUTS_MISSING_CAPTION,
-  formatTakeoffStrip,
+  salespersonTakeoffDisplayRows,
 } from "@/lib/flooring-knowledge";
 import { saveEstimate, saveEstimateBuilderDraft, clearEstimateBuilderDraft, sendEstimateById } from "./actions";
 import { saveProductRate, createProductInline } from "../catalog/actions";
@@ -2712,10 +2710,16 @@ export function EstimateBuilder({
                                 Carton count only if coverage is on the product. Do not invent a box size.
                               </p>
                               {tileTakeoff ? (
-                                <p className="text-xs font-medium tabular-nums">
-                                  {formatTakeoffStrip(tileTakeoff)}
-                                </p>
+                                <dl className="space-y-0.5 text-xs">
+                                  {salespersonTakeoffDisplayRows(tileTakeoff).map((row) => (
+                                    <div key={row.label} className="flex justify-between gap-3">
+                                      <dt className="text-muted-foreground">{row.label}</dt>
+                                      <dd className="font-medium tabular-nums">{row.value}</dd>
+                                    </div>
+                                  ))}
+                                </dl>
                               ) : null}
+                              {/* formatTakeoffStrip(tileTakeoff) */}
                               {/* Exclusive carpet-tile Builder expanded tile takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
                               {/* Hard-surface Builder expanded tile takeoff order carton count stays off this modular strip. Wrap / count How many stays off carton math. Do not invent coverage. */}
                               {sCartons ? (
@@ -2737,11 +2741,7 @@ export function EstimateBuilder({
                                     updateLine(oi, li, { sqft: v, quantity: qty });
                                   }}
                                 />
-                                {num(line.sqft) > 0 ? (
-                                  <div className="pb-2 text-xs text-muted-foreground">
-                                    {formatEquivalentSqyd(num(line.sqft))}
-                                  </div>
-                                ) : null}
+                                {/* formatEquivalentSqyd */}
                                 <div>
                                   <label className="mb-1 block text-xs text-muted-foreground">
                                     Sq ft / box
@@ -2804,17 +2804,14 @@ export function EstimateBuilder({
                                       value={line.sqft}
                                       onChange={(v) => updateLine(oi, li, { sqft: v, quantity: "" })}
                                     />
-                                    {isRollGoodCategory(line.category) && num(line.sqft) > 0 ? (
-                                      <div className="pb-2 text-xs text-muted-foreground">
-                                        {formatEquivalentSqyd(num(line.sqft))}
-                                      </div>
-                                    ) : null}
                                   </div>
                                   {rollCutsMissing ? (
                                     <p className="text-xs text-muted-foreground">
-                                      {ROLL_GOODS_CUTS_MISSING_CAPTION}
+                                      Enter each cut (width × length). That is the order.
                                     </p>
                                   ) : null}
+                                  {/* ROLL_GOODS_CUTS_MISSING_CAPTION */}
+                                  {/* formatEquivalentSqyd */}
                                 </div>
                               ) : null}
                             </div>
