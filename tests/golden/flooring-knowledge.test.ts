@@ -1291,21 +1291,21 @@ describe("family → system asks the right keys (not every question)", () => {
       carpet_install: ["Stretch-in"],
     });
     on(carpetStretch, ["work_type", "carpet_install", "carpet_cuts", "pattern_match", "tack_strip", "carpet_pad", "existing_pad", "existing_tack", "hs_demo", "substrate", "radiant_heat", "carpet_stairs"]);
-    off(carpetStretch, ["wet_area", "toilets", "adhesive", "attached_pad", "tile_setting", "vinyl_layout", "hardwood_fasteners", "hardwood_finish", "laminate_expansion", "acclimation", "moisture_test", "hs_direction", "carpet_tile_stairs", "install_method", "surface_type"]);
+    off(carpetStretch, ["wet_area", "toilets", "appliances", "adhesive", "attached_pad", "tile_setting", "vinyl_layout", "hardwood_fasteners", "hardwood_finish", "laminate_expansion", "acclimation", "moisture_test", "hs_direction", "carpet_tile_stairs", "install_method", "surface_type"]);
 
     const carpetGlue = visibleKnowledgeKeys({
       project_type: ["Carpet"],
       carpet_install: ["Glue-down"],
     });
     on(carpetGlue, ["adhesive", "vapor_barrier"]);
-    off(carpetGlue, ["wet_area", "toilets", "tack_strip", "carpet_pad", "attached_pad", "tile_layout", "install_method", "surface_type"]);
+    off(carpetGlue, ["wet_area", "toilets", "appliances", "tack_strip", "carpet_pad", "attached_pad", "tile_layout", "install_method", "surface_type"]);
 
     const carpetTile = visibleKnowledgeKeys({
       project_type: ["Carpet"],
       carpet_install: ["Carpet tile"],
     });
     on(carpetTile, ["adhesive", "carpet_cuts", "carpet_tile_stairs", "acclimation", "moisture_test", "moisture_mitigation"]);
-    off(carpetTile, ["wet_area", "toilets", "tack_strip", "carpet_pad", "laminate_expansion", "carpet_stairs", "pattern_match", "pattern_repeat", "carpet_direction", "vapor_barrier", "install_method", "surface_type"]);
+    off(carpetTile, ["wet_area", "toilets", "appliances", "tack_strip", "carpet_pad", "laminate_expansion", "carpet_stairs", "pattern_match", "pattern_repeat", "carpet_direction", "vapor_barrier", "install_method", "surface_type"]);
 
     const lam = visibleKnowledgeKeys({
       project_type: ["Hard surface"],
@@ -4844,7 +4844,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(vacant).not.toContain("furniture_heavy");
     expect(vacant).not.toContain("toilets");
     expect(vacant).not.toContain("wet_area");
-    expect(vacant).toContain("appliances");
+    expect(vacant).not.toContain("appliances");
 
     const unknown = walk({
       project_type: ["Hard surface"],
@@ -9235,7 +9235,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(neu).not.toContain("furniture_level");
     expect(neu).not.toContain("furniture_heavy");
     expect(neu).toContain("occupancy");
-    expect(neu).toContain("appliances");
+    expect(neu).not.toContain("appliances");
     expect(neu).toContain("doors_shave");
     expect(neu).not.toContain("toilets");
 
@@ -12641,7 +12641,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(exclusive).not.toContain("demo_disposal");
     expect(exclusive).not.toContain("toilets");
     expect(exclusive).toContain("substrate");
-    expect(exclusive).toContain("appliances");
+    expect(exclusive).not.toContain("appliances");
 
     const mixed = visibleKnowledgeKeys({
       project_type: ["Carpet"],
