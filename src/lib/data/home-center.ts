@@ -95,7 +95,7 @@ export async function loadHomeCenter(args: {
   if (SALES_VIEW.includes(args.role)) {
     let q = supabase
       .from("customers")
-      .select("id, full_name, next_action_due, assigned_to, stage:workflow_stages(next_action)")
+      .select("id, full_name, next_action_due, assigned_to, stage:workflow_stages(next_action, auto_action)")
       .is("cancelled_at", null)
       .not("next_action_due", "is", null)
       .lte("next_action_due", `${week}T23:59:59Z`)
@@ -110,12 +110,13 @@ export async function loadHomeCenter(args: {
       full_name: string;
       next_action_due: string;
       assigned_to: string | null;
-      stage: { next_action?: string } | null;
+      stage: { next_action?: string; auto_action?: string | null } | null;
     }[]).map((row) => ({
       id: row.id,
       name: row.full_name || "Customer",
       dueAt: row.next_action_due,
       nextAction: row.stage?.next_action ?? null,
+      stageAction: row.stage?.auto_action ?? null,
       ownerId: row.assigned_to,
     })) satisfies HomeFollowUp[];
 
@@ -157,12 +158,14 @@ export async function loadHomeCenter(args: {
     signals.sentEstimates = ((sent ?? []) as unknown as {
       id: string;
       sent_at: string | null;
+      customer_id: string | null;
       customer: { full_name?: string; assigned_to?: string | null } | null;
     }[]).map((row) => ({
       id: row.id,
       name: row.customer?.full_name || "Estimate",
       sentAt: row.sent_at,
       totalLabel: null,
+      customerId: row.customer_id,
       ownerId: row.customer?.assigned_to ?? null,
     })) satisfies HomeEstimate[];
 
@@ -202,6 +205,7 @@ export async function loadHomeCenter(args: {
         name: row.customer?.full_name || "Approved estimate",
         approvedAt: row.updated_at,
         amountLabel: null,
+        customerId: row.customer_id,
         ownerId: row.customer?.assigned_to ?? null,
       })) satisfies HomeDeposit[];
   }
@@ -252,7 +256,7 @@ export async function loadHomeCenter(args: {
     let q = supabase
       .from("jobs")
       .select(
-        "id, title, status, scheduled_date, warehouse_ready_at, assigned_to, customer:customers(full_name, assigned_to)",
+        "id, title, status, scheduled_date, warehouse_ready_at, assigned_to, customer_id, customer:customers(full_name, assigned_to)",
       )
       .in("status", ["unscheduled", "scheduled", "in_progress"])
       .or("delivery_type.is.null,delivery_type.neq.cash_carry")
@@ -267,6 +271,7 @@ export async function loadHomeCenter(args: {
       scheduled_date: string | null;
       warehouse_ready_at: string | null;
       assigned_to: string | null;
+      customer_id: string | null;
       customer: { full_name?: string; assigned_to?: string | null } | null;
     }[];
     const ids = jobRows.map((row) => row.id);
@@ -295,6 +300,7 @@ export async function loadHomeCenter(args: {
           name,
           scheduledDate: row.scheduled_date.slice(0, 10),
           assigneeId: row.assigned_to,
+          customerId: row.customer_id,
           customerOwnerId: ownerId,
           warehouseReadyAt: row.warehouse_ready_at,
           hasMaterialNeed: materialJobs.has(row.id),
@@ -305,6 +311,7 @@ export async function loadHomeCenter(args: {
           id: row.id,
           name,
           assigneeId: row.assigned_to,
+          customerId: row.customer_id,
           customerOwnerId: ownerId,
           hasMaterialNeed: materialJobs.has(row.id),
           warehouseReadyAt: row.warehouse_ready_at,
