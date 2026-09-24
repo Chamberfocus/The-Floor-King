@@ -37,7 +37,7 @@ import {
 } from "@/lib/data/customers";
 import { listEstimateScheduleFacts, listEstimatesForCustomer } from "@/lib/data/estimates";
 import { customerSeesCustomerMoney } from "@/lib/customer-record-access";
-import { listJobsForCustomer, getJobSatisfaction } from "@/lib/data/jobs";
+import { listJobsForCustomer, listSchedulingJobsForCustomer, getJobSatisfaction } from "@/lib/data/jobs";
 import { listOrdersForCustomer } from "@/lib/data/orders";
 import { isCashCarryJob } from "@/lib/customer-list";
 import { canStageCustomerOrder } from "@/lib/order-warehouse-gates";
@@ -235,7 +235,9 @@ export default async function CustomerPage({
   const estimates = seesMoney
     ? await listEstimatesForCustomer(id)
     : await listEstimateScheduleFacts(id);
-  const jobs = await listJobsForCustomer(id);
+  const jobs = seesMoney
+    ? await listJobsForCustomer(id)
+    : await listSchedulingJobsForCustomer(id);
   const invoices = seesMoney ? await listInvoicesForCustomer(id) : [];
   const pickupOrders = await listOrdersForCustomer(id).catch(() => []);
   const installJobs = jobs.filter((j) => !isCashCarryJob(j));
@@ -701,7 +703,8 @@ export default async function CustomerPage({
     status: j.status,
     scheduledDate: j.scheduled_date ?? null,
     crewName: j.assigned_to ? (names[j.assigned_to] ?? null) : null,
-    showPrices: seesMoney && !!j.show_prices,
+    showPrices: seesMoney && "show_prices" in j && !!j.show_prices,
+    showInstallerBill: profile.role === "admin" || profile.role === "office",
     scope: buildJobScope(
       j.option_id ? (optionLines.get(j.option_id) ?? []) : [],
       j.notes ?? null,

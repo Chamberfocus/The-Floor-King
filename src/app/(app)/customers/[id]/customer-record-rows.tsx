@@ -164,6 +164,8 @@ export interface WorkOrderRowData {
   scheduledDate: string | null;
   crewName: string | null;
   showPrices: boolean;
+  /** Installer pay is admin and office only. Other roles do not get the link. */
+  showInstallerBill?: boolean;
   scope: JobScope;
 }
 
@@ -196,7 +198,7 @@ export function WorkOrderRow({ j }: { j: WorkOrderRowData }) {
         </span>
       </div>
       <JobScopeView scope={j.scope} showPrices={j.showPrices} />
-      {/* Installer bill for this job — reached from the job on the dashboard. */}
+      {j.showInstallerBill !== false ? (
       <div className="mt-3 border-t pt-3">
         <Link
           href={`/jobs/${j.id}/bill`}
@@ -205,6 +207,7 @@ export function WorkOrderRow({ j }: { j: WorkOrderRowData }) {
           <HardHat className="size-3.5" /> Installer bill
         </Link>
       </div>
+      ) : null}
     </ExpandRow>
   );
 }

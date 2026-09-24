@@ -5,6 +5,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { customerSeesCustomerMoney } from "@/lib/customer-record-access";
+import { SCHEDULING_JOB_COLUMNS } from "@/lib/data/jobs";
 import { buildCustomerActionCenter } from "@/lib/record-action-center";
 import type { UserRole } from "@/lib/types";
 
@@ -45,8 +46,27 @@ describe("customer record least privilege", () => {
     expect(page).toContain("seesMoney\n    ? await getCustomerDepositSummary");
     expect(page).toContain("seesMoney\n    ? await listEstimatesForCustomer(id)\n    : await listEstimateScheduleFacts(id)");
     expect(page).toContain("if (seesMoney && jobOptionIds.length)");
-    expect(page).toContain("await listJobsForCustomer(id)");
+    expect(page).toContain("seesMoney\n    ? await listJobsForCustomer(id)\n    : await listSchedulingJobsForCustomer(id)");
     expect(page).toContain("loadCustomerRecordFacts");
+    expect(page).toContain('showInstallerBill: profile.role === "admin" || profile.role === "office"');
+    const forbidden = [
+      "estimated_material_cost",
+      "estimated_labor_cost",
+      "actual_material_cost",
+      "actual_labor_cost",
+      "actual_other_cost",
+      "installer_collects_balance",
+      "show_prices",
+      "closeout_notes",
+    ];
+    for (const column of forbidden) {
+      expect(SCHEDULING_JOB_COLUMNS).not.toContain(column);
+    }
+    for (const column of ["id", "status", "scheduled_date", "warehouse_ready_at", "title", "customer_id"]) {
+      expect(SCHEDULING_JOB_COLUMNS).toContain(column);
+    }
+    const bill = readFileSync("src/app/(app)/jobs/[id]/bill/page.tsx", "utf8");
+    expect(bill).toContain('if (!["admin", "office"].includes(profile.role)) redirect("/")');
     expect(layout).toContain("scheduler");
     expect(layout).not.toContain('"crew"');
     expect(layout).not.toContain('"warehouse"');
