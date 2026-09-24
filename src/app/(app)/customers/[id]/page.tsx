@@ -1431,7 +1431,7 @@ export default async function CustomerPage({
                             href={`/jobs/${j.id}`}
                             className="shrink-0 text-xs font-medium text-primary hover:underline"
                           >
-                            Schedule this job
+                            Open job
                           </Link>
                         </li>
                       ))}
@@ -1441,10 +1441,6 @@ export default async function CustomerPage({
 
                 <CustomerNextActionCard
                   customerId={customer.id}
-                  nextAction={
-                    stages.find((s) => s.id === customer.workflow_stage_id)
-                      ?.next_action ?? null
-                  }
                   nextActionDue={customer.next_action_due}
                   stuck={overdue}
                   tasks={openTasks}

@@ -12,14 +12,12 @@ import type { OfficeTaskRow } from "@/lib/data/ops-glue";
 
 export function CustomerNextActionCard({
   customerId,
-  nextAction,
   nextActionDue,
   stuck,
   tasks,
   canSnooze,
 }: {
   customerId: string;
-  nextAction: string | null;
   nextActionDue: string | null;
   stuck: boolean;
   tasks: OfficeTaskRow[];
@@ -59,10 +57,10 @@ export function CustomerNextActionCard({
       }`}
     >
       <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        Next required action
+        Follow-up reminder
       </p>
-      <p className="text-sm font-semibold">
-        {nextAction || "No next step on file"}
+      <p className="text-sm text-muted-foreground">
+        Snooze only moves this reminder. It does not clear a deposit, a material hold, or an install date.
       </p>
       {nextActionDue ? (
         <p className={`mt-1 text-xs ${stuck ? "font-medium text-destructive" : "text-muted-foreground"}`}>
