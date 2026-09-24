@@ -133,6 +133,49 @@ export async function listJobsForCustomer(
   return (data ?? []) as Job[];
 }
 
+/**
+ * Operational job fields for scheduling. No cost, margin, commission, or billing columns.
+ * Money roles keep listJobsForCustomer.
+ */
+export const SCHEDULING_JOB_COLUMNS = [
+  "id",
+  "customer_id",
+  "estimate_id",
+  "option_id",
+  "title",
+  "status",
+  "scheduled_date",
+  "scheduled_end",
+  "arrival_window",
+  "assigned_to",
+  "site_street",
+  "site_city",
+  "site_state",
+  "site_zip",
+  "notes",
+  "delivery_type",
+  "workflow_stage_id",
+  "warehouse_status",
+  "warehouse_submitted_at",
+  "warehouse_ready_at",
+  "created_at",
+  "closed_out_at",
+] as const;
+
+export type SchedulingJob = Pick<Job, (typeof SCHEDULING_JOB_COLUMNS)[number]>;
+
+export async function listSchedulingJobsForCustomer(
+  customerId: string,
+): Promise<SchedulingJob[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("jobs")
+    .select(SCHEDULING_JOB_COLUMNS.join(", "))
+    .eq("customer_id", customerId)
+    .order("created_at", { ascending: false });
+  return (data ?? []) as unknown as SchedulingJob[];
+}
+
 export interface JobDetail extends Job {
   customer: Customer | null;
   line_items: EstimateLineItem[];

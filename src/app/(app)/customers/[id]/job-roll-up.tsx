@@ -58,7 +58,14 @@ export function JobRollUp({
   if (!multiple) {
     const only = jobs[0];
     return (
-      <div className="space-y-3">
+      <details className="rounded-lg border">
+        <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+          Job progress
+          <span className="ml-2 font-normal text-muted-foreground">
+            {only.done} of {only.total} recorded
+          </span>
+        </summary>
+        <div className="space-y-3 border-t p-3">
         <JobChecklist
           steps={only.steps}
           stageName={(only.jobId && jobStageNames?.[only.jobId]) || stageName}
@@ -71,12 +78,13 @@ export function JobRollUp({
         {only.jobId ? (
           <Link
             href={`/jobs/${only.jobId}`}
-            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "w-full")}
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "w-full min-h-11")}
           >
             <Wrench className="size-3.5" /> Open the work order
           </Link>
         ) : null}
-      </div>
+        </div>
+      </details>
     );
   }
 

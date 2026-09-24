@@ -105,6 +105,23 @@ export async function listEstimatesForCustomer(
   return attachOptions(supabase, (data ?? []) as Estimate[]);
 }
 
+/**
+ * Estimate identity and status for scheduling. No prices, options, or line items.
+ */
+export async function listEstimateScheduleFacts(
+  customerId: string,
+): Promise<Estimate[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("estimates")
+    .select(
+      "id, title, status, sent_at, approved_at, approval_stale, created_at, service_address_id",
+    )
+    .eq("customer_id", customerId)
+    .order("created_at", { ascending: false });
+  return ((data ?? []) as unknown as Estimate[]).map((row) => ({ ...row, options: [] }));
+}
+
 export interface EstimateListRow extends Estimate {
   customer_name: string | null;
 }

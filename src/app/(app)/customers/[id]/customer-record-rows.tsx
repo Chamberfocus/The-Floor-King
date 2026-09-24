@@ -75,9 +75,9 @@ export interface EstimateRowData {
   id: string;
   title: string;
   status: EstimateStatus;
-  total: number;
+  total: number | null;
   optionName: string | null;
-  lines: { id: string; label: string; amount: number }[];
+  lines: { id: string; label: string; amount: number | null }[];
   /** Which property, on accounts that have more than one. */
   siteLabel?: string | null;
 }
@@ -113,7 +113,9 @@ export function EstimateRow({
       right={
         <>
           <EstimateStatusBadge status={e.status} />
-          <span className="font-semibold tabular-nums">{formatMoney(e.total)}</span>
+          {e.total != null ? (
+            <span className="font-semibold tabular-nums">{formatMoney(e.total)}</span>
+          ) : null}
         </>
       }
       actions={
@@ -134,15 +136,19 @@ export function EstimateRow({
           {e.lines.map((l) => (
             <li key={l.id} className="flex items-start justify-between gap-3 py-1.5">
               <span className="min-w-0">{l.label}</span>
-              <span className="shrink-0 tabular-nums text-muted-foreground">
-                {formatMoney(l.amount)}
-              </span>
+              {l.amount != null ? (
+                <span className="shrink-0 tabular-nums text-muted-foreground">
+                  {formatMoney(l.amount)}
+                </span>
+              ) : null}
             </li>
           ))}
-          <li className="flex items-center justify-between gap-3 pt-2 font-semibold">
-            <span>Total</span>
-            <span className="tabular-nums">{formatMoney(e.total)}</span>
-          </li>
+          {e.total != null ? (
+            <li className="flex items-center justify-between gap-3 pt-2 font-semibold">
+              <span>Total</span>
+              <span className="tabular-nums">{formatMoney(e.total)}</span>
+            </li>
+          ) : null}
         </ul>
       ) : (
         <p className="text-sm text-muted-foreground">No line items on this estimate.</p>
@@ -158,6 +164,8 @@ export interface WorkOrderRowData {
   scheduledDate: string | null;
   crewName: string | null;
   showPrices: boolean;
+  /** Installer pay is admin and office only. Other roles do not get the link. */
+  showInstallerBill?: boolean;
   scope: JobScope;
 }
 
@@ -190,7 +198,7 @@ export function WorkOrderRow({ j }: { j: WorkOrderRowData }) {
         </span>
       </div>
       <JobScopeView scope={j.scope} showPrices={j.showPrices} />
-      {/* Installer bill for this job — reached from the job on the dashboard. */}
+      {j.showInstallerBill !== false ? (
       <div className="mt-3 border-t pt-3">
         <Link
           href={`/jobs/${j.id}/bill`}
@@ -199,6 +207,7 @@ export function WorkOrderRow({ j }: { j: WorkOrderRowData }) {
           <HardHat className="size-3.5" /> Installer bill
         </Link>
       </div>
+      ) : null}
     </ExpandRow>
   );
 }
