@@ -39,6 +39,7 @@ function HomeSectionBlock({ section, count }: { section: HomeSection; count: num
         </h2>
         <p className="text-sm text-muted-foreground">
           {section.label} {count}
+          {count > section.items.length ? ` · Showing ${section.items.length} of ${count}` : ""}
         </p>
       </div>
       <ul className="flex flex-col gap-3">
@@ -48,6 +49,13 @@ function HomeSectionBlock({ section, count }: { section: HomeSection; count: num
           </li>
         ))}
       </ul>
+      {section.viewAllHref ? (
+        <p className="mt-3">
+          <Link href={section.viewAllHref} className="text-sm font-medium underline-offset-4 hover:underline">
+            View all {count}
+          </Link>
+        </p>
+      ) : null}
     </section>
   );
 }
@@ -65,13 +73,16 @@ function HomeCard({ item }: { item: HomeItem }) {
           {item.subject ? <p className="mt-2 text-sm font-medium">{item.subject}</p> : null}
           {item.meta ? <p className="text-sm text-muted-foreground">{item.meta}</p> : null}
           {item.owner ? <p className="text-sm text-muted-foreground">{item.owner}</p> : null}
+          {item.next ? <p className="mt-2 text-sm text-muted-foreground">Next: {item.next}</p> : null}
         </div>
-        <Link
-          href={item.href}
-          className="inline-flex min-h-11 shrink-0 items-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {item.action}
-        </Link>
+        {item.action && item.href ? (
+          <Link
+            href={item.href}
+            className="inline-flex min-h-11 shrink-0 items-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {item.action}
+          </Link>
+        ) : null}
       </div>
     </article>
   );

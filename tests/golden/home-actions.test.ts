@@ -247,11 +247,14 @@ describe("Home action center", () => {
     };
     const scheduler = buildHomeCenter(base("scheduler", { unscheduled: [row] }));
     expect(scheduler.sections[0]?.items[0]).toMatchObject({
-      title: "Ready to schedule",
-      href: "/install-scheduler",
+      title: "Install not booked",
+      action: "Schedule install",
+      href: "/jobs/j3",
     });
     const warehouse = buildHomeCenter(base("warehouse", { unscheduled: [row] }));
-    expect(warehouse.sections.flatMap((s) => s.items).map((i) => i.title)).not.toContain("Ready to schedule");
+    const warehouseTitles = warehouse.sections.flatMap((s) => s.items).map((i) => i.title);
+    expect(warehouseTitles).not.toContain("Install not booked");
+    expect(warehouseTitles).not.toContain("Ready to schedule");
   });
 
   it("keeps crew on their assigned install and off sales and money", () => {
@@ -364,5 +367,295 @@ describe("Home action center", () => {
     expect(view).toContain("aria-labelledby");
     expect(view).toContain("min-h-11");
     expect(view).not.toContain("<table");
+    expect(lib).not.toContain("Materials are ready, or this job has no material");
+  });
+
+  it("keeps deposit and scheduling as separate actions when both are true", () => {
+    const center = buildHomeCenter(
+      base("office", {
+        deposits: [
+          {
+            id: "e-dan",
+            name: "Dan Nauman",
+            approvedAt: "2026-09-20T15:00:00Z",
+            amountLabel: null,
+            customerId: "cust-dan",
+            ownerId: null,
+          },
+        ],
+        unscheduled: [
+          {
+            id: "job-dan",
+            name: "Dan Nauman",
+            assigneeId: null,
+            customerId: "cust-dan",
+            customerOwnerId: null,
+            hasMaterialNeed: false,
+            warehouseReadyAt: null,
+            href: "/jobs/job-dan",
+          },
+        ],
+      }),
+    );
+    const items = center.sections.find((s) => s.id === "attention")?.items ?? [];
+    expect(items.map((i) => i.title)).toEqual(["Deposit needed", "Install not booked"]);
+    expect(items[0]).toMatchObject({
+      action: "Collect deposit",
+      href: "/customers/cust-dan",
+      kind: "deposit",
+    });
+    expect(items[1]).toMatchObject({
+      action: "Schedule install",
+      href: "/jobs/job-dan",
+      kind: "schedule",
+    });
+    expect(items[0]?.why).toContain("separate step");
+    expect(items[1]?.why).toContain("does not hold the date");
+    expect(JSON.stringify(items)).not.toContain("before scheduling");
+    expect(JSON.stringify(items)).not.toContain("before the install");
+  });
+
+  it("does not show the deposit to a scheduler who can still book the install", () => {
+    const center = buildHomeCenter(
+      base("scheduler", {
+        deposits: [
+          {
+            id: "e-dan",
+            name: "Dan Nauman",
+            approvedAt: "2026-09-20T15:00:00Z",
+            amountLabel: "$2,000",
+            customerId: "cust-dan",
+            ownerId: null,
+          },
+        ],
+        unscheduled: [
+          {
+            id: "job-dan",
+            name: "Dan Nauman",
+            assigneeId: null,
+            customerId: "cust-dan",
+            customerOwnerId: null,
+            hasMaterialNeed: true,
+            warehouseReadyAt: "2026-09-23T00:00:00Z",
+            href: "/jobs/job-dan",
+          },
+        ],
+      }),
+    );
+    const items = center.sections.flatMap((s) => s.items);
+    expect(items).toEqual([
+      expect.objectContaining({ title: "Install not booked", action: "Schedule install", href: "/jobs/job-dan" }),
+    ]);
+    expect(JSON.stringify(items)).not.toContain("Deposit");
+    expect(JSON.stringify(items)).not.toContain("$2,000");
+    expect(items[0]?.why).not.toContain("deposit");
+  });
+
+  it("blocks the schedule button when material is not ready", () => {
+    const center = buildHomeCenter(
+      base("office", {
+        unscheduled: [
+          {
+            id: "job-mat",
+            name: "Patel",
+            assigneeId: null,
+            customerId: "c-patel",
+            customerOwnerId: null,
+            hasMaterialNeed: true,
+            warehouseReadyAt: null,
+            href: "/jobs/job-mat",
+          },
+        ],
+      }),
+    );
+    const item = center.sections.find((s) => s.id === "attention")?.items[0];
+    expect(item).toMatchObject({
+      title: "Material not ready",
+      action: "Review material",
+      href: "/jobs/job-mat",
+      next: "Schedule the install after the material is ready.",
+    });
+    expect(item?.action).not.toBe("Schedule install");
+  });
+
+  it("combines a collect-deposit follow-up with the deposit card for the same customer", () => {
+    const center = buildHomeCenter(
+      base("office", {
+        followUps: [
+          {
+            id: "cust-dan",
+            name: "Dan Nauman",
+            dueAt: "2026-09-20T12:00:00Z",
+            nextAction: "Collect the deposit",
+            stageAction: "collect_deposit",
+            ownerId: null,
+          },
+        ],
+        deposits: [
+          {
+            id: "e-dan",
+            name: "Dan Nauman",
+            approvedAt: "2026-09-20T15:00:00Z",
+            amountLabel: null,
+            customerId: "cust-dan",
+            ownerId: null,
+          },
+        ],
+      }),
+    );
+    const items = center.sections.flatMap((s) => s.items);
+    expect(items.map((i) => i.title)).toEqual(["Deposit needed"]);
+    expect(items[0]).toMatchObject({ action: "Collect deposit", href: "/customers/cust-dan" });
+  });
+
+  it("does not merge a follow-up just because the sentence mentions a deposit", () => {
+    const center = buildHomeCenter(
+      base("office", {
+        followUps: [
+          {
+            id: "cust-dan",
+            name: "Dan Nauman",
+            dueAt: "2026-09-20T12:00:00Z",
+            nextAction: "Collect the deposit",
+            stageAction: "build_quote",
+            ownerId: null,
+          },
+        ],
+        deposits: [
+          {
+            id: "e-dan",
+            name: "Dan Nauman",
+            approvedAt: "2026-09-20T15:00:00Z",
+            amountLabel: null,
+            customerId: "cust-dan",
+            ownerId: null,
+          },
+        ],
+      }),
+    );
+    const titles = center.sections.flatMap((s) => s.items).map((i) => i.title);
+    expect(titles).toEqual(["Deposit needed", "Stuck"]);
+  });
+
+  it("leaves a sent estimate and a measure as two actions", () => {
+    const center = buildHomeCenter(
+      base("office", {
+        sentEstimates: [
+          {
+            id: "e1",
+            name: "Jones",
+            sentAt: "2026-09-20T15:00:00Z",
+            totalLabel: null,
+            customerId: "c-jones",
+            ownerId: null,
+          },
+        ],
+        measures: [
+          {
+            id: "m1",
+            name: "Jones",
+            startsAt: "2026-09-24T14:00:00Z",
+            ownerName: null,
+            href: "/customers/c-jones",
+          },
+        ],
+      }),
+    );
+    const items = center.sections.flatMap((s) => s.items);
+    expect(items.map((i) => i.title).sort()).toEqual(["Estimate follow-up", "Measure today"]);
+    expect(items.find((i) => i.title === "Estimate follow-up")).toMatchObject({
+      action: "Open estimate",
+      href: "/estimates/e1",
+    });
+  });
+
+  it("keeps an overdue invoice actionable beside a bookable install", () => {
+    const center = buildHomeCenter(
+      base("office", {
+        invoices: [
+          { id: "inv1", name: "Garcia", number: "88", dueAt: "2026-09-10", balanceLabel: "$900", ownerId: null },
+        ],
+        unscheduled: [
+          {
+            id: "job-g",
+            name: "Garcia",
+            assigneeId: null,
+            customerId: "c-g",
+            customerOwnerId: null,
+            hasMaterialNeed: false,
+            warehouseReadyAt: null,
+            href: "/jobs/job-g",
+          },
+        ],
+      }),
+    );
+    const items = center.sections.find((s) => s.id === "attention")?.items ?? [];
+    expect(items.map((i) => i.title)).toEqual(["Overdue invoice", "Install not booked"]);
+    expect(items[0]).toMatchObject({ action: "Open invoice", href: "/invoices/inv1" });
+    expect(items[1]).toMatchObject({ action: "Schedule install", href: "/jobs/job-g" });
+  });
+
+  it("opens service without turning a callback into a schedule task", () => {
+    const center = buildHomeCenter(
+      base("office", {
+        callbacks: [{ id: "s1", name: "Johnson", followUpAt: "2026-09-22T12:00:00Z", href: "/service" }],
+        unscheduled: [
+          {
+            id: "job-j",
+            name: "Other",
+            assigneeId: null,
+            customerId: "c-other",
+            customerOwnerId: null,
+            hasMaterialNeed: false,
+            warehouseReadyAt: null,
+            href: "/jobs/job-j",
+          },
+        ],
+      }),
+    );
+    const items = center.sections.find((s) => s.id === "attention")?.items ?? [];
+    expect(items[0]).toMatchObject({ title: "Service issue", action: "Open service", href: "/service" });
+    expect(items[1]).toMatchObject({ title: "Install not booked", action: "Schedule install" });
+  });
+
+  it("reports the full Needs attention count when more than eight are due", () => {
+    const followUps = Array.from({ length: 9 }, (_, i) => ({
+      id: `c${i}`,
+      name: `Customer ${String.fromCharCode(65 + i)}`,
+      dueAt: "2026-09-20T12:00:00Z",
+      nextAction: "Call",
+      stageAction: null,
+      ownerId: null,
+    }));
+    const center = buildHomeCenter(base("office", { followUps }));
+    const section = center.sections.find((s) => s.id === "attention");
+    expect(section?.items).toHaveLength(8);
+    expect(section?.total).toBe(9);
+    expect(homeSectionCount(center, "attention")).toBe(9);
+    expect(section?.viewAllHref).toBe("/customers?stuck=1");
+  });
+
+  it("does not link a mixed Needs attention list to the stuck-customer page", () => {
+    const followUps = Array.from({ length: 8 }, (_, i) => ({
+      id: `c${i}`,
+      name: `Customer ${i}`,
+      dueAt: "2026-09-20T12:00:00Z",
+      nextAction: "Call",
+      stageAction: null,
+      ownerId: null,
+    }));
+    const center = buildHomeCenter(
+      base("office", {
+        followUps,
+        invoices: [
+          { id: "late", name: "Late", number: "1", dueAt: "2026-09-01", balanceLabel: "$10", ownerId: null },
+        ],
+      }),
+    );
+    const section = center.sections.find((s) => s.id === "attention");
+    expect(section?.total).toBe(9);
+    expect(section?.items).toHaveLength(8);
+    expect(section?.viewAllHref).toBeNull();
+    expect(section?.items[0]?.title).toBe("Overdue invoice");
   });
 });
