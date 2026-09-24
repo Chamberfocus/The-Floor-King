@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Check, ArrowRight, Circle } from "lucide-react";
+import { Check, Circle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { buttonVariants } from "@/components/ui/button";
 import {
   checklistProgress,
   type ChecklistStep,
@@ -41,14 +40,12 @@ export function JobChecklist({
   override?: { customerId: string; jobId: string | null };
 }) {
   const { done, total, pct } = checklistProgress(steps);
-  const current = steps.find((s) => s.state === "current") ?? null;
-  const skipped = steps.filter((s) => s.state === "skipped");
 
   return (
     <div className="rounded-lg border">
       <div className="border-b px-4 py-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <span className="text-sm font-semibold">Where this job is</span>
+          <span className="text-sm font-semibold">Job progress</span>
           <span className="text-xs text-muted-foreground tabular-nums">
             {done} of {total} done
           </span>
@@ -77,66 +74,29 @@ export function JobChecklist({
             style={{ width: `${pct}%` }}
           />
         </div>
-        {current ? (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-primary/5 px-3 py-2">
-            <span className="min-w-0 text-sm">
-              <span className="text-xs font-semibold uppercase tracking-wide text-primary">
-                Next
-              </span>
-              <span className="ml-2 font-medium">{current.title}</span>
-              {current.detail ? (
-                <span className="ml-2 text-xs text-muted-foreground">
-                  {current.detail}
-                </span>
-              ) : null}
-            </span>
-            <div className="flex shrink-0 flex-wrap items-center gap-2">
-              {/* The real action for THIS step, right here — no hunting for the
-                  page that hosts it. */}
-              {actionSlots?.[current.key] ?? null}
-              {current.href ? (
-                <Link
-                  href={current.href}
-                  className={cn(buttonVariants({ size: "sm" }))}
-                >
-                  {current.linkLabel ?? "Open"} <ArrowRight className="size-3.5" />
-                </Link>
-              ) : null}
-            </div>
-          </div>
-        ) : (
-          <p className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
-            Every step is done — this job is finished and closed out.
-          </p>
-        )}
-        {skipped.length ? (
-          <p className="mt-2 text-xs text-amber-600">
-            {skipped.length === 1 ? "1 step was" : `${skipped.length} steps were`}{" "}
-            passed over: {skipped.map((s) => s.title.toLowerCase()).join(", ")}
-          </p>
+        {done === total ? (
+          <p className="mt-3 text-sm text-muted-foreground">All of these records are in.</p>
         ) : null}
       </div>
 
       <ol className="divide-y">
         {steps.map((s, i) => {
-          const isCurrent = s.state === "current";
           const isDone = s.state === "done";
-          const isSkipped = s.state === "skipped";
+          const isOpen = s.state === "current" || s.state === "skipped";
           return (
             <li
               key={s.key}
               className={cn(
                 "flex items-start gap-3 px-4 py-2.5",
-                isCurrent && "bg-primary/5",
+                isOpen && "bg-muted/40",
               )}
             >
               <span
                 className={cn(
                   "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold",
                   isDone && "bg-emerald-600 text-white",
-                  isCurrent && "bg-primary text-primary-foreground",
-                  isSkipped && "border border-amber-500 text-amber-600",
-                  !isDone && !isCurrent && !isSkipped && "border text-muted-foreground",
+                  isOpen && "border border-foreground/40 text-foreground",
+                  !isDone && !isOpen && "border text-muted-foreground",
                 )}
               >
                 {isDone ? <Check className="size-3" /> : i + 1}
@@ -147,7 +107,7 @@ export function JobChecklist({
                   className={cn(
                     "block text-sm",
                     isDone && "text-muted-foreground",
-                    isCurrent && "font-semibold",
+                    isOpen && "font-medium",
                   )}
                 >
                   {s.title}
@@ -157,16 +117,12 @@ export function JobChecklist({
                     Marked done{s.override.by ? ` by ${s.override.by}` : ""} — no
                     record{s.override.reason ? ` · ${s.override.reason}` : ""}
                   </span>
-                ) : isSkipped ? (
-                  <span className="mt-0.5 block text-xs font-medium text-amber-600">
-                    Skipped — the job moved past this
+                ) : (
+                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                    {isDone ? "Done" : isOpen ? "Open" : "Not yet"}
                     {s.detail ? ` · ${s.detail}` : ""}
                   </span>
-                ) : s.detail ? (
-                  <span className="mt-0.5 block text-xs text-muted-foreground">
-                    {s.detail}
-                  </span>
-                ) : null}
+                )}
                 {/* Everything else this step can do. On the row, so you never
                     have to guess which page hides the staging sheet. */}
                 {actionSlots?.[s.key] || s.extras.length || override ? (
@@ -200,7 +156,7 @@ export function JobChecklist({
                   href={s.href}
                   className={cn(
                     "shrink-0 self-center text-xs font-medium hover:underline",
-                    isCurrent ? "text-primary" : "text-muted-foreground",
+                    "text-muted-foreground",
                   )}
                 >
                   {s.linkLabel ?? "Open"}

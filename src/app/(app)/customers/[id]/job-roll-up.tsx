@@ -148,20 +148,12 @@ export function JobRollUp({
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                 {finished ? (
                   <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600">
-                    <Check className="size-3.5" /> Finished and closed out
+                    <Check className="size-3.5" /> All recorded steps are in
                   </span>
+                ) : j.scheduledDate ? (
+                  <span className="text-sm text-muted-foreground">Install booked {j.scheduledDate}</span>
                 ) : (
-                  <span className="min-w-0 text-sm">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-primary">
-                      Next
-                    </span>
-                    <span className="ml-2 font-medium">{j.current?.title}</span>
-                    {j.current?.detail ? (
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        {j.current.detail}
-                      </span>
-                    ) : null}
-                  </span>
+                  <span className="text-sm text-muted-foreground">{j.done} of {j.total} recorded</span>
                 )}
                 <span className="flex shrink-0 items-center gap-2">
                   {/* A blank job is a stray "New job" click — nothing is
