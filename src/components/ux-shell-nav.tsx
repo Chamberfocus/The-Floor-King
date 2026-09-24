@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronDown, MoreHorizontal } from "lucide-react";
@@ -9,34 +9,19 @@ import {
   activeShellLink,
   isCollapsibleShellSection,
   mobileTabsForRole,
-  openShellGroups,
+  nextOpenGroup,
+  openGroupForRoute,
   shellSectionsForRole,
   type ShellSectionId,
 } from "@/lib/nav";
 import type { UserRole } from "@/lib/types";
 
-const OPEN_GROUPS_KEY = "fk_ux_nav_open";
-
 function pathIs(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function readStoredGroups(): string[] {
-  try {
-    const raw = sessionStorage.getItem(OPEN_GROUPS_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.filter((id) => typeof id === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeStoredGroups(ids: readonly ShellSectionId[]) {
-  try {
-    sessionStorage.setItem(OPEN_GROUPS_KEY, JSON.stringify(ids));
-  } catch {
-    /* private mode — expansion still works for this render */
-  }
+function groupPanelId(id: ShellSectionId): string {
+  return `shell-nav-${id}`;
 }
 
 const linkClass = (active: boolean) =>
@@ -59,21 +44,17 @@ export function UxShellNav({
   const pathname = usePathname();
   const sections = shellSectionsForRole(role);
   const current = activeShellLink(pathname, role);
-  const activeId = current?.sectionId ?? null;
-  const [open, setOpen] = useState<ShellSectionId[]>(() =>
-    openShellGroups({ active: activeId, stored: [] }),
-  );
+  const routeGroup = openGroupForRoute(current?.sectionId ?? null);
+  const [openGroup, setOpenGroup] = useState<ShellSectionId | null>(routeGroup);
+  const [syncedPath, setSyncedPath] = useState(pathname);
 
-  useEffect(() => {
-    setOpen(openShellGroups({ active: activeId, stored: readStoredGroups() }));
-  }, [activeId]);
+  if (syncedPath !== pathname) {
+    setSyncedPath(pathname);
+    setOpenGroup(routeGroup);
+  }
 
   const toggle = (id: ShellSectionId) => {
-    setOpen((prev) => {
-      const next = prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id];
-      writeStoredGroups(next);
-      return next;
-    });
+    setOpenGroup((prev) => nextOpenGroup(prev, id));
   };
 
   return (
@@ -98,7 +79,7 @@ export function UxShellNav({
           );
         }
 
-        const expanded = open.includes(section.id);
+        const expanded = openGroup === section.id;
         const sectionActive = current?.sectionId === section.id;
         return (
           <div key={section.id}>
@@ -106,41 +87,50 @@ export function UxShellNav({
               type="button"
               onClick={() => toggle(section.id)}
               aria-expanded={expanded}
+              aria-controls={groupPanelId(section.id)}
+              aria-current={sectionActive && !expanded ? "location" : undefined}
               className={cn(
-                "flex min-h-11 w-full items-center gap-3 rounded-lg px-3.5 text-sm font-semibold",
+                "flex min-h-11 w-full items-center gap-3 rounded-lg border-l-4 px-3.5 text-sm font-semibold",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
                 sectionActive
-                  ? "text-sidebar-foreground"
-                  : "text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+                  ? "border-sidebar-primary bg-sidebar-accent/70 text-sidebar-foreground"
+                  : "border-transparent text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
               )}
             >
-              <span className="flex-1 text-left">{section.label}</span>
+              <span className="min-w-0 flex-1 truncate text-left">{section.label}</span>
               <ChevronDown
-                className={cn("size-4 shrink-0 transition-transform", expanded ? "" : "-rotate-90")}
+                className={cn(
+                  "size-4 shrink-0 transition-transform duration-200",
+                  expanded ? "" : "-rotate-90",
+                )}
                 aria-hidden
               />
             </button>
-            {expanded ? (
-              <div className="mb-1 flex flex-col gap-0.5">
-                {section.items.map((item) => {
-                  const active =
-                    current?.sectionId === section.id && current.href === item.href;
-                  const Icon = item.icon;
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      onClick={onNavigate}
-                      aria-current={active ? "page" : undefined}
-                      className={linkClass(active)}
-                    >
-                      <Icon className="size-5 shrink-0" aria-hidden />
-                      <span className="min-w-0 truncate leading-snug">{item.label}</span>
-                    </Link>
-                  );
-                })}
-              </div>
-            ) : null}
+            <div
+              id={groupPanelId(section.id)}
+              role="group"
+              aria-label={section.label}
+              hidden={!expanded}
+              className="mb-1 flex flex-col gap-0.5"
+            >
+              {section.items.map((item) => {
+                const active =
+                  current?.sectionId === section.id && current.href === item.href;
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={onNavigate}
+                    aria-current={active ? "page" : undefined}
+                    className={linkClass(active)}
+                  >
+                    <Icon className="size-5 shrink-0" aria-hidden />
+                    <span className="min-w-0 truncate leading-snug">{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
           </div>
         );
       })}

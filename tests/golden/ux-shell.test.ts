@@ -14,7 +14,8 @@ import {
   isCollapsibleShellSection,
   mobileTabsForRole,
   navItemsForRole,
-  openShellGroups,
+  nextOpenGroup,
+  openGroupForRoute,
   quickCreateForRole,
   quickCreatePlacement,
   resolveUxShell,
@@ -114,8 +115,13 @@ describe("Phase A shell destinations", () => {
     expect(hrefs.has("/invoices")).toBe(false);
     expect(hrefs.has("/accounting")).toBe(false);
     expect(hrefs.has("/customers")).toBe(false);
+    expect(hrefs.has("/settings")).toBe(false);
+    expect(hrefs.has("/dashboard")).toBe(false);
+    expect(hrefs.has("/pulse")).toBe(false);
+    expect(hrefs.has("/estimates")).toBe(false);
     expect(quickCreateForRole("crew")).toEqual([]);
     expect(shellSectionsForRole("crew").some((section) => section.id === "money")).toBe(false);
+    expect(shellSectionsForRole("crew").some((section) => section.id === "sales")).toBe(false);
   });
 
   it("keeps warehouse on inventory and the warehouse queue", () => {
@@ -127,8 +133,14 @@ describe("Phase A shell destinations", () => {
     expect(hrefs.has("/accounting")).toBe(false);
     expect(hrefs.has("/purchase-orders")).toBe(false);
     expect(hrefs.has("/settings")).toBe(false);
+    expect(hrefs.has("/estimates")).toBe(false);
+    expect(hrefs.has("/client-status")).toBe(false);
+    expect(hrefs.has("/catalog")).toBe(false);
+    expect(hrefs.has("/pulse")).toBe(false);
     expect(quickCreateForRole("warehouse")).toEqual([]);
     expect(homeHrefForRole("warehouse")).toBe("/inventory");
+    expect(shellSectionsForRole("warehouse").some((section) => section.id === "sales")).toBe(false);
+    expect(shellSectionsForRole("warehouse").some((section) => section.id === "money")).toBe(false);
   });
 });
 
@@ -213,6 +225,56 @@ describe("Phase A active navigation", () => {
     expect(activeShellSection("/invoices/quick", role)).toBe("money");
     expect(activeShellSection("/installer", "crew")).toBe("home");
     expect(activeShellSection("/installer", "admin")).toBe("jobs");
+    expect(activeShellLink("/does-not-exist", role)).toBeNull();
+    expect(activeShellSection("/does-not-exist", role)).toBeNull();
+  });
+
+  it("opens exactly the group that owns the current page", () => {
+    const routes: [string, "sales" | "jobs" | "schedule" | "money" | "inventory" | "more"][] = [
+      ["/estimates", "sales"],
+      ["/estimates/1/edit", "sales"],
+      ["/client-status", "sales"],
+      ["/orders", "sales"],
+      ["/samples", "sales"],
+      ["/jobs", "jobs"],
+      ["/jobs/new", "jobs"],
+      ["/jobs/1", "jobs"],
+      ["/service", "jobs"],
+      ["/board", "jobs"],
+      ["/installer", "jobs"],
+      ["/calendar", "schedule"],
+      ["/install-scheduler", "schedule"],
+      ["/team", "schedule"],
+      ["/invoices", "money"],
+      ["/bills", "money"],
+      ["/pulse", "money"],
+      ["/catalog", "inventory"],
+      ["/catalog/abc", "inventory"],
+      ["/inventory", "inventory"],
+      ["/warehouse", "inventory"],
+      ["/purchase-orders", "inventory"],
+      ["/dashboard", "more"],
+      ["/reports", "more"],
+      ["/accounting", "more"],
+      ["/settings", "more"],
+    ];
+    for (const [path, group] of routes) {
+      const active = activeShellLink(path, role);
+      expect(active?.sectionId, path).toBe(group);
+      expect(openGroupForRoute(active?.sectionId ?? null), path).toBe(group);
+      if (active) {
+        expect(active.href === path || path.startsWith(`${active.href}/`) || path === active.href).toBe(
+          true,
+        );
+      }
+    }
+    expect(openGroupForRoute(activeShellSection("/customers", role))).toBeNull();
+    expect(openGroupForRoute(activeShellSection("/", role))).toBeNull();
+    expect(openGroupForRoute(activeShellSection("/installer", "crew"))).toBeNull();
+    expect(openGroupForRoute(activeShellSection("/jobs", "crew"))).toBe("jobs");
+    expect(openGroupForRoute(null)).toBeNull();
+    expect(() => shellSectionsForRole("admin")).not.toThrow();
+    expect(() => activeShellLink("/nope", "warehouse")).not.toThrow();
   });
 });
 
@@ -286,16 +348,27 @@ describe("Phase A mobile tabs and + New", () => {
     expect(open.headerOnPhone && closed.headerOnPhone).toBe(true);
   });
 
-  it("opens the active group and keeps groups the employee opened", () => {
+  it("lets only one navigation group stay open", () => {
     expect(isCollapsibleShellSection("sales")).toBe(true);
+    expect(isCollapsibleShellSection("jobs")).toBe(true);
+    expect(isCollapsibleShellSection("schedule")).toBe(true);
+    expect(isCollapsibleShellSection("money")).toBe(true);
+    expect(isCollapsibleShellSection("inventory")).toBe(true);
+    expect(isCollapsibleShellSection("more")).toBe(true);
     expect(isCollapsibleShellSection("home")).toBe(false);
     expect(isCollapsibleShellSection("customers")).toBe(false);
-    expect(openShellGroups({ active: "sales", stored: [] })).toEqual(["sales"]);
-    expect(openShellGroups({ active: "customers", stored: [] })).toEqual([]);
-    expect(openShellGroups({ active: "jobs", stored: ["sales", "nope"] }).sort()).toEqual([
-      "jobs",
-      "sales",
-    ]);
+    expect(openGroupForRoute("sales")).toBe("sales");
+    expect(openGroupForRoute("customers")).toBeNull();
+    expect(openGroupForRoute("home")).toBeNull();
+    expect(nextOpenGroup("sales", "jobs")).toBe("jobs");
+    expect(nextOpenGroup("jobs", "schedule")).toBe("schedule");
+    expect(nextOpenGroup("schedule", "money")).toBe("money");
+    expect(nextOpenGroup("money", "inventory")).toBe("inventory");
+    expect(nextOpenGroup("inventory", "more")).toBe("more");
+    expect(nextOpenGroup("more", "sales")).toBe("sales");
+    expect(nextOpenGroup("sales", "sales")).toBeNull();
+    expect(nextOpenGroup(null, "jobs")).toBe("jobs");
+    expect(nextOpenGroup("jobs", "home")).toBe("jobs");
     expect(shellSectionsForRole("admin").find((s) => s.id === "inventory")?.items.map((i) => i.label)).toContain(
       "Products",
     );
@@ -333,6 +406,26 @@ describe("Phase A flag, redirects, and shell tools", () => {
 
   it("still sends customers to the portal before the staff shell", () => {
     expect(readFileSync("src/app/(app)/layout.tsx", "utf8")).toContain('redirect("/portal")');
+  });
+
+  it("uses one accordion in the desktop sidebar and the mobile More menu", () => {
+    const nav = readFileSync("src/components/ux-shell-nav.tsx", "utf8");
+    const shell = readFileSync("src/components/app-shell.tsx", "utf8");
+    expect(nav).toContain("aria-expanded");
+    expect(nav).toContain("aria-controls");
+    expect(nav).toContain("nextOpenGroup");
+    expect(nav).toContain("openGroupForRoute");
+    expect(nav).toContain('type="button"');
+    expect(nav).not.toContain(".focus(");
+    expect(nav).not.toContain("fk_ux_nav_open");
+    expect(shell).toContain("h-svh");
+    expect(shell).toContain("min-h-0 flex-1 overflow-y-auto");
+    expect(shell).toContain("overflow-hidden");
+    const sheet = shell.slice(shell.indexOf("<SheetContent"), shell.indexOf("</SheetContent>"));
+    expect(sheet).toContain("UxShellNav");
+    expect(sheet).not.toContain("QuickCreate");
+    expect(shell.match(/<QuickCreate/g)?.length).toBe(2);
+    expect(shell).toContain("UxMobileNav");
   });
 
   it("keeps search and the field tools mounted in the shell", () => {

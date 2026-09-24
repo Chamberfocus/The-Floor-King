@@ -301,7 +301,7 @@ function ShellSwitch({ shell }: { shell: UxShellMode }) {
 
 function UserCard({ profile, shell }: { profile: Profile; shell: UxShellMode }) {
   return (
-    <div className="mt-auto border-t border-sidebar-border p-3">
+    <div className="mt-auto shrink-0 border-t border-sidebar-border p-3">
       <div className="flex items-center gap-3 px-2 py-2">
         <Avatar className="size-8">
           <AvatarFallback className="text-xs">{initials(profile)}</AvatarFallback>
@@ -426,12 +426,12 @@ export function AppShell({
       <aside
         className={cn(
           "hidden shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground print:!hidden",
-          shell === "new" ? "w-72" : "w-64",
+          shell === "new" ? "sticky top-0 h-svh max-h-svh w-72 overflow-hidden" : "w-64",
           collapsed ? "md:hidden" : "md:flex",
         )}
       >
         <Brand org={org} homeHref={homeHref} />
-        <div className="flex-1 overflow-y-auto py-2">
+        <div className="min-h-0 flex-1 overflow-y-auto py-2">
           {shell === "new" ? (
             <div className="px-3 pb-3">
               <QuickCreate role={profile.role} fullWidth />
@@ -458,10 +458,10 @@ export function AppShell({
               >
                 <Menu className="size-5" />
               </SheetTrigger>
-              <SheetContent side="left" className="flex w-72 flex-col bg-sidebar p-0 text-sidebar-foreground">
+              <SheetContent side="left" className="flex h-dvh w-72 max-h-dvh flex-col overflow-hidden bg-sidebar p-0 text-sidebar-foreground">
                 <SheetTitle className="sr-only">Navigation</SheetTitle>
                 <Brand org={org} homeHref={homeHref} />
-                <div className="flex-1 overflow-y-auto py-2">
+                <div className="min-h-0 flex-1 overflow-y-auto py-2">
                   {shell === "new" ? (
                     <UxShellNav
                       role={profile.role}

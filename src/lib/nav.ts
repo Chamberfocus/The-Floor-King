@@ -568,20 +568,24 @@ export function isCollapsibleShellSection(id: string): id is ShellSectionId {
 }
 
 /**
- * Open groups for the sidebar. The active group is always included.
- * Other groups stay open only when the employee opened them this session.
- * Create-only routes such as /jobs/new are not sidebar rows; + New owns them.
+ * The one accordion group that owns the current page.
+ * Home, Customers, and unknown routes open nothing.
  */
-export function openShellGroups(args: {
-  active: ShellSectionId | null;
-  stored: readonly string[];
-}): ShellSectionId[] {
-  const open = new Set<ShellSectionId>();
-  for (const id of args.stored) {
-    if (isCollapsibleShellSection(id)) open.add(id);
-  }
-  if (args.active && isCollapsibleShellSection(args.active)) open.add(args.active);
-  return [...open];
+export function openGroupForRoute(active: ShellSectionId | null): ShellSectionId | null {
+  if (active && isCollapsibleShellSection(active)) return active;
+  return null;
+}
+
+/**
+ * Single-open accordion. Clicking the open group collapses it.
+ * Clicking any other group opens that one and closes the previous.
+ */
+export function nextOpenGroup(
+  current: ShellSectionId | null,
+  clicked: ShellSectionId,
+): ShellSectionId | null {
+  if (!isCollapsibleShellSection(clicked)) return current;
+  return current === clicked ? null : clicked;
 }
 
 /**
