@@ -19,7 +19,13 @@ const ICON: Record<HitType, LucideIcon> = {
   product: Package,
 };
 
-export function GlobalSearch({ className }: { className?: string }) {
+export function GlobalSearch({
+  className,
+  autoFocus = false,
+}: {
+  className?: string;
+  autoFocus?: boolean;
+}) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
@@ -114,6 +120,7 @@ export function GlobalSearch({ className }: { className?: string }) {
           onKeyDown={onKey}
           placeholder="Search customers, estimates, invoices, POs, work orders…"
           aria-label="Search the CRM"
+          autoFocus={autoFocus}
           className="pl-9"
         />
         {pending ? (

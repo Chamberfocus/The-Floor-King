@@ -11,9 +11,12 @@ import {
   activeShellLink,
   activeShellSection,
   homeHrefForRole,
+  isCollapsibleShellSection,
   mobileTabsForRole,
   navItemsForRole,
+  openShellGroups,
   quickCreateForRole,
+  quickCreatePlacement,
   resolveUxShell,
   shellSectionsForRole,
 } from "@/lib/nav";
@@ -36,10 +39,19 @@ function shellHrefs(role: UserRole): Set<string> {
 }
 
 describe("Phase A shell destinations", () => {
-  it("offers each staff role exactly the classic destinations", () => {
+  it("keeps every classic destination except New job, which lives in + New", () => {
     for (const role of STAFF) {
       const classic = new Set(navItemsForRole(role).map((item) => item.href));
-      expect(shellHrefs(role), role).toEqual(classic);
+      const shell = shellHrefs(role);
+      const create = new Set(quickCreateForRole(role).map((action) => action.href));
+      for (const href of shell) expect(classic.has(href), `${role} gained ${href}`).toBe(true);
+      for (const href of classic) {
+        expect(
+          shell.has(href) || create.has(href),
+          `${role} lost ${href}`,
+        ).toBe(true);
+      }
+      expect(shell.has("/jobs/new"), role).toBe(false);
     }
   });
 
@@ -186,7 +198,7 @@ describe("Phase A active navigation", () => {
     expect(activeShellSection("/estimates/1/edit", role)).toBe("sales");
     expect(activeShellSection("/client-status", role)).toBe("sales");
     expect(activeShellSection("/jobs/1", role)).toBe("jobs");
-    expect(activeShellLink("/jobs/new", role)?.href).toBe("/jobs/new");
+    expect(activeShellSection("/jobs/new", role)).toBe("jobs");
     expect(activeShellSection("/install-scheduler", role)).toBe("schedule");
     expect(activeShellSection("/schedule/route", role)).toBe("schedule");
     expect(activeShellSection("/purchase-orders/9", role)).toBe("inventory");
@@ -256,6 +268,40 @@ describe("Phase A mobile tabs and + New", () => {
     ]);
     expect(quickCreateForRole("salesman").map((action) => action.id)).toContain("estimate");
     expect(quickCreateForRole("salesman").map((action) => action.id)).not.toContain("payment");
+    expect(quickCreateForRole("admin").map((action) => action.label)).toEqual([
+      "New customer",
+      "New estimate",
+      "Schedule a measure",
+      "New job",
+    ]);
+  });
+
+  it("shows one New control for each viewport", () => {
+    const open = quickCreatePlacement(false);
+    const closed = quickCreatePlacement(true);
+    expect(open.sidebarWhenDesktopOpen).toBe(true);
+    expect(open.headerWhenDesktopOpen).toBe(false);
+    expect(closed.sidebarWhenDesktopOpen).toBe(false);
+    expect(closed.headerWhenDesktopCollapsed).toBe(true);
+    expect(open.headerOnPhone && closed.headerOnPhone).toBe(true);
+  });
+
+  it("opens the active group and keeps groups the employee opened", () => {
+    expect(isCollapsibleShellSection("sales")).toBe(true);
+    expect(isCollapsibleShellSection("home")).toBe(false);
+    expect(isCollapsibleShellSection("customers")).toBe(false);
+    expect(openShellGroups({ active: "sales", stored: [] })).toEqual(["sales"]);
+    expect(openShellGroups({ active: "customers", stored: [] })).toEqual([]);
+    expect(openShellGroups({ active: "jobs", stored: ["sales", "nope"] }).sort()).toEqual([
+      "jobs",
+      "sales",
+    ]);
+    expect(shellSectionsForRole("admin").find((s) => s.id === "inventory")?.items.map((i) => i.label)).toContain(
+      "Products",
+    );
+    expect(shellSectionsForRole("office").find((s) => s.id === "money")?.items.map((i) => i.label)).toContain(
+      "Bills",
+    );
   });
 });
 

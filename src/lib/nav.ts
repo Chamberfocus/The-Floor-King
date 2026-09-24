@@ -349,7 +349,6 @@ const SHELL_BLUEPRINT: {
       { href: "/jobs" },
       { href: "/board", label: "Job board" },
       { href: "/service" },
-      { href: "/jobs/new", label: "New job" },
       { href: "/installer", label: "My Work" },
     ],
   },
@@ -367,7 +366,7 @@ const SHELL_BLUEPRINT: {
     label: "Money",
     items: [
       { href: "/invoices" },
-      { href: "/bills", label: "Bills (A/P)" },
+      { href: "/bills", label: "Bills" },
       { href: "/pulse", label: "Business pulse" },
     ],
   },
@@ -375,7 +374,7 @@ const SHELL_BLUEPRINT: {
     id: "inventory",
     label: "Inventory",
     items: [
-      { href: "/catalog" },
+      { href: "/catalog", label: "Products" },
       { href: "/inventory" },
       { href: "/warehouse" },
       { href: "/purchase-orders" },
@@ -543,16 +542,65 @@ export interface QuickCreateAction {
  * Tasks are created inside the dashboard card, which is not its own screen.
  */
 export const QUICK_CREATE: QuickCreateAction[] = [
-  { id: "customer", label: "Customer", href: "/customers/new", roles: SALES_VIEW },
-  { id: "estimate", label: "Estimate", href: "/estimates/start", roles: SALES },
-  { id: "measure", label: "Measure", href: "/calendar", roles: SALES_VIEW },
+  { id: "customer", label: "New customer", href: "/customers/new", roles: SALES_VIEW },
+  { id: "estimate", label: "New estimate", href: "/estimates/start", roles: SALES },
+  { id: "measure", label: "Schedule a measure", href: "/calendar", roles: SALES_VIEW },
   {
     id: "job",
-    label: "Job",
+    label: "New job",
     href: "/jobs/new",
     roles: ["admin", "office", "sales_manager", "salesman", "scheduler"],
   },
 ];
+
+const COLLAPSIBLE_SECTIONS: readonly ShellSectionId[] = [
+  "sales",
+  "jobs",
+  "schedule",
+  "money",
+  "inventory",
+  "more",
+];
+
+/** Groups that unfold. Home and Customers stay one click, always visible. */
+export function isCollapsibleShellSection(id: string): id is ShellSectionId {
+  return (COLLAPSIBLE_SECTIONS as readonly string[]).includes(id);
+}
+
+/**
+ * Open groups for the sidebar. The active group is always included.
+ * Other groups stay open only when the employee opened them this session.
+ * Create-only routes such as /jobs/new are not sidebar rows; + New owns them.
+ */
+export function openShellGroups(args: {
+  active: ShellSectionId | null;
+  stored: readonly string[];
+}): ShellSectionId[] {
+  const open = new Set<ShellSectionId>();
+  for (const id of args.stored) {
+    if (isCollapsibleShellSection(id)) open.add(id);
+  }
+  if (args.active && isCollapsibleShellSection(args.active)) open.add(args.active);
+  return [...open];
+}
+
+/**
+ * One global New control. Sidebar when the desktop menu is open.
+ * Header when that menu is collapsed or the viewport is a phone.
+ */
+export function quickCreatePlacement(collapsed: boolean): {
+  sidebarWhenDesktopOpen: boolean;
+  headerWhenDesktopOpen: boolean;
+  headerWhenDesktopCollapsed: boolean;
+  headerOnPhone: boolean;
+} {
+  return {
+    sidebarWhenDesktopOpen: !collapsed,
+    headerWhenDesktopOpen: false,
+    headerWhenDesktopCollapsed: collapsed,
+    headerOnPhone: true,
+  };
+}
 
 export function quickCreateForRole(role: UserRole): QuickCreateAction[] {
   if (role === "customer") return [];
