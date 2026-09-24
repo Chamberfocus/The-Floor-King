@@ -787,7 +787,7 @@ export default async function CustomerPage({
           all in one place (replaces the plain header + its scattered bits). */}
       <section
         id="overview"
-        className="relative mb-4 scroll-mt-24 overflow-hidden rounded-lg border bg-card p-5 shadow-sm sm:p-6"
+        className="relative mb-4 scroll-mt-24 overflow-hidden rounded-lg border bg-card p-4 shadow-sm"
       >
         <span
           aria-hidden
@@ -875,7 +875,7 @@ export default async function CustomerPage({
                 className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-sm font-medium transition-colors hover:border-primary hover:text-primary"
               >
                 <MapPin className="size-4 shrink-0 text-muted-foreground" />
-                <span>{addressText}</span>
+                <span className="max-w-full break-words">{addressText}</span>
               </a>
             ) : null}
           </div>
@@ -914,6 +914,35 @@ export default async function CustomerPage({
         })()}
 
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4">
+          {(SALES_ROLES as string[]).includes(profile.role) && !customer.cancelled_at ? (
+            <ProcessCardButton
+              url={orgSettings.card_processing_url}
+              customerId={customer.id}
+              clientName={customer.full_name}
+              balance={money.balance}
+              isAdmin={profile.role === "admin"}
+            />
+          ) : null}
+          {!customer.cancelled_at ? (
+            <>
+              <NewEstimate
+                customerId={customer.id}
+                sourceOk={sourceOk}
+                sources={leadSources}
+              />
+              <Link
+                href={`/jobs/new?customer=${customer.id}`}
+                className={cn(buttonVariants({ variant: "outline", size: "sm" }), "min-h-11")}
+              >
+                <Wrench className="size-3.5" /> New job
+              </Link>
+            </>
+          ) : null}
+          <details className="group">
+            <summary className="inline-flex min-h-11 cursor-pointer list-none items-center rounded-lg border px-3 text-sm font-medium [&::-webkit-details-marker]:hidden">
+              More actions
+            </summary>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
           <CustomerSettingsMenu
             customer={customer}
             canDelete={canDelete}
@@ -939,15 +968,6 @@ export default async function CustomerPage({
                 customerName={customer.full_name}
                 customerEmail={customer.email}
               />
-              {(SALES_ROLES as string[]).includes(profile.role) ? (
-                <ProcessCardButton
-                  url={orgSettings.card_processing_url}
-                  customerId={customer.id}
-                  clientName={customer.full_name}
-                  balance={money.balance}
-                  isAdmin={profile.role === "admin"}
-                />
-              ) : null}
               <QuickActions
                 customerId={customer.id}
                 stages={stages.map((s) => ({ id: s.id, name: s.name }))}
@@ -981,46 +1001,20 @@ export default async function CustomerPage({
                 showValues={false}
                 showSwitcher={false}
               />
-
-              {/* Start new work for an existing customer. Both of these already
-                  existed, buried in the Estimates and Jobs tabs — which is the
-                  last place you look when a repeat customer rings up about a
-                  second room. Same controls, hoisted to where they're seen. */}
-              <span className="mx-1 h-6 w-px bg-border" aria-hidden />
-              {/* One button, all four ways in — including copying their last
-                  quote, which used to be offered only on /estimates/start and
-                  never here, on the file of the repeat customer it's for. */}
-              <NewEstimate
-                customerId={customer.id}
-                sourceOk={sourceOk}
-                sources={leadSources}
-              />
-              {/* This used to post straight to `createJob`, which made a work
-                  order literally titled "Job" with nothing on it and dropped you
-                  on the work order to fill in the blanks — the roll-up then
-                  flagged the result as a stray click, safe to delete. It now
-                  opens the real form: what the work is, which site, and the
-                  option to hang it off an estimate that already exists. */}
-              <Link
-                href={`/jobs/new?customer=${customer.id}`}
-                className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-              >
-                <Wrench className="size-3.5" /> New job
-              </Link>
             </>
           ) : null}
-          <div className="ml-auto flex items-center gap-2">
-            {!customer.cancelled_at ? (
-              <CustomerSwitcher currentId={customer.id} />
-            ) : null}
-            <CancelCustomer
-              customerId={customer.id}
-              name={customer.full_name}
-              cancelled={!!customer.cancelled_at}
-              reasons={cancelReasons}
-              hasOpenPO={customerPOs.some((po) => po.status === "ordered")}
-            />
-          </div>
+          {!customer.cancelled_at ? (
+            <CustomerSwitcher currentId={customer.id} />
+          ) : null}
+          <CancelCustomer
+            customerId={customer.id}
+            name={customer.full_name}
+            cancelled={!!customer.cancelled_at}
+            reasons={cancelReasons}
+            hasOpenPO={customerPOs.some((po) => po.status === "ordered")}
+          />
+            </div>
+          </details>
         </div>
       </section>
 
@@ -1048,6 +1042,8 @@ export default async function CustomerPage({
         tabs={["costing", "history"].reduce(
           (acc, k) => (acc.includes(k as never) ? acc : [...acc, k as never]),
           prefs.tabs,
+        ).filter((tab) =>
+          profile.role !== "scheduler" || (tab !== "invoices" && tab !== "costing"),
         )}
         defaultTab={prefs.defaultTab}
         counts={{
@@ -1107,25 +1103,6 @@ export default async function CustomerPage({
                   </p>
                   <div className="space-y-3 text-sm">
                     <div className="space-y-2">
-                      {customer.phone ? (
-                        <div className="flex items-baseline justify-between gap-3">
-                          <span className="text-muted-foreground">Phone</span>
-                          <a href={`tel:${customer.phone}`} className="font-medium hover:text-primary">
-                            {customer.phone}
-                          </a>
-                        </div>
-                      ) : null}
-                      {customer.email ? (
-                        <div className="flex items-baseline justify-between gap-3">
-                          <span className="shrink-0 text-muted-foreground">Email</span>
-                          <a
-                            href={`mailto:${customer.email}`}
-                            className="truncate font-medium hover:text-primary"
-                          >
-                            {customer.email}
-                          </a>
-                        </div>
-                      ) : null}
                       <div className="flex items-baseline justify-between gap-3">
                         <span className="text-muted-foreground">Heard via</span>
                         <span className="text-right font-medium">{sourceLabel ?? "—"}</span>
@@ -1141,12 +1118,6 @@ export default async function CustomerPage({
                         </span>
                       </div>
                     </div>
-                    {addressText ? (
-                      <div className="border-t pt-2.5">
-                        <div className="text-xs text-muted-foreground">Address</div>
-                        <div className="font-medium">{addressText}</div>
-                      </div>
-                    ) : null}
                     {serviceAddresses.length ? (
                       <div className="border-t pt-2.5">
                         <div className="text-xs text-muted-foreground">
@@ -1169,7 +1140,7 @@ export default async function CustomerPage({
                   </div>
                 </div>
 
-                <div className="rounded-lg border bg-card p-5 shadow-sm">
+                {profile.role !== "scheduler" ? <div className="rounded-lg border bg-card p-5 shadow-sm">
                   <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Money
                   </p>
@@ -1352,7 +1323,7 @@ export default async function CustomerPage({
                       No invoices yet.
                     </p>
                   )}
-                </div>
+                </div> : null}
 
                 {estimateAppointment || installJob?.scheduled_date ? (
                   <div className="rounded-lg border bg-card p-5 shadow-sm">
