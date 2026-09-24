@@ -25,8 +25,8 @@ describe("customer record simplification", () => {
   });
 
   it("hides invoice and costing tabs from a scheduler without opening the file to crew", () => {
-    expect(page).toContain('profile.role !== "scheduler"');
-    expect(page).toContain('tab !== "invoices" && tab !== "costing"');
+    expect(page).toContain("customerSeesCustomerMoney");
+    expect(page).toContain('tab !== "invoices" && tab !== "costing" && tab !== "history"');
     expect(layout).toContain("scheduler");
     expect(layout).not.toContain('"crew"');
     expect(layout).not.toContain('"warehouse"');

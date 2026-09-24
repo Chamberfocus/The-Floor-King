@@ -75,9 +75,9 @@ export interface EstimateRowData {
   id: string;
   title: string;
   status: EstimateStatus;
-  total: number;
+  total: number | null;
   optionName: string | null;
-  lines: { id: string; label: string; amount: number }[];
+  lines: { id: string; label: string; amount: number | null }[];
   /** Which property, on accounts that have more than one. */
   siteLabel?: string | null;
 }
@@ -113,7 +113,9 @@ export function EstimateRow({
       right={
         <>
           <EstimateStatusBadge status={e.status} />
-          <span className="font-semibold tabular-nums">{formatMoney(e.total)}</span>
+          {e.total != null ? (
+            <span className="font-semibold tabular-nums">{formatMoney(e.total)}</span>
+          ) : null}
         </>
       }
       actions={
@@ -134,15 +136,19 @@ export function EstimateRow({
           {e.lines.map((l) => (
             <li key={l.id} className="flex items-start justify-between gap-3 py-1.5">
               <span className="min-w-0">{l.label}</span>
-              <span className="shrink-0 tabular-nums text-muted-foreground">
-                {formatMoney(l.amount)}
-              </span>
+              {l.amount != null ? (
+                <span className="shrink-0 tabular-nums text-muted-foreground">
+                  {formatMoney(l.amount)}
+                </span>
+              ) : null}
             </li>
           ))}
-          <li className="flex items-center justify-between gap-3 pt-2 font-semibold">
-            <span>Total</span>
-            <span className="tabular-nums">{formatMoney(e.total)}</span>
-          </li>
+          {e.total != null ? (
+            <li className="flex items-center justify-between gap-3 pt-2 font-semibold">
+              <span>Total</span>
+              <span className="tabular-nums">{formatMoney(e.total)}</span>
+            </li>
+          ) : null}
         </ul>
       ) : (
         <p className="text-sm text-muted-foreground">No line items on this estimate.</p>

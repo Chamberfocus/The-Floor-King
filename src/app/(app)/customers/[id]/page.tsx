@@ -35,7 +35,8 @@ import {
   getProfileNames,
   getPortalUser,
 } from "@/lib/data/customers";
-import { listEstimatesForCustomer } from "@/lib/data/estimates";
+import { listEstimateScheduleFacts, listEstimatesForCustomer } from "@/lib/data/estimates";
+import { customerSeesCustomerMoney } from "@/lib/customer-record-access";
 import { listJobsForCustomer, getJobSatisfaction } from "@/lib/data/jobs";
 import { listOrdersForCustomer } from "@/lib/data/orders";
 import { isCashCarryJob } from "@/lib/customer-list";
@@ -145,11 +146,11 @@ import { QualifyDialog } from "./qualify-dialog";
 import { QuickActions } from "./quick-actions";
 import { CustomerSwitcher } from "./customer-switcher";
 import { DocumentShortcuts, type DocJob } from "./document-shortcuts";
-import { getCustomerJobCosting } from "@/lib/data/job-costing";
+import { getCustomerJobCosting, type CustomerCosting } from "@/lib/data/job-costing";
 import { getJobProfitability } from "@/lib/data/finance";
 import { JobCostingTab, type JobProfitLite } from "./job-costing-tab";
 import { HistoryTab } from "./history-tab";
-import { getCustomerHistory } from "@/lib/data/customer-history";
+import { getCustomerHistory, type CustomerHistory } from "@/lib/data/customer-history";
 import { getUserPreferences } from "@/lib/data/preferences";
 import { pickCloseoutJob,
   spinePosition,
@@ -229,10 +230,13 @@ export default async function CustomerPage({
         ? !!(customer.source_detail_text || customer.referred_by_customer_id)
         : !!(customer.source_detail_id || customer.source_detail_text)));
 
+  const seesMoney = customerSeesCustomerMoney(profile.role);
   const activities = await listActivities(id);
-  const estimates = await listEstimatesForCustomer(id);
+  const estimates = seesMoney
+    ? await listEstimatesForCustomer(id)
+    : await listEstimateScheduleFacts(id);
   const jobs = await listJobsForCustomer(id);
-  const invoices = await listInvoicesForCustomer(id);
+  const invoices = seesMoney ? await listInvoicesForCustomer(id) : [];
   const pickupOrders = await listOrdersForCustomer(id).catch(() => []);
   const installJobs = jobs.filter((j) => !isCashCarryJob(j));
   const cashCarryJobs = jobs.filter((j) => isCashCarryJob(j));
@@ -244,22 +248,47 @@ export default async function CustomerPage({
   ).includes(profile.role);
   const documents = canCustomerFiles ? await listCustomerDocuments(id) : [];
   const customerAreas = await listCustomerAreas(id);
-  const [sampleCheckouts, bizSettings, customerPOs, stockPulls, serviceAddresses, attributedPoLines, orgSettings] =
+  const [sampleCheckouts, bizSettings, stockPulls, serviceAddresses, attributedPoLines, orgSettings] =
     await Promise.all([
       listCustomerCheckouts(id),
       getBusinessSettings(),
-      listPurchaseOrdersForCustomer(id),
       getCustomerStockPulls(id),
       listServiceAddresses(id),
       listAttributedPoItemsForCustomer(id),
       getOrgSettings(),
     ]);
+  const customerPOs = seesMoney ? await listPurchaseOrdersForCustomer(id) : [];
   const stages = await listWorkflowStages();
   const openTasks = await listOpenOfficeTasksForCustomer(id).catch(() => []);
   const handoffMembers = await listHandoffMembers();
-  // Read-only per-job estimated-vs-actual costing for the Job Costing tab.
-  const costing = await getCustomerJobCosting(id);
-  const history = await getCustomerHistory(id);
+  const emptyCosting: CustomerCosting = {
+    rows: [],
+    summary: {
+      costedJobs: 0,
+      totalJobs: 0,
+      totalEstimated: 0,
+      totalActual: 0,
+      totalVariance: 0,
+      avgVariancePct: null,
+    },
+  };
+  const emptyHistory: CustomerHistory = {
+    events: [],
+    properties: [],
+    totals: {
+      quoted: 0,
+      won: 0,
+      billed: 0,
+      paid: 0,
+      outstanding: 0,
+      winRate: null,
+      firstSeen: null,
+      lastSeen: null,
+    },
+  };
+  // Money roles only. A scheduler does not load costing or the payment history.
+  const costing = seesMoney ? await getCustomerJobCosting(id) : emptyCosting;
+  const history = seesMoney ? await getCustomerHistory(id) : emptyHistory;
 
   // Owner-only real profit breakdown (revenue − material/labor/other + the
   // internal fuel/car/commission), keyed by job for the "cost vs profit" popup.
@@ -325,16 +354,20 @@ export default async function CustomerPage({
     },
     { invoiced: 0, paid: 0, credited: 0, balance: 0 },
   );
-  const creditSummary = await getCustomerCreditSummary(id).catch(() => ({
-    available: 0,
-    memos: [],
-  }));
-  const depositSummary = await getCustomerDepositSummary(id).catch(() => ({
-    available: 0,
-    applied: 0,
-    voided: 0,
-    deposits: [],
-  }));
+  const creditSummary = seesMoney
+    ? await getCustomerCreditSummary(id).catch(() => ({
+        available: 0,
+        memos: [],
+      }))
+    : { available: 0, memos: [] };
+  const depositSummary = seesMoney
+    ? await getCustomerDepositSummary(id).catch(() => ({
+        available: 0,
+        applied: 0,
+        voided: 0,
+        deposits: [],
+      }))
+    : null;
   const recordFacts = await loadCustomerRecordFacts(
     id,
     jobs.map((job) => job.id),
@@ -348,7 +381,7 @@ export default async function CustomerPage({
     stageAction: currentStage?.auto_action ?? null,
     nextAction: currentStage?.next_action ?? null,
     nextActionDue: customer.next_action_due,
-    depositOnFile: depositOnFileFromSummary(depositSummary),
+    depositOnFile: seesMoney && depositSummary ? depositOnFileFromSummary(depositSummary) : null,
     estimates: estimates.map((estimate) => ({
       id: estimate.id,
       status: estimate.status,
@@ -365,14 +398,16 @@ export default async function CustomerPage({
       hasMaterialNeed: recordFacts.materialJobs.has(job.id),
       createdAt: job.created_at,
     })),
-    openInvoices: invoices
+    openInvoices: seesMoney
+      ? invoices
       .filter((inv) => inv.status !== "void" && inv.status !== "paid" && invoiceAmountDue(inv) > 0.5)
       .map((inv) => ({
         id: inv.id,
         number: inv.number,
         dueAt: inv.due_date,
         label: jobTitle.get(inv.job_id ?? "") ?? null,
-      })),
+      }))
+      : [],
     callbacks: recordFacts.callbacks.map((row) => ({
       jobId: row.job_id,
       jobTitle: row.job_id ? jobTitle.get(row.job_id) ?? null : null,
@@ -607,7 +642,7 @@ export default async function CustomerPage({
   // scope is never wrongly empty.
   const optionLines = new Map<string, EstimateLineItem[]>();
   const jobOptionIds = [...new Set(jobs.map((j) => j.option_id).filter(Boolean) as string[])];
-  if (jobOptionIds.length) {
+  if (seesMoney && jobOptionIds.length) {
     const supabase = await createClient();
     const { data: jobLines } = await supabase
       .from("estimate_line_items")
@@ -645,7 +680,7 @@ export default async function CustomerPage({
       id: e.id,
       title: e.title || "Estimate",
       status: e.status,
-      total: opt ? optionTotals(lines, e.tax_rate).total : 0,
+      total: seesMoney && opt ? optionTotals(lines, e.tax_rate).total : null,
       optionName: opts.length > 1 ? (opt?.name ?? null) : null,
       siteLabel: showSites
         ? (addrLabel.get(
@@ -655,7 +690,7 @@ export default async function CustomerPage({
       lines: lines.map((l) => ({
         id: l.id,
         label: [l.room, l.description].filter(Boolean).join(" — ") || "Line item",
-        amount: lineTotal(l),
+        amount: seesMoney ? lineTotal(l) : null,
       })),
     };
   });
@@ -666,7 +701,7 @@ export default async function CustomerPage({
     status: j.status,
     scheduledDate: j.scheduled_date ?? null,
     crewName: j.assigned_to ? (names[j.assigned_to] ?? null) : null,
-    showPrices: !!j.show_prices,
+    showPrices: seesMoney && !!j.show_prices,
     scope: buildJobScope(
       j.option_id ? (optionLines.get(j.option_id) ?? []) : [],
       j.notes ?? null,
@@ -1043,7 +1078,7 @@ export default async function CustomerPage({
           (acc, k) => (acc.includes(k as never) ? acc : [...acc, k as never]),
           prefs.tabs,
         ).filter((tab) =>
-          profile.role !== "scheduler" || (tab !== "invoices" && tab !== "costing"),
+          seesMoney || (tab !== "invoices" && tab !== "costing" && tab !== "history"),
         )}
         defaultTab={prefs.defaultTab}
         counts={{
@@ -1140,7 +1175,7 @@ export default async function CustomerPage({
                   </div>
                 </div>
 
-                {profile.role !== "scheduler" ? <div className="rounded-lg border bg-card p-5 shadow-sm">
+                {seesMoney && depositSummary ? <div className="rounded-lg border bg-card p-5 shadow-sm">
                   <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Money
                   </p>
@@ -1471,6 +1506,8 @@ export default async function CustomerPage({
           show={["estimates", "jobs", "costing", "invoices", "materials", "files", "messages", "activity"]}
           className="space-y-6 lg:col-span-2"
         >
+          {seesMoney ? (
+          <>
           {/* Job Costing — read-only estimated vs actual, per job (off Overview) */}
           <TabSection tab="costing" overview={false}>
             <JobCostingTab data={costing} profit={jobProfit} />
@@ -1481,6 +1518,8 @@ export default async function CustomerPage({
           <TabSection tab="history" overview={false}>
             <HistoryTab history={history} />
           </TabSection>
+          </>
+          ) : null}
 
           {/* Chat + AI follow-up draft — Messages tab */}
           <TabCollapse
@@ -1701,7 +1740,8 @@ export default async function CustomerPage({
             />
           </TabSection>
 
-          {/* Invoices */}
+          {/* Invoices — money roles only. Not mounted for a scheduler. */}
+          {seesMoney ? (
           <TabSection tab="invoices" overview={false}>
           <Card id="invoices" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
@@ -1757,6 +1797,7 @@ export default async function CustomerPage({
             </CardContent>
           </Card>
           </TabSection>
+          ) : null}
 
           {/* Photos & files — sales/office JWT storage roles only. Warehouse
               uses job-page measurement upload (service_role after auth). */}
