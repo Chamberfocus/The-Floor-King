@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Menu,
+  Search,
   LogOut,
   MoreHorizontal,
   SlidersHorizontal,
@@ -246,6 +247,39 @@ function Brand({ org, homeHref }: { org?: OrgSettings; homeHref?: string }) {
   );
 }
 
+/** Phone search starts as a button so the field can use the full header when opened. */
+function HeaderSearch() {
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className="shrink-0 md:hidden"
+        aria-label="Search"
+        onClick={() => setOpen(true)}
+      >
+        <Search className="size-5" />
+      </Button>
+    );
+  }
+  return (
+    <div className="absolute inset-0 z-10 flex items-center gap-2 bg-background px-3 md:hidden">
+      <GlobalSearch className="min-w-0 flex-1" autoFocus />
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="shrink-0"
+        onClick={() => setOpen(false)}
+      >
+        Close
+      </Button>
+    </div>
+  );
+}
+
 function ShellSwitch({ shell }: { shell: UxShellMode }) {
   const router = useRouter();
   const next = shell === "new" ? "classic" : "new";
@@ -267,7 +301,7 @@ function ShellSwitch({ shell }: { shell: UxShellMode }) {
 
 function UserCard({ profile, shell }: { profile: Profile; shell: UxShellMode }) {
   return (
-    <div className="mt-auto border-t border-sidebar-border p-3">
+    <div className="mt-auto shrink-0 border-t border-sidebar-border p-3">
       <div className="flex items-center gap-3 px-2 py-2">
         <Avatar className="size-8">
           <AvatarFallback className="text-xs">{initials(profile)}</AvatarFallback>
@@ -392,14 +426,14 @@ export function AppShell({
       <aside
         className={cn(
           "hidden shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground print:!hidden",
-          shell === "new" ? "w-72" : "w-64",
+          shell === "new" ? "sticky top-0 h-svh max-h-svh w-72 overflow-hidden" : "w-64",
           collapsed ? "md:hidden" : "md:flex",
         )}
       >
         <Brand org={org} homeHref={homeHref} />
-        <div className="flex-1 overflow-y-auto py-2">
+        <div className="min-h-0 flex-1 overflow-y-auto py-2">
           {shell === "new" ? (
-            <div className="px-3 pb-4">
+            <div className="px-3 pb-3">
               <QuickCreate role={profile.role} fullWidth />
             </div>
           ) : null}
@@ -414,7 +448,7 @@ export function AppShell({
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Top bar: mobile menu (mobile only) + global search (always) */}
-        <header className="flex items-center gap-3 border-b bg-background px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] print:hidden">
+        <header className="relative flex items-center gap-3 border-b bg-background px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] print:hidden">
           <div className="md:hidden">
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger
@@ -424,19 +458,10 @@ export function AppShell({
               >
                 <Menu className="size-5" />
               </SheetTrigger>
-              <SheetContent side="left" className="flex w-72 flex-col bg-sidebar p-0 text-sidebar-foreground">
+              <SheetContent side="left" className="flex h-dvh w-72 max-h-dvh flex-col overflow-hidden bg-sidebar p-0 text-sidebar-foreground">
                 <SheetTitle className="sr-only">Navigation</SheetTitle>
                 <Brand org={org} homeHref={homeHref} />
-                <div className="flex-1 overflow-y-auto py-2">
-                  {shell === "new" ? (
-                    <div className="px-3 pb-4">
-                      <QuickCreate
-                        role={profile.role}
-                        fullWidth
-                        onNavigate={() => setMobileOpen(false)}
-                      />
-                    </div>
-                  ) : null}
+                <div className="min-h-0 flex-1 overflow-y-auto py-2">
                   {shell === "new" ? (
                     <UxShellNav
                       role={profile.role}
@@ -480,10 +505,16 @@ export function AppShell({
           >
             <Home className="size-5" />
           </Button>
-          <div className="flex min-w-0 flex-1 items-center gap-3">
+          <div className="hidden min-w-0 flex-1 items-center gap-3 md:flex">
             <GlobalSearch className="w-full max-w-xl" />
           </div>
-          {shell === "new" ? <QuickCreate role={profile.role} className="shrink-0" /> : null}
+          <HeaderSearch />
+          {shell === "new" ? (
+            <QuickCreate
+              role={profile.role}
+              className={cn("shrink-0", collapsed ? "" : "md:hidden")}
+            />
+          ) : null}
           {profile.role !== "customer" ? (
             <AreaCalculator
               triggerLabel="Calculator"

@@ -1,18 +1,27 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MoreHorizontal } from "lucide-react";
+import { ChevronDown, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   activeShellLink,
+  isCollapsibleShellSection,
   mobileTabsForRole,
+  nextOpenGroup,
+  openGroupForRoute,
   shellSectionsForRole,
+  type ShellSectionId,
 } from "@/lib/nav";
 import type { UserRole } from "@/lib/types";
 
 function pathIs(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function groupPanelId(id: ShellSectionId): string {
+  return `shell-nav-${id}`;
 }
 
 const linkClass = (active: boolean) =>
@@ -24,7 +33,7 @@ const linkClass = (active: boolean) =>
       : "font-medium text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
   );
 
-/** Desktop and mobile-sheet navigation for the Phase A shell. */
+/** Desktop and mobile-sheet navigation. Home and Customers stay visible; other groups fold. */
 export function UxShellNav({
   role,
   onNavigate,
@@ -35,12 +44,24 @@ export function UxShellNav({
   const pathname = usePathname();
   const sections = shellSectionsForRole(role);
   const current = activeShellLink(pathname, role);
+  const routeGroup = openGroupForRoute(current?.sectionId ?? null);
+  const [openGroup, setOpenGroup] = useState<ShellSectionId | null>(routeGroup);
+  const [syncedPath, setSyncedPath] = useState(pathname);
+
+  if (syncedPath !== pathname) {
+    setSyncedPath(pathname);
+    setOpenGroup(routeGroup);
+  }
+
+  const toggle = (id: ShellSectionId) => {
+    setOpenGroup((prev) => nextOpenGroup(prev, id));
+  };
 
   return (
-    <nav aria-label="Primary" className="flex flex-col gap-5 px-3 py-1">
+    <nav aria-label="Primary" className="flex flex-col gap-1 px-3 py-1">
       {sections.map((section) => {
-        const solitary = section.id === "home" || section.id === "customers";
-        if (solitary && section.items.length === 1) {
+        const direct = !isCollapsibleShellSection(section.id) || section.items.length === 1;
+        if (direct) {
           const item = section.items[0];
           const active = current?.sectionId === section.id && current.href === item.href;
           const Icon = item.icon;
@@ -53,38 +74,63 @@ export function UxShellNav({
               className={linkClass(active)}
             >
               <Icon className="size-5 shrink-0" aria-hidden />
-              <span className="min-w-0 leading-snug">{item.label}</span>
+              <span className="min-w-0 truncate leading-snug">{item.label}</span>
             </Link>
           );
         }
 
+        const expanded = openGroup === section.id;
         const sectionActive = current?.sectionId === section.id;
         return (
-          <div key={section.id} className="flex flex-col gap-0.5">
-            <div
+          <div key={section.id}>
+            <button
+              type="button"
+              onClick={() => toggle(section.id)}
+              aria-expanded={expanded}
+              aria-controls={groupPanelId(section.id)}
+              aria-current={sectionActive && !expanded ? "location" : undefined}
               className={cn(
-                "px-3.5 pb-1 text-xs font-semibold tracking-wide uppercase",
-                sectionActive ? "text-sidebar-foreground" : "text-sidebar-foreground/55",
+                "flex min-h-11 w-full items-center gap-3 rounded-lg border-l-4 px-3.5 text-sm font-semibold",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+                sectionActive
+                  ? "border-sidebar-primary bg-sidebar-accent/70 text-sidebar-foreground"
+                  : "border-transparent text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
               )}
             >
-              {section.label}
+              <span className="min-w-0 flex-1 truncate text-left">{section.label}</span>
+              <ChevronDown
+                className={cn(
+                  "size-4 shrink-0 transition-transform duration-200",
+                  expanded ? "" : "-rotate-90",
+                )}
+                aria-hidden
+              />
+            </button>
+            <div
+              id={groupPanelId(section.id)}
+              role="group"
+              aria-label={section.label}
+              hidden={!expanded}
+              className="mb-1 flex flex-col gap-0.5"
+            >
+              {section.items.map((item) => {
+                const active =
+                  current?.sectionId === section.id && current.href === item.href;
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={onNavigate}
+                    aria-current={active ? "page" : undefined}
+                    className={linkClass(active)}
+                  >
+                    <Icon className="size-5 shrink-0" aria-hidden />
+                    <span className="min-w-0 truncate leading-snug">{item.label}</span>
+                  </Link>
+                );
+              })}
             </div>
-            {section.items.map((item) => {
-              const active = current?.sectionId === section.id && current.href === item.href;
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={onNavigate}
-                  aria-current={active ? "page" : undefined}
-                  className={linkClass(active)}
-                >
-                  <Icon className="size-5 shrink-0" aria-hidden />
-                  <span className="min-w-0 leading-snug">{item.label}</span>
-                </Link>
-              );
-            })}
           </div>
         );
       })}
@@ -99,10 +145,7 @@ const tabClass = (active: boolean) =>
     active ? "text-primary" : "text-muted-foreground",
   );
 
-/**
- * Role-chosen bottom tabs plus More. More opens the full menu, which is where
- * the rest of that role's destinations live.
- */
+/** Role-chosen bottom tabs plus More. More opens the full menu. */
 export function UxMobileNav({
   role,
   onMore,
