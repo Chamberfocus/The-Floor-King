@@ -222,12 +222,8 @@ export function pinnedItemsForRole(role: UserRole): NavItem[] {
  * dead link for any role.
  */
 export function homeHrefForRole(role: UserRole): string {
-  const customers = NAV_GROUPS.flatMap((g) => g.items).find(
-    (i) => i.href === "/customers",
-  );
-  if (customers?.roles.includes(role)) return "/customers";
-  if (role === "crew") return "/installer";
-  return navItemsForRole(role)[0]?.href ?? "/customers";
+  if (role === "customer") return "/portal";
+  return "/home";
 }
 
 /**
@@ -396,22 +392,19 @@ const SHELL_BLUEPRINT: {
 export function shellSectionsForRole(role: UserRole): ShellSection[] {
   if (role === "customer") return [];
   const allowed = new Set(navItemsForRole(role).map((item) => item.href));
-  const homeHref = homeHrefForRole(role);
   const sections: ShellSection[] = [];
 
   for (const blueprint of SHELL_BLUEPRINT) {
     if (blueprint.id === "home") {
-      if (!allowed.has(homeHref)) continue;
-      const classic = CLASSIC_BY_HREF.get(homeHref);
       sections.push({
         id: "home",
         label: "Home",
         items: [
           {
             label: "Home",
-            href: homeHref,
+            href: "/home",
             icon: Home,
-            roles: classic?.roles ?? [],
+            roles: [role],
           },
         ],
       });
@@ -421,8 +414,7 @@ export function shellSectionsForRole(role: UserRole): ShellSection[] {
     const items: NavItem[] = [];
     for (const def of blueprint.items) {
       if (!allowed.has(def.href)) continue;
-      // Crew already land on My Work via Home. Don't list it twice.
-      if (def.href === homeHref && def.href === "/installer") continue;
+      // Home is the action center. My Work stays a jobs destination.
       const item = shellItem(def.href, def.label);
       if (item && item.roles.includes(role)) items.push(item);
     }

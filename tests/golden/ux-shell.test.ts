@@ -45,7 +45,10 @@ describe("Phase A shell destinations", () => {
       const classic = new Set(navItemsForRole(role).map((item) => item.href));
       const shell = shellHrefs(role);
       const create = new Set(quickCreateForRole(role).map((action) => action.href));
-      for (const href of shell) expect(classic.has(href), `${role} gained ${href}`).toBe(true);
+      for (const href of shell) {
+        if (href === "/home") continue;
+        expect(classic.has(href), `${role} gained ${href}`).toBe(true);
+      }
       for (const href of classic) {
         expect(
           shell.has(href) || create.has(href),
@@ -108,7 +111,7 @@ describe("Phase A shell destinations", () => {
 
   it("keeps crew on My Work and off money", () => {
     const hrefs = shellHrefs("crew");
-    expect(homeHrefForRole("crew")).toBe("/installer");
+    expect(homeHrefForRole("crew")).toBe("/home");
     expect(hrefs.has("/installer")).toBe(true);
     expect(hrefs.has("/jobs")).toBe(true);
     expect(hrefs.has("/board")).toBe(true);
@@ -138,7 +141,7 @@ describe("Phase A shell destinations", () => {
     expect(hrefs.has("/catalog")).toBe(false);
     expect(hrefs.has("/pulse")).toBe(false);
     expect(quickCreateForRole("warehouse")).toEqual([]);
-    expect(homeHrefForRole("warehouse")).toBe("/inventory");
+    expect(homeHrefForRole("warehouse")).toBe("/home");
     expect(shellSectionsForRole("warehouse").some((section) => section.id === "sales")).toBe(false);
     expect(shellSectionsForRole("warehouse").some((section) => section.id === "money")).toBe(false);
   });
@@ -189,11 +192,12 @@ describe("Phase A shell grouping", () => {
     expect(schedule?.items.some((item) => item.href === "/schedule/route")).toBe(false);
   });
 
-  it("does not list My Work twice for crew", () => {
+  it("keeps Home on the action center and My Work under Jobs for crew", () => {
     const jobs = shellSectionsForRole("crew").find((section) => section.id === "jobs");
-    expect(jobs?.items.map((item) => item.href)).not.toContain("/installer");
+    expect(jobs?.items.map((item) => item.href)).toContain("/installer");
+    expect(jobs?.items.filter((item) => item.href === "/installer")).toHaveLength(1);
     expect(shellSectionsForRole("crew").find((section) => section.id === "home")?.items[0]?.href).toBe(
-      "/installer",
+      "/home",
     );
   });
 });
@@ -223,7 +227,8 @@ describe("Phase A active navigation", () => {
     expect(activeShellSection("/schedule", role)).toBe("schedule");
     expect(activeShellSection("/jobs/calendar", role)).toBe("jobs");
     expect(activeShellSection("/invoices/quick", role)).toBe("money");
-    expect(activeShellSection("/installer", "crew")).toBe("home");
+    expect(activeShellSection("/home", "crew")).toBe("home");
+    expect(activeShellSection("/installer", "crew")).toBe("jobs");
     expect(activeShellSection("/installer", "admin")).toBe("jobs");
     expect(activeShellLink("/does-not-exist", role)).toBeNull();
     expect(activeShellSection("/does-not-exist", role)).toBeNull();
@@ -270,7 +275,8 @@ describe("Phase A active navigation", () => {
     }
     expect(openGroupForRoute(activeShellSection("/customers", role))).toBeNull();
     expect(openGroupForRoute(activeShellSection("/", role))).toBeNull();
-    expect(openGroupForRoute(activeShellSection("/installer", "crew"))).toBeNull();
+    expect(openGroupForRoute(activeShellSection("/home", "crew"))).toBeNull();
+    expect(openGroupForRoute(activeShellSection("/installer", "crew"))).toBe("jobs");
     expect(openGroupForRoute(activeShellSection("/jobs", "crew"))).toBe("jobs");
     expect(openGroupForRoute(null)).toBeNull();
     expect(() => shellSectionsForRole("admin")).not.toThrow();
