@@ -32,6 +32,7 @@ import {
   type Product,
   type UserRole,
 } from "@/lib/types";
+import { pickerCatalogScope } from "@/lib/catalog-search";
 import { createProductInline, searchCatalogProducts, catalogRemnantAlertsFor } from "../catalog/actions";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { TYPICAL_PIECE_LENGTH_IN } from "@/lib/accessories";
@@ -48,6 +49,53 @@ import {
 
 const inputSm =
   "h-9 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+/** Same query during this estimate should not hit the network again immediately. */
+const catalogSearchCache = new Map<string, { at: number; rows: Product[] }>();
+const catalogSearchInflight = new Map<string, Promise<Product[]>>();
+const CATALOG_CACHE_FRESH_MS = 15_000;
+const recentPicked: Product[] = [];
+
+function rememberPicked(p: Product) {
+  const i = recentPicked.findIndex((x) => x.id === p.id);
+  if (i >= 0) recentPicked.splice(i, 1);
+  recentPicked.unshift(p);
+  if (recentPicked.length > 8) recentPicked.pop();
+}
+
+function searchCacheKey(
+  purpose: string,
+  categories: string[] | null,
+  browseTokens: string[] | null,
+  term: string,
+): string {
+  return `${purpose}|${(categories ?? []).join(",")}|${(browseTokens ?? []).join(",")}|${term.trim().toLowerCase()}`;
+}
+
+function loadCatalogSearch(
+  key: string,
+  term: string,
+  purpose: CatalogPricePurpose,
+  categories: string[] | null,
+  browseTokens: string[] | null,
+): Promise<Product[]> {
+  const cached = catalogSearchCache.get(key);
+  if (cached && Date.now() - cached.at < CATALOG_CACHE_FRESH_MS) return Promise.resolve(cached.rows);
+  const pending = catalogSearchInflight.get(key);
+  if (pending) return pending;
+  const request = searchCatalogProducts(term, { purpose, categories, browseTokens })
+    .then((rows) => {
+      catalogSearchCache.set(key, { at: Date.now(), rows });
+      catalogSearchInflight.delete(key);
+      return rows;
+    })
+    .catch((err) => {
+      catalogSearchInflight.delete(key);
+      throw err;
+    });
+  catalogSearchInflight.set(key, request);
+  return request;
+}
 
 function pickerMoney(p: Product, purpose: CatalogPricePurpose) {
   const cost = catalogUnitCost(p);
@@ -146,6 +194,7 @@ export function ProductPicker({
   initialLabel = "",
   label = "Material (from catalog)",
   defaultCategory,
+  contextKey,
   fullWidth = false,
   purpose = "sell",
   viewerRole = null,
@@ -157,6 +206,8 @@ export function ProductPicker({
   initialLabel?: string;
   label?: string;
   defaultCategory?: string;
+  /** Question key (carpet_pad, adhesive, …) so the catalog opens already narrowed. */
+  contextKey?: string | null;
   /** Make the search field + results span the full container (roomier typing). */
   fullWidth?: boolean;
   /** sell = estimates/counter; cost = PO/warehouse; identity = samples. */
@@ -168,6 +219,7 @@ export function ProductPicker({
   onUseOnce?: (input: CustomProductInput) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [searchAll, setSearchAll] = useState(false);
   const [adding, setAdding] = useState(false);
   // When a product is selected, the box shows it as a display (a pill). "Change"
   // flips this on to reveal the search field so you can swap it — you never
@@ -189,8 +241,15 @@ export function ProductPicker({
   >({});
   const [loading, setLoading] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [recentTick, setRecentTick] = useState(0);
   const boxRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const scope = pickerCatalogScope({ category: defaultCategory, key: contextKey });
+  const narrowed = !!(scope.categories?.length || scope.browseTokens?.length);
+  const categoryKey = searchAll ? "" : (scope.categories ?? []).join(",");
+  const browseKey = searchAll ? "" : (scope.browseTokens ?? []).join(",");
+  const categories = categoryKey ? categoryKey.split(",") : null;
+  const browseTokens = browseKey ? browseKey.split(",") : null;
 
   // Keep the field in sync when the line's product changes elsewhere. Any change
   // to the selected product (pick / swap / clear) drops back to the display pill.
@@ -215,35 +274,54 @@ export function ProductPicker({
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open, initialLabel]);
 
-  // Debounced server-side search while the dropdown is open.
+  // Reset "search all" when the question changes.
   useEffect(() => {
-    if (!open || adding) return;
-    setLoading(true);
-    const term = q.trim() === initialLabel.trim() ? "" : q;
+    setSearchAll(false);
+  }, [defaultCategory, contextKey]);
+
+  // Scoped browse can start before the dropdown opens. Unscoped search waits
+  // for the salesperson to open it — that path scores the whole catalog.
+  useEffect(() => {
+    if (adding) return;
+    const scoped = !!(categories?.length || browseTokens?.length);
+    if (!open && !scoped) return;
+    const term = open ? (q.trim() === initialLabel.trim() ? "" : q.trim()) : "";
+    const key = searchCacheKey(purpose, categories, browseTokens, term);
+    const cached = catalogSearchCache.get(key);
+    if (cached) {
+      setResults(cached.rows);
+      setLoading(false);
+      if (Date.now() - cached.at < CATALOG_CACHE_FRESH_MS) return;
+    } else {
+      setLoading(true);
+    }
     let cancelled = false;
     const t = setTimeout(async () => {
       try {
-        const rows = await searchCatalogProducts(term, { purpose });
+        const rows = await loadCatalogSearch(key, term, purpose, categories, browseTokens);
         if (cancelled) return;
         setResults(rows);
+        setLoading(false);
         const ids = rows.filter((p) => p.track_stock).map((p) => p.id);
-        const alerts = ids.length ? await catalogRemnantAlertsFor(ids) : {};
-        if (cancelled) return;
-        setRemnantAlerts(alerts);
+        if (!ids.length) {
+          setRemnantAlerts({});
+          return;
+        }
+        const alerts = await catalogRemnantAlertsFor(ids);
+        if (!cancelled) setRemnantAlerts(alerts);
       } catch {
         if (!cancelled) {
-          setResults([]);
+          if (!cached) setResults([]);
           setRemnantAlerts({});
+          setLoading(false);
         }
-      } finally {
-        if (!cancelled) setLoading(false);
       }
-    }, 200);
+    }, cached ? 0 : 160);
     return () => {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [q, open, adding, initialLabel, purpose]);
+  }, [q, open, adding, initialLabel, purpose, categoryKey, browseKey]);
 
   const matches = results;
   const onHandLabel = (p: Product) => {
@@ -269,6 +347,22 @@ export function ProductPicker({
     el?.scrollIntoView({ block: "nearest" });
   }, [activeIndex, open, adding]);
 
+  const choose = (p: Product) => {
+    rememberPicked(p);
+    setRecentTick((n) => n + 1);
+    if (value && p.id !== value) {
+      setPending(p);
+      setOpen(false);
+      return;
+    }
+    onPick(p);
+    setOpen(false);
+  };
+  const liveTerm = open ? (q.trim() === initialLabel.trim() ? "" : q.trim()) : "";
+  const recentRows = (recentTick >= 0 ? recentPicked : []).filter(
+    (p) => !categories || categories.includes(p.category),
+  );
+
   // total = number of product rows; index === total is the "Add to catalog" row.
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "ArrowDown") {
@@ -286,15 +380,7 @@ export function ProductPicker({
       e.preventDefault();
       if (activeIndex < matches.length) {
         const p = matches[activeIndex];
-        if (p) {
-          if (value && p.id !== value) {
-            setPending(p);
-            setOpen(false);
-            return;
-          }
-          onPick(p);
-          setOpen(false);
-        }
+        if (p) choose(p);
       } else {
         setAdding(true); // highlighted the "Add to catalog" row
         setOpen(false);
@@ -352,6 +438,8 @@ export function ProductPicker({
               type="button"
               size="sm"
               onClick={() => {
+                rememberPicked(pending);
+                setRecentTick((n) => n + 1);
                 onPick(pending);
                 setPending(null);
                 setEditing(false);
@@ -427,7 +515,9 @@ export function ProductPicker({
             }}
             onKeyDown={onKeyDown}
             autoFocus={editing}
-            placeholder="Type a product name…"
+            placeholder={
+              scope.label && !searchAll ? `Search ${scope.label.toLowerCase()}…` : "Type a product name…"
+            }
             className={cn(inputSm, "w-full pl-9 pr-9 text-base", fullWidth ? "h-12" : "h-11")}
           />
           <button
@@ -453,6 +543,37 @@ export function ProductPicker({
         >
           {
             <>
+              {narrowed ? (
+                <div className="flex items-center justify-between gap-2 border-b px-3 py-1.5 text-xs">
+                  <span className="font-medium text-foreground">
+                    {searchAll ? "All products" : scope.label}
+                  </span>
+                  <button
+                    type="button"
+                    className="font-medium text-primary hover:underline"
+                    onClick={() => setSearchAll((v) => !v)}
+                  >
+                    {searchAll ? `Back to ${scope.label}` : "Search all products"}
+                  </button>
+                </div>
+              ) : null}
+              {!liveTerm && recentRows.length ? (
+                <div className="border-b px-3 py-1.5">
+                  <p className="text-[11px] font-medium text-muted-foreground">Recently used</p>
+                  <div className="mt-1 flex flex-col">
+                    {recentRows.slice(0, 4).map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className="truncate rounded px-1 py-1 text-left text-sm hover:bg-muted"
+                        onClick={() => choose(p)}
+                      >
+                        {productLabel(p)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <div ref={listRef} className="max-h-[min(65vh,32rem)] overflow-y-auto overscroll-contain py-1">
                 {matches.length === 0 ? (
                   <p className="px-3 py-3 text-sm text-muted-foreground">
@@ -595,8 +716,7 @@ export function ProductPicker({
                             setOpen(false);
                             return;
                           }
-                          onPick(p);
-                          setOpen(false);
+                          choose(p);
                         }}
                         className={cn(
                           "flex w-full items-start justify-between gap-3 border-b border-border/40 px-3.5 py-3 text-left last:border-b-0",
@@ -612,8 +732,10 @@ export function ProductPicker({
                           </span>
                           <span className="mt-0.5 block break-words text-xs text-muted-foreground">
                             {[
+                              p.manufacturer,
                               PRODUCT_CATEGORY_LABELS[p.category],
                               p.style,
+                              p.color,
                               p.sku ? `#${p.sku}` : null,
                             ]
                               .filter(Boolean)

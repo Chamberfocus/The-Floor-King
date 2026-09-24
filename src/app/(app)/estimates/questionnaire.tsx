@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { billedQtyToSqft, catalogRateToBillingUnit, isAreaUnit, lineDisplayUnit, lineSkipsAreaCartonMath, normalizeUnit, pickedProductUnit, unitIsSqyd, unitLabel } from "@/lib/units";
 import { productLabel } from "@/lib/product-label";
 import { catalogRateInLineUnit, catalogUnitCost, PRICE_NEEDED } from "@/lib/catalog-pricing";
@@ -9,6 +9,13 @@ import {
   guidedMaterialPriceLabel,
   resolveGuidedProductRates,
 } from "@/lib/guided-estimate-price";
+import {
+  cutGroupsEqual,
+  formatMeasuredRoomReference,
+  planCutGroups,
+  selectRoomsForRollCuts,
+  type MeasuredCutRoom,
+} from "@/lib/guided-estimate-rooms";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -332,7 +339,16 @@ const TRIM_TYPES: { label: string; unit: string; sized?: boolean }[] = [
 // A single carpet cut: length (ft + in) off a roll of the chosen width.
 interface CutRow { id: string; lf: string; li: string; width: string }
 // One carpet + its cuts (supports different carpet per area).
-interface CarpetGroup { id: string; area: string; product: ProductAns | null; cuts: CutRow[] }
+interface CarpetGroup {
+  id: string;
+  area: string;
+  product: ProductAns | null;
+  cuts: CutRow[];
+  /** Measured area-row id. The cut step does not ask for this room's name again. */
+  sourceRoomId?: string;
+  /** A cut that was not one of the measured rooms. */
+  unplanned?: boolean;
+}
 // A run of stairs of one wrap style (allow more than one on a job).
 interface StairGroup { id: string; type: string; count: string }
 type Answer =
@@ -943,7 +959,7 @@ export function Questionnaire({
   // Every measured room with its size + cut dimensions — so the flooring can be
   // itemized per room and the measurements transfer to the estimate/work order.
   const allRooms = useMemo(() => {
-    const out: { name: string; sqft: number; lenIn: number | null; widIn: number | null }[] = [];
+    const out: { id: string; name: string; sqft: number; lenIn: number | null; widIn: number | null }[] = [];
     for (const q of questions) {
       if (q.kind !== "areas") continue;
       const a = answers[q.id];
@@ -955,6 +971,7 @@ export function Questionnaire({
         const extra = (r.sections ?? []).filter((s) => sectionSqft(s) > 0);
         const multi = extra.length > 0;
         out.push({
+          id: r.id,
           name: r.name || "",
           sqft: sf,
           lenIn: usingCalc || multi ? null : Math.round(feetIn(r.lf, r.li) * 12) || null,
@@ -997,6 +1014,126 @@ export function Questionnaire({
         .reduce((s, r) => s + (r.room.sqft > 0 ? r.room.sqft : 0), 0),
     };
   }, [questions, answers, visible, allRooms]);
+
+  const cutRoomSyncKey = useMemo(() => {
+    const parts: string[] = [];
+    for (const rm of allRooms) {
+      parts.push(`${rm.id}|${rm.name}|${rm.sqft}|${rm.lenIn ?? ""}|${rm.widIn ?? ""}`);
+    }
+    for (const q of questions) {
+      if (q.kind !== "floor_map" || !visible[q.id]) continue;
+      const a = answers[q.id];
+      if (a?.kind !== "floor_map") continue;
+      allRooms.forEach((rm, i) => {
+        const p = a.byRoom[roomKey(rm.name, i)];
+        parts.push(`fm:${rm.id}:${p?.productId ?? ""}:${p?.label ?? ""}:${p?.sellPrice ?? ""}`);
+      });
+    }
+    for (const q of questions) {
+      if (q.kind !== "product" || !visible[q.id]) continue;
+      const a = answers[q.id];
+      if (a?.kind === "product" && a.product) {
+        parts.push(`pr:${q.id}:${a.product.productId}:${a.product.label}:${a.product.sellPrice ?? ""}`);
+      }
+    }
+    return parts.join("~");
+  }, [allRooms, questions, answers, visible]);
+
+  // Measured rooms are the cut list. Sync before paint so Carpet & Cuts does
+  // not open on a blank "Area / room" field.
+  useLayoutEffect(() => {
+    setAnswers((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const q of questions) {
+        if (q.kind !== "cuts" || !visible[q.id]) continue;
+        const a = next[q.id];
+        if (!a || a.kind !== "cuts") continue;
+        const roll = q.config.category === "vinyl" ? "vinyl" : "carpet";
+        let mapActive = false;
+        const assignments: {
+          roomId: string;
+          family: string | null;
+          category: string | null;
+          product: ProductAns | null;
+        }[] = [];
+        for (const fq of questions) {
+          if (fq.kind !== "floor_map" || !visible[fq.id]) continue;
+          const fa = prev[fq.id];
+          if (fa?.kind !== "floor_map") continue;
+          mapActive = true;
+          allRooms.forEach((rm, i) => {
+            const p = fa.byRoom[roomKey(rm.name, i)] ?? null;
+            assignments.push({
+              roomId: rm.id,
+              family: p?.category ? familyFromCatalogCategory(p.category) : null,
+              category: p?.category ?? null,
+              product: p,
+            });
+          });
+        }
+        const selected = selectRoomsForRollCuts(
+          roll,
+          allRooms,
+          mapActive
+            ? assignments.map(({ roomId, family, category }) => ({ roomId, family, category }))
+            : null,
+        );
+        const byId = new Map(assignments.map((row) => [row.roomId, row.product]));
+        const rooms: MeasuredCutRoom<ProductAns>[] = selected.map((rm) => ({
+          id: rm.id,
+          name: rm.name,
+          sqft: rm.sqft,
+          lenIn: rm.lenIn,
+          widIn: rm.widIn,
+          product: byId.get(rm.id) ?? null,
+        }));
+        let earlierProduct: ProductAns | null = null;
+        for (const fq of questions) {
+          if (!visible[fq.id] || fq.kind !== "product") continue;
+          const fa = prev[fq.id];
+          if (fa?.kind !== "product" || !fa.product) continue;
+          if (familyFromCatalogCategory(fa.product.category) === roll) {
+            earlierProduct = fa.product;
+            break;
+          }
+        }
+        const planned = planCutGroups({
+          rooms,
+          groups: a.groups,
+          same: a.same !== false,
+          product: a.product,
+          earlierProduct,
+          createGroup: (room) => {
+            const g = newCarpetGroup("");
+            if (!room) return { ...g, unplanned: true, area: "" };
+            return {
+              ...g,
+              area: room.name,
+              sourceRoomId: room.id,
+              unplanned: false,
+              product: room.product ?? null,
+            };
+          },
+        });
+        if (
+          planned.same === (a.same !== false) &&
+          planned.product === a.product &&
+          cutGroupsEqual(planned.groups, a.groups)
+        ) {
+          continue;
+        }
+        next[q.id] = {
+          ...a,
+          same: planned.same,
+          product: planned.product,
+          groups: planned.groups,
+        };
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [cutRoomSyncKey, questions, visible, allRooms]);
 
   const questionCoverSf = (q: { kind?: string | null; key?: string | null; category?: string | null }) =>
     measuredSqftForQuestionCover({
@@ -3600,7 +3737,7 @@ function QuestionBody({
   overrides?: Record<string, Record<string, Answer>>;
   setRoomOverride?: (roomId: string, qid: string, a: Answer) => void;
   jobAnswers?: Record<string, Answer>;
-  floorRooms?: { name: string; sqft: number; lenIn: number | null; widIn: number | null }[];
+  floorRooms?: { id?: string; name: string; sqft: number; lenIn: number | null; widIn: number | null }[];
   /** Subfloor / HS prep rooms — mixed jobs omit carpet rooms. */
   prepRooms?: { name: string; sqft: number; lenIn: number | null; widIn: number | null }[];
   /** Jump to the areas step. The room-map step is useless without rooms, and
@@ -4000,6 +4137,7 @@ function QuestionBody({
             value=""
             label=""
             defaultCategory={mapDefaultCategory}
+            contextKey={q.key}
             onPick={(prod) => fillEmpty(prod ? toProductAns(prod) : null)}
             onCreated={(prod) => fillEmpty(toProductAns(prod))}
             onUseOnce={(input) => fillEmpty(customToProductAns(input))}
@@ -4053,6 +4191,7 @@ function QuestionBody({
                 defaultCategory={
                   (p?.category as string) || mapDefaultCategory
                 }
+                contextKey={q.key}
                 onPick={(prod) => setRoom(key, prod ? toProductAns(prod) : null)}
                 onCreated={(prod) => setRoom(key, toProductAns(prod))}
                 onUseOnce={(input) => setRoom(key, customToProductAns(input))}
@@ -4453,6 +4592,7 @@ function QuestionBody({
                   initialLabel={row.product?.label ?? (isStairnose(row.type) ? "Versatrim " : "")}
                   label="Search the catalog (or add a Versatrim / manufacturer item)"
                   defaultCategory="trim"
+                  contextKey={q.key}
                   onPick={(prod) =>
                     patch(row.id, {
                       product: prod ? toProductAns(prod) : null,
@@ -4556,6 +4696,7 @@ function QuestionBody({
           initialLabel={p?.label ?? ""}
           label={`Pick from the catalog (${cat})`}
           defaultCategory={cat}
+          contextKey={q.key}
           onPick={(prod) => setMain(prod ? toProductAns(prod) : null)}
           onCreated={(prod) => setMain(toProductAns(prod))}
           onUseOnce={(input) => setMain(customToProductAns(input))}
@@ -4814,6 +4955,7 @@ function QuestionBody({
                       initialLabel={ex.product?.label ?? ""}
                       label={`Product (${cat})`}
                       defaultCategory={cat}
+                      contextKey={q.key}
                       onPick={(prod) =>
                         setExtraProduct(ex.id, prod ? toProductAns(prod) : null, ex)
                       }
@@ -5125,7 +5267,26 @@ function QuestionBody({
     type CutsA = { kind: "cuts"; same: boolean; product: ProductAns | null; groups: CarpetGroup[] };
     const mutate = (fn: (a: CutsA) => CutsA) =>
       update((prev) => (prev && prev.kind === "cuts" ? fn(prev) : answer));
-    const setSame = (v: boolean) => mutate((a) => ({ ...a, same: v }));
+    const setSame = (v: boolean) =>
+      mutate((a) => {
+        if (v) {
+          const picked = a.groups.map((g) => g.product).filter((p): p is ProductAns => !!p);
+          const first = picked[0] ?? null;
+          const shared =
+            first &&
+            picked.every(
+              (p) => (p.productId || p.label) === (first.productId || first.label),
+            )
+              ? first
+              : null;
+          return { ...a, same: true, product: a.product ?? shared };
+        }
+        return {
+          ...a,
+          same: false,
+          groups: a.groups.map((g) => ({ ...g, product: g.product ?? a.product })),
+        };
+      });
     const patchGroup = (gid: string, p: Partial<CarpetGroup>) =>
       mutate((a) => ({ ...a, groups: a.groups.map((g) => (g.id === gid ? { ...g, ...p } : g)) }));
     const patchCut = (gid: string, cid: string, p: Partial<CutRow>) =>
@@ -5138,7 +5299,11 @@ function QuestionBody({
     const addGroup = () =>
       mutate((a) => {
         const w = defaultWidthFor(a.same !== false ? a.product : null);
-        return { ...a, groups: [...a.groups, { ...newCarpetGroup(), cuts: [newCutRow(w)] }] };
+        const g = newCarpetGroup("");
+        return {
+          ...a,
+          groups: [...a.groups, { ...g, unplanned: true, area: "", cuts: [newCutRow(w)] }],
+        };
       });
     const removeGroup = (gid: string) => mutate((a) => ({ ...a, groups: a.groups.filter((g) => g.id !== gid) }));
     const rollNoun = q.config.category === "vinyl" ? "sheet vinyl" : "carpet";
@@ -5254,6 +5419,7 @@ function QuestionBody({
             initialLabel={p?.label ?? ""}
             label="Which carpet tile?"
             defaultCategory="carpet"
+            contextKey={q.key}
             fullWidth
             onPick={(prod) => setProduct(prod ? toProductAns(prod) : null)}
             onCreated={(prod) => setProduct(toProductAns(prod))}
@@ -5323,6 +5489,12 @@ function QuestionBody({
     }
     return (
       <div className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          {floorRooms.length
+            ? "These are the rooms you already measured. Enter the cut for each one. The order comes from the cuts, not from the measured square feet."
+            : "Measure the rooms first and they show up here. Add an unplanned cut only for a piece that was not one of those rooms."}
+        </p>
+
         {/* Same carpet everywhere vs a different carpet per area. */}
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium">{rollNounCap}</span>
@@ -5332,98 +5504,140 @@ function QuestionBody({
           </div>
         </div>
 
-        {/* Same mode: pick the product once — it applies to every cut below. */}
+        {/* Same mode: one SKU on the rooms that already exist. */}
         {same ? (
-          <ProductPicker
-            value={answer.product?.productId ?? ""}
-            initialLabel={answer.product?.label ?? ""}
-            label={`Which ${rollNoun}? (used for every cut)`}
-            defaultCategory={q.config.category === "vinyl" ? "vinyl" : "carpet"}
-            fullWidth
-            onPick={(prod) =>
-              mutate((a) => {
-                const p = prod ? toProductAns(prod) : null;
-                const prev = defaultWidthFor(a.product);
-                return { ...a, product: p, groups: applyProductWidth(a.groups, p, prev) };
-              })
-            }
-            onCreated={(prod) =>
-              mutate((a) => {
-                const p = toProductAns(prod);
-                const prev = defaultWidthFor(a.product);
-                return { ...a, product: p, groups: applyProductWidth(a.groups, p, prev) };
-              })
-            }
-            onUseOnce={(input) =>
-              mutate((a) => {
-                const p = customToProductAns(input);
-                const prev = defaultWidthFor(a.product);
-                return { ...a, product: p, groups: applyProductWidth(a.groups, p, prev) };
-              })
-            }
-          />
+          <>
+            <ProductPicker
+              value={answer.product?.productId ?? ""}
+              initialLabel={answer.product?.label ?? ""}
+              label={`Which ${rollNoun}? (used for every cut)`}
+              defaultCategory={q.config.category === "vinyl" ? "vinyl" : "carpet"}
+              contextKey={q.key}
+              fullWidth
+              onPick={(prod) =>
+                mutate((a) => {
+                  const p = prod ? toProductAns(prod) : null;
+                  const prev = defaultWidthFor(a.product);
+                  return { ...a, product: p, groups: applyProductWidth(a.groups, p, prev) };
+                })
+              }
+              onCreated={(prod) =>
+                mutate((a) => {
+                  const p = toProductAns(prod);
+                  const prev = defaultWidthFor(a.product);
+                  return { ...a, product: p, groups: applyProductWidth(a.groups, p, prev) };
+                })
+              }
+              onUseOnce={(input) =>
+                mutate((a) => {
+                  const p = customToProductAns(input);
+                  const prev = defaultWidthFor(a.product);
+                  return { ...a, product: p, groups: applyProductWidth(a.groups, p, prev) };
+                })
+              }
+            />
+            {answer.product ? (
+              <SellPriceEditor
+                p={answer.product}
+                unitLabel="sq yd"
+                onChange={(next) => mutate((a) => ({ ...a, product: next }))}
+              />
+            ) : null}
+          </>
         ) : null}
 
-        {groups.map((g, gi) => {
+        {groups.map((g) => {
           const y = yardOf(g);
+          const linked = !g.unplanned && !!g.sourceRoomId;
+          const room = linked ? floorRooms.find((r) => r.id === g.sourceRoomId) : undefined;
+          const shown = same ? answer.product : g.product;
           return (
             <div key={g.id} className="space-y-2.5 rounded-lg border bg-muted/20 p-3">
-              <div className="flex items-center gap-2">
-                <Input value={g.area} onChange={(e) => patchGroup(g.id, { area: e.target.value })}
-                  placeholder={!same && groups.length > 1 ? `${rollNounCap} ${gi + 1} — area / room` : "Area / room (optional)"}
-                  className="h-10 flex-1" />
-                {groups.length > 1 ? (
+              {linked ? (
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-wide">
+                    {(room?.name || g.area || "Room").trim() || "Room"}
+                  </p>
+                  {room ? (
+                    <p className="text-xs text-muted-foreground">
+                      Measured: {formatMeasuredRoomReference(room)}
+                    </p>
+                  ) : null}
+                  {shown?.label ? (
+                    <p className="text-xs">
+                      {rollNounCap}: {shown.label}
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={g.area}
+                    onChange={(e) => patchGroup(g.id, { area: e.target.value })}
+                    placeholder="Unplanned area"
+                    className="h-10 flex-1"
+                  />
                   <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove area" onClick={() => removeGroup(g.id)}>
                     <Trash2 className="size-4 text-destructive" />
                   </Button>
-                ) : null}
-              </div>
+                </div>
+              )}
               {!same ? (
-                <ProductPicker value={g.product?.productId ?? ""} initialLabel={g.product?.label ?? ""} label={`Which ${rollNoun}?`} defaultCategory={q.config.category === "vinyl" ? "vinyl" : "carpet"} fullWidth
-                  onPick={(prod) => {
-                    const p = prod ? toProductAns(prod) : null;
-                    mutate((a) => {
-                      const prev = defaultWidthFor(g.product);
-                      return {
-                        ...a,
-                        groups: a.groups.map((gg) =>
-                          gg.id === g.id
-                            ? { ...gg, product: p, cuts: applyProductWidth([gg], p, prev)[0]!.cuts }
-                            : gg,
-                        ),
-                      };
-                    });
-                  }}
-                  onCreated={(prod) => {
-                    const p = toProductAns(prod);
-                    mutate((a) => {
-                      const prev = defaultWidthFor(g.product);
-                      return {
-                        ...a,
-                        groups: a.groups.map((gg) =>
-                          gg.id === g.id
-                            ? { ...gg, product: p, cuts: applyProductWidth([gg], p, prev)[0]!.cuts }
-                            : gg,
-                        ),
-                      };
-                    });
-                  }}
-                  onUseOnce={(input) => {
-                    const p = customToProductAns(input);
-                    mutate((a) => {
-                      const prev = defaultWidthFor(g.product);
-                      return {
-                        ...a,
-                        groups: a.groups.map((gg) =>
-                          gg.id === g.id
-                            ? { ...gg, product: p, cuts: applyProductWidth([gg], p, prev)[0]!.cuts }
-                            : gg,
-                        ),
-                      };
-                    });
-                  }} />
+                <>
+                  <ProductPicker value={g.product?.productId ?? ""} initialLabel={g.product?.label ?? ""} label={`Which ${rollNoun}?`} defaultCategory={q.config.category === "vinyl" ? "vinyl" : "carpet"} contextKey={q.key} fullWidth
+                    onPick={(prod) => {
+                      const p = prod ? toProductAns(prod) : null;
+                      mutate((a) => {
+                        const prev = defaultWidthFor(g.product);
+                        return {
+                          ...a,
+                          groups: a.groups.map((gg) =>
+                            gg.id === g.id
+                              ? { ...gg, product: p, cuts: applyProductWidth([gg], p, prev)[0]!.cuts }
+                              : gg,
+                          ),
+                        };
+                      });
+                    }}
+                    onCreated={(prod) => {
+                      const p = toProductAns(prod);
+                      mutate((a) => {
+                        const prev = defaultWidthFor(g.product);
+                        return {
+                          ...a,
+                          groups: a.groups.map((gg) =>
+                            gg.id === g.id
+                              ? { ...gg, product: p, cuts: applyProductWidth([gg], p, prev)[0]!.cuts }
+                              : gg,
+                          ),
+                        };
+                      });
+                    }}
+                    onUseOnce={(input) => {
+                      const p = customToProductAns(input);
+                      mutate((a) => {
+                        const prev = defaultWidthFor(g.product);
+                        return {
+                          ...a,
+                          groups: a.groups.map((gg) =>
+                            gg.id === g.id
+                              ? { ...gg, product: p, cuts: applyProductWidth([gg], p, prev)[0]!.cuts }
+                              : gg,
+                          ),
+                        };
+                      });
+                    }} />
+                  {g.product ? (
+                    <SellPriceEditor
+                      p={g.product}
+                      unitLabel="sq yd"
+                      onChange={(next) => patchGroup(g.id, { product: next })}
+                    />
+                  ) : null}
+                </>
               ) : null}
               <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground">Cuts</p>
                 {g.cuts.map((c, ci) => (
                   <div key={c.id} className="flex flex-wrap items-end gap-2">
                     <FtInField label={ci === 0 ? "Length" : ""} ft={c.lf} inch={c.li}
@@ -5463,7 +5677,7 @@ function QuestionBody({
                   </div>
                 ))}
                 <button type="button" onClick={() => addCut(g.id)}
-                  className="text-xs font-medium text-primary hover:underline">+ Add cut</button>
+                  className="text-xs font-medium text-primary hover:underline">+ Add another cut</button>
               </div>
               <div className="text-sm">
                 {same ? "This area" : `This ${rollNoun}`}:{" "}
@@ -5478,7 +5692,7 @@ function QuestionBody({
           );
         })}
         <Button type="button" variant="outline" size="sm" onClick={addGroup}>
-          <Plus className="size-3.5" /> {same ? "Add another area" : `Different ${rollNoun} / area`}
+          <Plus className="size-3.5" /> Add unplanned area/cut
         </Button>
         <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-semibold">
           {grandOrder.title}
@@ -5603,6 +5817,7 @@ function QuestionBody({
             initialLabel={p?.label ?? ""}
             label=""
             defaultCategory={hsWrapCat}
+            contextKey={q.key}
             onPick={(prod) => setWrapProduct(prod ? toProductAns(prod) : null)}
             onCreated={(prod) => setWrapProduct(toProductAns(prod))}
             onUseOnce={(input) => setWrapProduct(customToProductAns(input))}
