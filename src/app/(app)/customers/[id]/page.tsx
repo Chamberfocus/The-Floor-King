@@ -157,6 +157,12 @@ import { pickCloseoutJob,
 import { STEP_OVERRIDE_ROLES } from "@/lib/job-checklist";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth";
+import { RecordActionCenter } from "@/components/record-action-center";
+import { loadCustomerRecordFacts } from "@/lib/data/record-facts";
+import {
+  buildCustomerActionCenter,
+  depositOnFileFromSummary,
+} from "@/lib/record-action-center";
 
 export async function generateMetadata({
   params,
@@ -329,6 +335,55 @@ export default async function CustomerPage({
     voided: 0,
     deposits: [],
   }));
+  const recordFacts = await loadCustomerRecordFacts(
+    id,
+    jobs.map((job) => job.id),
+  ).catch(() => ({ materialJobs: new Set<string>(), callbacks: [] as { id: string; job_id: string | null }[] }));
+  const jobTitle = new Map(jobs.map((job) => [job.id, job.title]));
+  const customerAction = buildCustomerActionCenter({
+    now: new Date(),
+    role: profile.role,
+    customerId: id,
+    stageName: currentStage?.name ?? null,
+    stageAction: currentStage?.auto_action ?? null,
+    nextAction: currentStage?.next_action ?? null,
+    nextActionDue: customer.next_action_due,
+    depositOnFile: depositOnFileFromSummary(depositSummary),
+    estimates: estimates.map((estimate) => ({
+      id: estimate.id,
+      status: estimate.status,
+      sentAt: estimate.sent_at,
+      approvedAt: estimate.approved_at,
+      approvalStale: estimate.approval_stale,
+    })),
+    jobs: jobs.map((job) => ({
+      id: job.id,
+      title: job.title,
+      status: job.status,
+      scheduledDate: job.scheduled_date,
+      warehouseReadyAt: job.warehouse_ready_at,
+      hasMaterialNeed: recordFacts.materialJobs.has(job.id),
+      createdAt: job.created_at,
+    })),
+    openInvoices: invoices
+      .filter((inv) => inv.status !== "void" && inv.status !== "paid" && invoiceAmountDue(inv) > 0.5)
+      .map((inv) => ({
+        id: inv.id,
+        number: inv.number,
+        dueAt: inv.due_date,
+        label: jobTitle.get(inv.job_id ?? "") ?? null,
+      })),
+    callbacks: recordFacts.callbacks.map((row) => ({
+      jobId: row.job_id,
+      jobTitle: row.job_id ? jobTitle.get(row.job_id) ?? null : null,
+    })),
+    tasks: openTasks.map((task) => ({
+      title: task.title,
+      dueAt: task.due_at,
+      status: task.status,
+      sourceKey: task.source_key,
+    })),
+  });
   // "Stage 6 of 12" — where they are on the linear spine, so the badge means
   // something without knowing the stage list by heart.
   const spinePos = spinePosition(currentStage, stages);
@@ -725,6 +780,8 @@ export default async function CustomerPage({
           {creditOk}
         </div>
       ) : null}
+
+      <RecordActionCenter model={customerAction} />
 
       {/* Identity band — who they are, their stage, contact, owner & schedule,
           all in one place (replaces the plain header + its scattered bits). */}
