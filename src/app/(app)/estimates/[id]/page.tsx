@@ -35,6 +35,14 @@ import { getCustomer } from "@/lib/data/customers";
 import { getOrgSettings } from "@/lib/data/org";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { requireProfile } from "@/lib/auth";
+import { RecordActionCenter } from "@/components/record-action-center";
+import { getCustomerDepositSummary } from "@/lib/data/customer-deposits";
+import { loadJobMaterialNeed } from "@/lib/data/record-facts";
+import { assessMaterialsReadyForSchedule } from "@/lib/materials-ready";
+import {
+  buildEstimateActionCenter,
+  depositOnFileFromSummary,
+} from "@/lib/record-action-center";
 import {
   optionTotalsWithDiscount,
   lineTotal,
@@ -132,7 +140,7 @@ export default async function EstimatePage({
   const supabase = await createClient();
   const { data: linkedJob } = await supabase
     .from("jobs")
-    .select("id")
+    .select("id, title, status, scheduled_date, warehouse_ready_at")
     .eq("estimate_id", id)
     .maybeSingle();
   // Which property this estimate is for. Only meaningful on accounts that have
@@ -170,6 +178,44 @@ export default async function EstimatePage({
   // Never shown to the customer (this whole page is staff-facing; the customer's
   // copy is EstimatePrintDoc above).
   const profile = await requireProfile();
+  const linked = linkedJob as {
+    id: string;
+    title: string | null;
+    status: string;
+    scheduled_date: string | null;
+    warehouse_ready_at: string | null;
+  } | null;
+  const materialNeed = linked ? await loadJobMaterialNeed(linked.id).catch(() => false) : false;
+  const materialReady = linked
+    ? assessMaterialsReadyForSchedule({
+        warehouseReadyAt: linked.warehouse_ready_at,
+        hasMaterialNeed: materialNeed,
+      }).ready
+    : false;
+  const depositSummary = estimate.customer_id
+    ? await getCustomerDepositSummary(estimate.customer_id).catch(() => null)
+    : null;
+  const estimateAction = buildEstimateActionCenter({
+    now: new Date(),
+    role: profile.role,
+    estimateId: estimate.id,
+    customerId: estimate.customer_id,
+    status: estimate.status,
+    sentAt: estimate.sent_at,
+    approvedAt: estimate.approved_at,
+    approvalStale: estimate.approval_stale === true,
+    hasOptions: (estimate.options ?? []).length > 0,
+    hasEmail: !!customer?.email,
+    depositOnFile: depositSummary ? depositOnFileFromSummary(depositSummary) : null,
+    linkedJob: linked
+      ? {
+          id: linked.id,
+          title: linked.title,
+          bookable: linked.status === "unscheduled" && !linked.scheduled_date && materialReady,
+          materialBlocked: linked.status !== "completed" && linked.status !== "cancelled" && !materialReady && (linked.status === "unscheduled" || !linked.scheduled_date),
+        }
+      : null,
+  });
   const biz = profile.role === "admin" ? await getBusinessSettings() : null;
   const profitFor = (o: EstimateOption) => {
     if (!biz) return null;
@@ -338,8 +384,12 @@ export default async function EstimatePage({
         ) : null}
       </div>
 
+      <div className="print:hidden">
+        <RecordActionCenter model={estimateAction} />
+      </div>
+
       {/* Next steps — the obvious "what now", tuned to where the estimate is */}
-      <Card className="mb-6 border-primary/40 print:hidden">
+      <Card id="estimate-next" className="mb-6 border-primary/40 print:hidden">
         <CardContent className="pt-6">
           {estimate.status === "approved" ? (
             <>

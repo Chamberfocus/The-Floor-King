@@ -31,6 +31,9 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { JobStatusBadge } from "@/components/job-status-badge";
+import { RecordActionCenter } from "@/components/record-action-center";
+import { buildJobActionCenter } from "@/lib/record-action-center";
+import { isMaterialLine } from "@/lib/job-scope";
 import { FlowPositionBadge } from "@/components/flow-position-badge";
 import { JobStage } from "./job-stage";
 import { CopyJob } from "./copy-job";
@@ -441,8 +444,31 @@ export default async function JobPage({
   const depositSummary = job.customer_id
     ? await getCustomerDepositSummary(job.customer_id).catch(() => null)
     : null;
-  const staffBalance =
-    isStaff ? (await getJobOpenBalance(id).catch(() => ({ balance: 0 }))).balance : 0;
+  const staffCollectible = isStaff
+    ? await getJobOpenBalance(id).catch(() => null)
+    : null;
+  const staffBalance = staffCollectible?.balance ?? 0;
+  const jobAction = buildJobActionCenter({
+    now: new Date(),
+    role: profile.role,
+    jobId: job.id,
+    title: job.title,
+    status: job.status,
+    scheduledDate: job.scheduled_date,
+    warehouseReadyAt: job.warehouse_ready_at,
+    hasMaterialNeed: (job.line_items ?? []).some((line) => isMaterialLine(line)),
+    createdAt: job.created_at,
+    completedAt: (job as { completed_at?: string | null }).completed_at ?? null,
+    ops: opsState,
+    openBalance: isStaff
+      ? (staffCollectible?.balance ?? null)
+      : collectsBalance && canInstallerTools
+        ? (balanceInfo?.balance ?? null)
+        : null,
+    invoiceHref: staffCollectible?.invoiceId ? `/invoices/${staffCollectible.invoiceId}` : null,
+    hasOpenCallback: openCallbacks.length > 0,
+    crewCollectsBalance: collectsBalance && canInstallerTools,
+  });
   const canManageHold =
     profile.role === "admin" ||
     profile.role === "office" ||
@@ -491,6 +517,8 @@ export default async function JobPage({
           {purchasingMessage}
         </div>
       ) : null}
+
+      <RecordActionCenter model={jobAction} />
 
       {opsState ? (
         <JobAttentionStrip
