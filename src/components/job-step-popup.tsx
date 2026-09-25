@@ -1,10 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { X } from "lucide-react";
-import { buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import type { JobProgress } from "@/lib/job-progress";
 
 export interface JobCelebration extends JobProgress {
@@ -19,8 +16,13 @@ const KEY = (id: string) => `fk-job-step:${id}`;
  * A friendly, non-blocking celebration that fires ONCE per real stage
  * advancement (per device). It diffs the job's derived stage against the last
  * one we saw in localStorage — so it never nags, never repeats, and only shows
- * when something actually got done. Pass one job (job/customer page) or several
+ * when something actually got done. Pass one job (job page) or several
  * (installer page); it queues them and shows one at a time.
+ *
+ * It confirms the step that just happened. It does not tell the employee what
+ * to do next — the record Action Center does that, and install booking still
+ * goes through the material-readiness write. A toast that said "Schedule the
+ * install" ignored that gate.
  */
 export function JobStepPopup({ jobs }: { jobs: JobCelebration[] }) {
   const [queue, setQueue] = useState<JobCelebration[]>([]);
@@ -72,7 +74,6 @@ export function JobStepPopup({ jobs }: { jobs: JobCelebration[] }) {
   };
 
   const done = active.current;
-  const next = active.next;
 
   return (
     <div
@@ -127,9 +128,10 @@ export function JobStepPopup({ jobs }: { jobs: JobCelebration[] }) {
           <div className="min-w-0">
             {active.isComplete ? (
               <>
-                <div className="font-semibold">Job complete! 🎊</div>
+                <div className="font-semibold">Install marked complete</div>
                 <p className="mt-0.5 text-sm text-muted-foreground">
-                  Nice work{active.title ? ` — ${active.title}` : ""} is all wrapped up.
+                  {active.title ? `${active.title} is marked complete.` : "This install is marked complete."}{" "}
+                  Sign-off, balance, and any service issue stay on the job.
                 </p>
               </>
             ) : (
@@ -140,34 +142,10 @@ export function JobStepPopup({ jobs }: { jobs: JobCelebration[] }) {
                 {active.title ? (
                   <p className="truncate text-xs text-muted-foreground">{active.title}</p>
                 ) : null}
-                {next ? (
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Next up: <span className="font-medium text-foreground">{next.label}</span>
-                  </p>
-                ) : null}
               </>
             )}
           </div>
         </div>
-
-        {!active.isComplete && next ? (
-          <div className="mt-3 flex items-center justify-end gap-2 pl-9">
-            <button
-              type="button"
-              onClick={dismiss}
-              className="rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:text-foreground"
-            >
-              Later
-            </button>
-            <Link
-              href={next.actionHref}
-              onClick={dismiss}
-              className={cn(buttonVariants({ size: "sm" }))}
-            >
-              {next.emoji} {next.actionLabel}
-            </Link>
-          </div>
-        ) : null}
       </div>
     </div>
   );

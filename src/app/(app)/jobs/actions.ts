@@ -1098,6 +1098,11 @@ export async function createJobFromEstimate(formData: FormData): Promise<void> {
   } = await supabase.auth.getUser();
   const jobId = await ensureJobForEstimate(estimateId, user?.id ?? null);
   if (jobId) redirect(`/jobs/${jobId}?created=1`);
+  redirect(
+    `/estimates/${estimateId}?job_error=${encodeURIComponent(
+      "A job was not created. The estimate has to be approved on the current snapshot. Open the existing job if one is already on this estimate.",
+    )}`,
+  );
 }
 
 /**

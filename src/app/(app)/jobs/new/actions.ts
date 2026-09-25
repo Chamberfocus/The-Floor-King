@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { assertRole } from "@/lib/auth";
 import { restartFlowForNewWork } from "@/lib/workflow-engine";
-import { ensureJobForEstimate } from "@/app/(app)/jobs/actions";
+import { enforceMaterialsReadyForSchedule, ensureJobForEstimate } from "@/app/(app)/jobs/actions";
 import { formatServiceAddress } from "@/lib/types";
 import { defaultJobTitle } from "@/lib/job-label";
 import type { UserRole, LeadSource, LeadStage } from "@/lib/types";
@@ -358,6 +358,15 @@ export async function createJobForCustomer(
   }
 
   if (input.scheduledDate && jobId) {
+    // Same hard gate as Book install. A date on this form must not skip it.
+    const mat = await enforceMaterialsReadyForSchedule({
+      jobId,
+      db: supabase,
+      userId: profile.id,
+      overrideReason: null,
+      scheduledDate: input.scheduledDate,
+    });
+    if (!mat.ok) return { error: mat.error };
     const { data: schedRes, error: schedErr } = await supabase.rpc(
       "schedule_job_install_safe",
       {
