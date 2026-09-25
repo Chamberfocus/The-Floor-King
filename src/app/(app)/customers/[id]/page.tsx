@@ -1382,6 +1382,7 @@ export default async function CustomerPage({
                   </p>
                 ) : null}
 
+                {customer.next_action_due ? (
                 <CustomerNextActionCard
                   customerId={customer.id}
                   nextActionDue={customer.next_action_due}
@@ -1389,6 +1390,7 @@ export default async function CustomerPage({
                   tasks={openTasks}
                   canSnooze={(SALES_ROLES as string[]).includes(profile.role)}
                 />
+                ) : null}
               </aside>
             </div>
           </TabSection>

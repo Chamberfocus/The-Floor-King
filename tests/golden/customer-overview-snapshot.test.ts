@@ -40,4 +40,15 @@ describe("customer overview snapshot", () => {
     expect(reminder).toContain("Snooze only moves this reminder");
     expect(reminder).toContain("Follow-up reminder");
   });
+
+  it("shows the follow-up card only when a reminder date exists", () => {
+    expect(page).toContain("customer.next_action_due ?");
+    expect(reminder).toContain("if (!nextActionDue) return null");
+    expect(reminder).not.toContain("No follow-up date set");
+    expect(reminder).toContain("· overdue");
+    expect(reminder).toContain("ALLOWED_SNOOZE_DAYS");
+    expect(reminder).toContain("About snooze");
+    expect(reminder).not.toContain("Next required");
+    expect(page).not.toContain("Next required action");
+  });
 });
