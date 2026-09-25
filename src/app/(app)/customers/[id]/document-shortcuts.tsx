@@ -77,8 +77,11 @@ export function DocumentShortcuts({
     },
   ];
 
+  const ready = tiles.filter((t) => t.previewHref && t.printHref);
+  if (!ready.length) return null;
+
   return (
-    <Card className="mb-6">
+    <Card className="mb-0 shadow-none">
       <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
         <CardTitle className="flex items-center gap-2 text-base">
           <FileText className="size-4 text-muted-foreground" /> Documents
@@ -98,51 +101,29 @@ export function DocumentShortcuts({
           </select>
         ) : null}
       </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {tiles.map((t) => {
+      <CardContent className="pt-0">
+        <div className="flex flex-wrap gap-2">
+          {ready.map((t) => {
             const Icon = t.icon;
             if (t.previewHref && t.printHref) {
               return (
-                <div
-                  key={t.label}
-                  className="flex flex-col items-center gap-1.5 rounded-lg border border-border bg-card p-3 text-center"
-                >
-                  <Icon className="size-6 text-primary" />
-                  <span className="text-sm font-medium">{t.label}</span>
-                  <div className="mt-1 grid w-full grid-cols-2 gap-1.5">
-                    <Link
-                      href={t.previewHref}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center justify-center gap-1 rounded-md border border-border px-2 py-1.5 text-xs font-medium transition-colors hover:border-primary hover:text-primary"
-                    >
-                      <Eye className="size-3.5" /> Preview
-                    </Link>
-                    <Link
-                      href={t.printHref}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center justify-center gap-1 rounded-md bg-primary px-2 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                    >
-                      <Printer className="size-3.5" /> Print
-                    </Link>
-                  </div>
+                <div key={t.label} className="inline-flex min-h-11 items-center gap-2 rounded-lg border px-2 text-sm">
+                  <Icon className="size-4 text-muted-foreground" aria-hidden />
+                  <span className="font-medium">{t.label}</span>
+                  <Link href={t.previewHref} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center gap-1 px-1 hover:text-primary">
+                    <Eye className="size-3.5" aria-hidden /> Preview
+                  </Link>
+                  <Link href={t.printHref} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center gap-1 px-1 hover:text-primary">
+                    <Printer className="size-3.5" aria-hidden /> Print
+                  </Link>
                 </div>
               );
             }
-            return (
-              <div
-                key={t.label}
-                className="flex cursor-not-allowed flex-col items-center gap-1.5 rounded-lg border border-dashed border-border/70 bg-muted/30 p-3 text-center opacity-70"
-                title={t.reason}
-              >
-                <Icon className="size-6 text-muted-foreground/50" />
-                <span className="text-sm font-medium text-muted-foreground">{t.label}</span>
-                <span className="text-[11px] text-muted-foreground">{t.reason}</span>
-              </div>
-            );
+            return null;
           })}
+          <a href="#files" className="inline-flex min-h-11 items-center px-2 text-sm font-medium text-primary hover:underline">
+            View files
+          </a>
         </div>
       </CardContent>
     </Card>

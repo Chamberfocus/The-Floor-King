@@ -73,10 +73,7 @@ import {
 import { getSchedulingSettings } from "@/lib/data/scheduling";
 import { InstallSchedule } from "./install-schedule";
 import { buildInstallScheduleProps } from "@/lib/data/install-schedule";
-import {
-  activeInstallJobs,
-  resolveCustomerInstallScheduleTarget,
-} from "@/lib/install-schedule-target";
+import { resolveCustomerInstallScheduleTarget } from "@/lib/install-schedule-target";
 import { CustomerDocuments } from "./customer-documents";
 import {
   listWorkflowStages,
@@ -113,7 +110,6 @@ import {
   formatDateTime,
   formatMoney,
   formatWallTime,
-  to12,
   parseArrivalWindows,
 } from "@/lib/format";
 import { AddActivityForm } from "./add-activity-form";
@@ -164,6 +160,7 @@ import {
   buildCustomerActionCenter,
   depositOnFileFromSummary,
 } from "@/lib/record-action-center";
+import { assessMaterialsReadyForSchedule } from "@/lib/materials-ready";
 
 export async function generateMetadata({
   params,
@@ -325,7 +322,6 @@ export default async function CustomerPage({
   // Pass installJobs (not jobs) so a pickup/cash-carry row cannot steal the strip.
   const installJob = resolveCustomerInstallScheduleTarget(installJobs);
   const schedulableJob = installJob;
-  const siblingInstallJobs = activeInstallJobs(installJobs);
   const names = await getProfileNames([
     ...activities.map((a) => a.user_id ?? ""),
     ...jobs.map((j) => j.assigned_to ?? ""),
@@ -626,12 +622,6 @@ export default async function CustomerPage({
       (customer.source ? LEAD_SOURCE_LABELS[customer.source] : null),
     `Added ${formatDate(customer.created_at)}`,
   ].filter(Boolean) as string[];
-  const installWindowLabel = installJob?.arrival_window
-    ? installJob.arrival_window
-        .split("-")
-        .map((s) => to12(s.trim()))
-        .join("–")
-    : null;
   // "Stuck" = past this stage's time limit (the next-action-due date).
   const overdue =
     !!customer.next_action_due &&
@@ -1099,15 +1089,27 @@ export default async function CustomerPage({
         {/* Overview — the checklist, the documents, and the money rail. */}
         {!customer.cancelled_at ? (
           <TabSection tab="overview">
-            <div className="mb-6 grid gap-6 lg:grid-cols-3">
-              {/* Left: the guided "do this next" hero + progress */}
-              <div className="lg:col-span-2">
+            <div className="mb-3 grid gap-3 lg:grid-cols-3">
+              <div className="space-y-3 lg:col-span-2">
                 {/* The checklist: the whole path, clickable at any point, with
                     the stage said out loud at the top. */}
-                <div className="mb-6">
+                <div>
                   <JobRollUp
                     customerId={id}
                     jobs={jobChecklists}
+                    materialByJob={Object.fromEntries(
+                      jobs
+                        .filter((job) => recordFacts.materialJobs.has(job.id))
+                        .map((job) => [
+                          job.id,
+                          assessMaterialsReadyForSchedule({
+                            warehouseReadyAt: job.warehouse_ready_at,
+                            hasMaterialNeed: true,
+                          }).ready
+                            ? "ready"
+                            : "waiting",
+                        ]),
+                    )}
                     stageName={currentStage?.name ?? null}
                     stagePosition={spinePos.index >= 0 ? spinePos.index + 1 : null}
                     stageTotal={spinePos.total || null}
@@ -1136,10 +1138,10 @@ export default async function CustomerPage({
 
               {/* Right: details + money + due rail. (Record counts live on the
                   tabs, so the old "Records" snapshot panel was removed.) */}
-              <aside className="space-y-4">
+              <aside className="space-y-3">
                 {/* Full customer details, at a glance — no Contact-tab hunting. */}
-                <div className="rounded-lg border bg-card p-5 shadow-sm">
-                  <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <div className="rounded-lg border bg-card p-3 shadow-none">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Customer details
                   </p>
                   <div className="space-y-3 text-sm">
@@ -1175,13 +1177,14 @@ export default async function CustomerPage({
                     {customer.notes ? (
                       <div className="border-t pt-2.5">
                         <div className="text-xs text-muted-foreground">Notes</div>
-                        <div className="whitespace-pre-wrap">{customer.notes}</div>
+                        <div className="line-clamp-3 whitespace-pre-wrap">{customer.notes}</div>
+                        <a href="#contact" className="text-xs font-medium text-primary hover:underline">View contact</a>
                       </div>
                     ) : null}
                   </div>
                 </div>
 
-                {seesMoney && depositSummary ? <div className="rounded-lg border bg-card p-5 shadow-sm">
+                {seesMoney && depositSummary ? <div className="rounded-lg border bg-card p-3 shadow-none">
                   <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Money
                   </p>
@@ -1227,7 +1230,7 @@ export default async function CustomerPage({
                           }}
                         />
                       </div>
-                      <div className="flex items-center justify-between border-t pt-2.5">
+                      <div className="flex items-center justify-between border-t pt-2">
                         <span className="text-muted-foreground">Amount due</span>
                         <span
                           className={cn(
@@ -1238,6 +1241,9 @@ export default async function CustomerPage({
                           {formatMoney(money.balance)}
                         </span>
                       </div>
+                      <a href="#invoices" className="inline-flex min-h-11 items-center text-sm font-medium text-primary hover:underline">
+                        View invoices
+                      </a>
                       {depositSummary.available > 0.005 ? (
                         <div className="flex items-center justify-between border-t pt-2.5">
                           <span className="text-muted-foreground">
@@ -1269,7 +1275,8 @@ export default async function CustomerPage({
                         </div>
                       ) : null}
                       {canDelete && creditSummary.memos.some((m) => m.status === "issued") ? (
-                        <div className="space-y-3 border-t pt-3">
+                        <details className="space-y-3 border-t pt-3">
+                          <summary className="cursor-pointer text-xs font-medium">Credits and refunds</summary>
                           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                             Credits &amp; refunds
                           </p>
@@ -1356,7 +1363,7 @@ export default async function CustomerPage({
                                 </div>
                               );
                             })}
-                        </div>
+                        </details>
                       ) : null}
                     </div>
                   ) : (
@@ -1366,89 +1373,13 @@ export default async function CustomerPage({
                   )}
                 </div> : null}
 
-                {estimateAppointment || installJob?.scheduled_date ? (
-                  <div className="rounded-lg border bg-card p-5 shadow-sm">
-                    <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Schedule
-                    </p>
-                    <div className="space-y-3.5">
-                      {estimateAppointment ? (
-                        <div className="flex items-start gap-3">
-                          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                            <CalendarClock className="size-4" />
-                          </span>
-                          <div className="min-w-0">
-                            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                              Estimate
-                            </div>
-                            <div className="text-sm font-semibold">
-                              {formatDate(estimateAppointment.startsAt)} ·{" "}
-                              {formatWallTime(estimateAppointment.startsAt)}
-                            </div>
-                            {estimateAppointment.salespersonName ? (
-                              <div className="text-xs text-muted-foreground">
-                                with {estimateAppointment.salespersonName}
-                              </div>
-                            ) : null}
-                          </div>
-                        </div>
-                      ) : null}
-                      {installJob?.scheduled_date ? (
-                        <div className="flex items-start gap-3">
-                          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                            <Wrench className="size-4" />
-                          </span>
-                          <div className="min-w-0">
-                            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                              Install
-                              {installJob.title ? ` · ${installJob.title}` : ""}
-                            </div>
-                            <div className="text-sm font-semibold">
-                              {formatDate(installJob.scheduled_date)}
-                              {installWindowLabel ? ` · ${installWindowLabel}` : ""}
-                            </div>
-                            {installJob.assigned_to &&
-                            names[installJob.assigned_to] ? (
-                              <div className="text-xs text-muted-foreground">
-                                {names[installJob.assigned_to]}
-                              </div>
-                            ) : null}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                ) : null}
-
-                {siblingInstallJobs.length > 1 ? (
-                  <div className="rounded-lg border bg-card p-5 shadow-sm">
-                    <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Active jobs
-                    </p>
-                    <ul className="space-y-2 text-sm">
-                      {siblingInstallJobs.map((j) => (
-                        <li
-                          key={j.id}
-                          className="flex items-center justify-between gap-2"
-                        >
-                          <span className="min-w-0 truncate">
-                            {j.title || "Job"}
-                            {schedulableJob?.id === j.id ? (
-                              <span className="ml-1 text-xs text-muted-foreground">
-                                (scheduling)
-                              </span>
-                            ) : null}
-                          </span>
-                          <Link
-                            href={`/jobs/${j.id}`}
-                            className="shrink-0 text-xs font-medium text-primary hover:underline"
-                          >
-                            Open job
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                {estimateAppointment ? (
+                  <p className="rounded-lg border bg-card px-3 py-2 text-sm">
+                    <span className="text-muted-foreground">Estimate visit </span>
+                    <span className="font-medium">
+                      {formatDate(estimateAppointment.startsAt)} · {formatWallTime(estimateAppointment.startsAt)}
+                    </span>
+                  </p>
                 ) : null}
 
                 <CustomerNextActionCard
