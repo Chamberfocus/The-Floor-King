@@ -234,6 +234,25 @@ export async function createServiceCallback(formData: FormData): Promise<void> {
   const profile = await requireProfile();
   const supabase = await createClient();
   const jobId = str(formData.get("job_id")) || null;
+  let openQuery = supabase
+    .from("service_callbacks")
+    .select("id, description")
+    .eq("customer_id", customerId)
+    .eq("created_by", profile.id)
+    .in("status", ["open", "scheduled", "in_progress", "waiting"]);
+  if (jobId) openQuery = openQuery.eq("job_id", jobId);
+  const { data: existingOpen } = await openQuery;
+  const reuseId = reuseOpenInstallerIssueId({
+    existingOpen: (existingOpen ?? []) as {
+      id: string;
+      description: string | null;
+    }[],
+    description,
+  });
+  if (reuseId) {
+    refreshOps(jobId, customerId);
+    return;
+  }
   const { data: created, error } = await supabase
     .from("service_callbacks")
     .insert({

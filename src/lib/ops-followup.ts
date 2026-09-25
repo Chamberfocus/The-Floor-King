@@ -4,6 +4,7 @@
  * Reuses office_tasks source_key idempotency. Does not invent a second
  * task engine, AR ledger, or job status model.
  */
+import { assessMaterialsReadyForSchedule } from "@/lib/materials-ready";
 
 export const ESTIMATE_FOLLOWUP_KIND = "estimate_followup";
 export const DEPOSIT_DUE_KIND = "deposit_due";
@@ -176,7 +177,11 @@ export function splitUnscheduledByMaterialsReady<
   const ready: T[] = [];
   const blocked: T[] = [];
   for (const job of jobs) {
-    if (!job.hasMaterialNeed || job.warehouseReadyAt) ready.push(job);
+    const readyToBook = assessMaterialsReadyForSchedule({
+      warehouseReadyAt: job.warehouseReadyAt,
+      hasMaterialNeed: job.hasMaterialNeed,
+    }).ready;
+    if (readyToBook) ready.push(job);
     else blocked.push(job);
   }
   return { ready, blocked };

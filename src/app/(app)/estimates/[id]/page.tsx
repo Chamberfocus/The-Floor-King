@@ -127,10 +127,10 @@ export default async function EstimatePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ print?: string; preview?: string; approval_error?: string; invoice_error?: string; notify?: string; notify_detail?: string }>;
+  searchParams: Promise<{ print?: string; preview?: string; approval_error?: string; invoice_error?: string; job_error?: string; notify?: string; notify_detail?: string }>;
 }) {
   const { id } = await params;
-  const { print, preview: previewParam, approval_error: approvalError, invoice_error: invoiceError, notify, notify_detail: notifyDetail } = await searchParams;
+  const { print, preview: previewParam, approval_error: approvalError, invoice_error: invoiceError, job_error: jobError, notify, notify_detail: notifyDetail } = await searchParams;
   const preview = previewParam === "1";
   const estimate = await getEstimate(id);
   if (!estimate) notFound();
@@ -333,6 +333,11 @@ export default async function EstimatePage({
             {approvalError}
           </p>
         ) : null}
+        {jobError ? (
+          <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            {jobError}
+          </p>
+        ) : null}
         {invoiceError ? (
           <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
             {invoiceError}
@@ -391,7 +396,12 @@ export default async function EstimatePage({
       {/* Next steps — the obvious "what now", tuned to where the estimate is */}
       <Card id="estimate-next" className="mb-6 border-primary/40 print:hidden">
         <CardContent className="pt-6">
-          {estimate.status === "approved" ? (
+          {estimate.status === "approved" && estimate.approval_stale ? (
+            <p className="text-sm text-muted-foreground">
+              This approval is out of date. Follow the action above. A new job
+              or invoice is not created from a stale approval.
+            </p>
+          ) : estimate.status === "approved" ? (
             <>
               <div className="mb-1 font-semibold">Next steps</div>
               <p className="mb-4 text-sm text-muted-foreground">

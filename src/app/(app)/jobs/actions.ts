@@ -18,7 +18,11 @@ import {
 import { estimatedLaborCostForOption } from "@/lib/installer-bill";
 import { estimatedMaterialCostForOption } from "@/lib/job-costing";
 import { assessJobStatusTransition, jobStatusUpdatePatch } from "@/lib/job-status";
-import { findInstallerScheduleConflict } from "@/lib/scheduling-conflicts";
+import {
+  findInstallerScheduleConflict,
+  isScheduleRpcUnavailable,
+  SCHEDULE_UNAVAILABLE_MESSAGE,
+} from "@/lib/scheduling-conflicts";
 import { warehouseJobIdFromForm } from "@/lib/job-warehouse";
 import { applyEligibleDepositsToInvoice } from "@/lib/data/apply-customer-deposits";
 import { customerOrderStagingBlockMessage } from "@/lib/order-warehouse-gates";
@@ -345,25 +349,19 @@ export async function enforceMaterialsReadyForSchedule(args: {
     };
   }
 
-  let hasMaterialNeed = true; // fail closed if we cannot prove labor-only
+  // Material need is operational scope only: job_line_items, or the estimate
+  // option lines loadOperationalJobLines uses when the job has no lines yet.
+  // A purchase order does not create that need. Fail closed only when the
+  // scope itself cannot be read.
+  let hasMaterialNeed = true;
   try {
     const lines = await loadOperationalJobLines(args.db, args.jobId);
     hasMaterialNeed = lines.some((l) => isMaterialLine(l));
-    if (!hasMaterialNeed) {
-      const { data: pos, error: poErr } = await args.db
-        .from("purchase_orders")
-        .select("id, status")
-        .eq("job_id", args.jobId);
-      if (poErr) {
-        hasMaterialNeed = true;
-      } else {
-        hasMaterialNeed = (pos ?? []).some((p: { status?: string | null }) => {
-          const s = (p.status ?? "").toLowerCase();
-          return s !== "void" && s !== "cancelled";
-        });
-      }
-    }
-  } catch {
+  } catch (err) {
+    console.error("[schedule] material scope unavailable", {
+      jobId: args.jobId,
+      message: err instanceof Error ? err.message : "unknown",
+    });
     hasMaterialNeed = true;
   }
 
@@ -502,35 +500,22 @@ export async function bookInstall(formData: FormData): Promise<void> {
     },
   );
   if (schedErr) {
-    // Pre-0178 fallback: direct update (EXCLUDE not yet present).
-    if (
-      /schedule_job_install_safe/i.test(schedErr.message) ||
-      schedErr.message.includes("does not exist") ||
-      schedErr.code === "PGRST202"
-    ) {
-      await supabase
-        .from("jobs")
-        .update({
-          assigned_to: installer || null,
-          assigned_crew_id: crewDirect,
-          scheduled_date: start,
-          scheduled_end: end,
-          status: "scheduled",
-          open_for_claim: false,
-        })
-        .eq("id", id);
-      if (arrivalWindow) {
-        await supabase
-          .from("jobs")
-          .update({ arrival_window: arrivalWindow })
-          .eq("id", id);
-      }
-    } else {
-      redirect(
-        (afterBookRedirect || `/jobs/${id}`) +
-          `?schedule_error=${encodeURIComponent(schedErr.message)}`,
-      );
+    if (isScheduleRpcUnavailable(schedErr)) {
+      console.error("[schedule] schedule_job_install_safe unavailable", {
+        op: "bookInstall",
+        jobId: id,
+        code: schedErr.code ?? null,
+        message: schedErr.message,
+      });
     }
+    redirect(
+      (afterBookRedirect || `/jobs/${id}`) +
+        `?schedule_error=${encodeURIComponent(
+          isScheduleRpcUnavailable(schedErr)
+            ? SCHEDULE_UNAVAILABLE_MESSAGE
+            : schedErr.message,
+        )}`,
+    );
   } else {
     const body = schedRes as { ok?: boolean; error?: string; code?: string } | null;
     if (body && body.ok === false) {
@@ -851,32 +836,16 @@ export async function rescheduleInstall(
     },
   );
   if (schedErr) {
-    if (
-      /schedule_job_install_safe/i.test(schedErr.message) ||
-      schedErr.message.includes("does not exist") ||
-      schedErr.code === "PGRST202"
-    ) {
-      await admin
-        .from("jobs")
-        .update({
-          scheduled_date: newDate,
-          scheduled_end: newEnd,
-          status: "scheduled",
-          ...(arrivalWindow !== undefined ? { arrival_window: nextWindow } : {}),
-          ...(reassigned
-            ? {
-                assigned_to: newInstaller,
-                assigned_crew_id: newCrew,
-                ...(newInstaller === null && newCrew === null
-                  ? { open_for_claim: false }
-                  : {}),
-              }
-            : {}),
-        })
-        .eq("id", jobId);
-    } else {
-      return { ok: false, error: schedErr.message };
+    if (isScheduleRpcUnavailable(schedErr)) {
+      console.error("[schedule] schedule_job_install_safe unavailable", {
+        op: "rescheduleInstall",
+        jobId,
+        code: schedErr.code ?? null,
+        message: schedErr.message,
+      });
+      return { ok: false, error: SCHEDULE_UNAVAILABLE_MESSAGE };
     }
+    return { ok: false, error: schedErr.message };
   } else {
     const body = schedRes as { ok?: boolean; error?: string } | null;
     if (body && body.ok === false) {
@@ -1098,6 +1067,11 @@ export async function createJobFromEstimate(formData: FormData): Promise<void> {
   } = await supabase.auth.getUser();
   const jobId = await ensureJobForEstimate(estimateId, user?.id ?? null);
   if (jobId) redirect(`/jobs/${jobId}?created=1`);
+  redirect(
+    `/estimates/${estimateId}?job_error=${encodeURIComponent(
+      "A job was not created. The estimate has to be approved on the current snapshot. Open the existing job if one is already on this estimate.",
+    )}`,
+  );
 }
 
 /**
@@ -1648,7 +1622,18 @@ export async function assignInstaller(formData: FormData): Promise<void> {
         p_open_for_claim: false,
       },
     );
-    if (schedErr) throw new Error(schedErr.message);
+    if (schedErr) {
+      if (isScheduleRpcUnavailable(schedErr)) {
+        console.error("[schedule] schedule_job_install_safe unavailable", {
+          op: "assignInstaller",
+          jobId,
+          code: schedErr.code ?? null,
+          message: schedErr.message,
+        });
+        throw new Error(SCHEDULE_UNAVAILABLE_MESSAGE);
+      }
+      throw new Error(schedErr.message);
+    }
     const body = schedRes as { ok?: boolean; error?: string } | null;
     if (body && body.ok === false) {
       throw new Error(body.error || "Could not assign installer (schedule conflict).");
