@@ -825,13 +825,13 @@ export default async function CustomerPage({
           all in one place (replaces the plain header + its scattered bits). */}
       <section
         id="overview"
-        className="relative mb-4 scroll-mt-24 overflow-hidden rounded-lg border bg-card p-4 shadow-sm"
+        className="relative mb-3 scroll-mt-24 overflow-hidden rounded-lg border bg-card px-3 py-3 shadow-sm sm:px-4"
       >
         <span
           aria-hidden
           className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-primary to-amber-500"
         />
-        <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-3">
               <h1 className="text-2xl font-bold tracking-tight sm:text-[1.75rem]">
@@ -854,8 +854,10 @@ export default async function CustomerPage({
                 <StageBadge stage={customer.stage} />
               )}
               {overdue ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-3 py-1 text-xs font-semibold text-destructive">
-                  <AlertTriangle className="size-3.5" /> Stuck
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+                  <AlertTriangle className="size-3.5" aria-hidden />
+                  Stuck
+                  <span className="sr-only">Follow-up is overdue.</span>
                 </span>
               ) : null}
             </div>
@@ -886,11 +888,11 @@ export default async function CustomerPage({
         </div>
 
         {customer.phone || customer.email || addressText ? (
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-2 flex flex-wrap gap-2">
             {customer.phone ? (
               <a
                 href={`tel:${customer.phone}`}
-                className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-sm font-medium transition-colors hover:border-primary hover:text-primary"
+                className="inline-flex min-h-11 items-center gap-2 rounded-full border bg-background px-3 text-sm font-medium transition-colors hover:border-primary hover:text-primary"
               >
                 <Phone className="size-4 text-muted-foreground" />
                 {customer.phone}
@@ -899,7 +901,7 @@ export default async function CustomerPage({
             {customer.email ? (
               <a
                 href={`mailto:${customer.email}`}
-                className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-sm font-medium transition-colors hover:border-primary hover:text-primary"
+                className="inline-flex min-h-11 items-center gap-2 rounded-full border bg-background px-3 text-sm font-medium transition-colors hover:border-primary hover:text-primary"
               >
                 <Mail className="size-4 text-muted-foreground" />
                 <span className="max-w-[16rem] truncate">{customer.email}</span>
@@ -910,7 +912,7 @@ export default async function CustomerPage({
                 href={mapsUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-sm font-medium transition-colors hover:border-primary hover:text-primary"
+                className="inline-flex min-h-11 items-center gap-2 rounded-full border bg-background px-3 text-sm font-medium transition-colors hover:border-primary hover:text-primary"
               >
                 <MapPin className="size-4 shrink-0 text-muted-foreground" />
                 <span className="max-w-full break-words">{addressText}</span>
@@ -945,13 +947,13 @@ export default async function CustomerPage({
           ].filter(Boolean);
           if (!bits.length) return null;
           return (
-            <div className="mt-3 text-sm font-medium text-muted-foreground">
+            <div className="mt-2 text-sm text-muted-foreground">
               {bits.join(" · ")}
             </div>
           );
         })()}
 
-        <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4">
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
           {(SALES_ROLES as string[]).includes(profile.role) && !customer.cancelled_at ? (
             <ProcessCardButton
               url={orgSettings.card_processing_url}
@@ -967,6 +969,7 @@ export default async function CustomerPage({
                 customerId={customer.id}
                 sourceOk={sourceOk}
                 sources={leadSources}
+                variant="outline"
               />
               <Link
                 href={`/jobs/new?customer=${customer.id}`}
@@ -977,7 +980,7 @@ export default async function CustomerPage({
             </>
           ) : null}
           <details className="group">
-            <summary className="inline-flex min-h-11 cursor-pointer list-none items-center rounded-lg border px-3 text-sm font-medium [&::-webkit-details-marker]:hidden">
+            <summary className="inline-flex min-h-11 cursor-pointer list-none items-center rounded-lg px-3 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground [&::-webkit-details-marker]:hidden">
               More actions
             </summary>
             <div className="mt-2 flex flex-wrap items-center gap-2">

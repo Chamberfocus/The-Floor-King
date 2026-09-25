@@ -85,7 +85,8 @@ export function ProcessCardButton({
       <Button
         type="button"
         variant="outline"
-        size="lg"
+        size="sm"
+        className="min-h-11"
         onClick={() => {
           setAmount(balance > 0 ? String(balance) : "");
           setOpKey(

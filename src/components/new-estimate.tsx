@@ -51,12 +51,14 @@ export function NewEstimate({
   sourceOk: knownSourceOk,
   label = "New estimate",
   size = "sm",
+  variant = "default",
 }: {
   customerId: string;
   sources: LeadSourceRow[];
   sourceOk?: boolean;
   label?: string;
   size?: "sm" | "lg";
+  variant?: "default" | "outline";
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -162,6 +164,7 @@ export function NewEstimate({
       <Button
         type="button"
         size={size}
+        variant={variant}
         data-tour="build-estimate"
         onClick={() => setOpen(true)}
       >
