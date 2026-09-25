@@ -50,26 +50,27 @@ export function CustomerNextActionCard({
       }
     });
 
+  if (!nextActionDue) return null;
+
   return (
     <div
-      className={`rounded-lg border bg-card p-5 shadow-sm ${
-        stuck ? "border-destructive/40" : ""
+      className={`rounded-lg border bg-card p-3 shadow-none ${
+        stuck ? "border-amber-300" : ""
       }`}
     >
       <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         Follow-up reminder
       </p>
-      <p className="text-sm text-muted-foreground">
-        Snooze only moves this reminder. It does not clear a deposit, a material hold, or an install date.
-      </p>
-      {nextActionDue ? (
-        <p className={`mt-1 text-xs ${stuck ? "font-medium text-destructive" : "text-muted-foreground"}`}>
-          Due {formatDateTime(nextActionDue)}
-          {stuck ? " · overdue" : ""}
+      <details className="text-xs text-muted-foreground">
+        <summary className="cursor-pointer">About snooze</summary>
+        <p className="mt-1">
+          Snooze only moves this reminder. It does not clear a deposit, a material hold, or an install date.
         </p>
-      ) : (
-        <p className="mt-1 text-xs text-muted-foreground">No follow-up date set.</p>
-      )}
+      </details>
+      <p className={`mt-1 text-xs ${stuck ? "font-medium text-destructive" : "text-muted-foreground"}`}>
+        Due {formatDateTime(nextActionDue)}
+        {stuck ? " · overdue" : ""}
+      </p>
       {canSnooze ? (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {ALLOWED_SNOOZE_DAYS.map((d) => (

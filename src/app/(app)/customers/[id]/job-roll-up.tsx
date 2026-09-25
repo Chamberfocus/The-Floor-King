@@ -4,6 +4,7 @@ import { ArrowRight, Check, MapPin, Wrench, FileText, Trash2 } from "lucide-reac
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { deleteJob } from "@/app/(app)/jobs/actions";
 import { cn } from "@/lib/utils";
+import { formatDate } from "@/lib/format";
 import { buttonVariants } from "@/components/ui/button";
 import { JobChecklist } from "@/components/job-checklist";
 import type { JobProgress } from "@/lib/data/job-checklists";
@@ -26,6 +27,7 @@ export function JobRollUp({
   actionSlots,
   canOverride = false,
   jobStageNames,
+  materialByJob,
 }: {
   customerId: string;
   jobs: JobProgress[];
@@ -42,6 +44,8 @@ export function JobRollUp({
    *  is the pre-job position and is wrong for a multi-job account — a finished
    *  kitchen and an unmeasured basement are not at the same stage. */
   jobStageNames?: Record<string, string>;
+  /** Factual material state already decided for this page. Not a next step. */
+  materialByJob?: Record<string, "ready" | "waiting">;
 }) {
   if (!jobs.length) return null;
   const multiple = jobs.length > 1;
@@ -59,10 +63,30 @@ export function JobRollUp({
     const only = jobs[0];
     return (
       <details className="rounded-lg border">
-        <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold [&::-webkit-details-marker]:hidden">
-          Job progress
-          <span className="ml-2 font-normal text-muted-foreground">
-            {only.done} of {only.total} recorded
+        <summary className="cursor-pointer list-none px-3 py-3 text-sm [&::-webkit-details-marker]:hidden">
+          <span className="font-semibold">{only.title}</span>
+          <span className="mt-1 block text-muted-foreground">
+            Job progress
+            <span className="ml-2">
+              {only.done} of {only.total} recorded
+            </span>
+            <span className="ml-2 underline">View progress</span>
+          </span>
+          <span
+            className="mt-2 block h-1.5 overflow-hidden rounded-full bg-muted"
+            role="progressbar"
+            aria-valuenow={only.done}
+            aria-valuemin={0}
+            aria-valuemax={only.total}
+            aria-label={`${only.done} of ${only.total} recorded`}
+          >
+            <span className="block h-full rounded-full bg-primary" style={{ width: `${only.pct}%` }} />
+          </span>
+          <span className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground">
+            <span>{only.scheduledDate ? `Install ${formatDate(only.scheduledDate)}` : "Install not booked"}</span>
+            {only.jobId && materialByJob?.[only.jobId] ? (
+              <span>{materialByJob[only.jobId] === "ready" ? "Materials ready" : "Materials not ready"}</span>
+            ) : null}
           </span>
         </summary>
         <div className="space-y-3 border-t p-3">
@@ -88,11 +112,17 @@ export function JobRollUp({
     );
   }
 
+  const active = jobs.filter((j) => j.status !== "completed" && j.status !== "cancelled");
+  const historical = jobs.length - active.length;
+  const shown = (active.length ? active : jobs).slice(0, 3);
+  const hidden = jobs.length - shown.length;
+
   return (
     <div className="rounded-lg border">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
         <span className="text-sm font-semibold">
-          {multiple ? `${jobs.length} jobs on this account` : "The job"}
+          {active.length ? `${active.length} open job${active.length === 1 ? "" : "s"}` : `${jobs.length} jobs`}
+          {historical ? <span className="ml-2 font-normal text-muted-foreground">{historical} finished</span> : null}
         </span>
         {/* Each job below carries its OWN stage — shown on its row. The account
             badge is only meaningful before any job exists, so it's dropped here
@@ -106,7 +136,7 @@ export function JobRollUp({
       </div>
 
       <ul className="divide-y">
-        {jobs.map((j, i) => {
+        {shown.map((j, i) => {
           const href = j.jobId ? `/jobs/${j.jobId}` : (j.current?.href ?? null);
           const finished = !j.current;
           return (
@@ -185,7 +215,7 @@ export function JobRollUp({
                   {href ? (
                     <Link
                       href={href}
-                      className={cn(buttonVariants({ size: "sm", variant: finished ? "outline" : "default" }))}
+                      className={cn(buttonVariants({ size: "sm", variant: "outline" }), "min-h-11")}
                     >
                       {j.jobId ? "Open the job" : (j.current?.linkLabel ?? "Open")}{" "}
                       <ArrowRight className="size-3.5" />
@@ -214,9 +244,18 @@ export function JobRollUp({
         })}
       </ul>
 
-      <p className="border-t px-4 py-2 text-xs text-muted-foreground">
-        Every step, and the tools to do it, live on the job.
-      </p>
+      {hidden > 0 ? (
+        <p className="border-t px-3 py-2 text-sm">
+          <a href="#jobs" className="font-medium text-primary hover:underline">
+            View all jobs
+          </a>
+          <span className="text-muted-foreground"> · {hidden} more on the Jobs tab</span>
+        </p>
+      ) : (
+        <p className="border-t px-3 py-2 text-xs text-muted-foreground">
+          <a href="#jobs" className="font-medium text-primary hover:underline">View all jobs</a>
+        </p>
+      )}
     </div>
   );
 }
