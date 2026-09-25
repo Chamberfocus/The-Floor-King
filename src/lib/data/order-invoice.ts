@@ -3,6 +3,7 @@ import type { OrderItem } from "@/lib/types";
 import { applyEligibleDepositsToInvoice } from "@/lib/data/apply-customer-deposits";
 import { cutsTotalSqYd } from "@/lib/order-cuts";
 import { catalogRateToBillingUnit, isAreaUnit } from "@/lib/units";
+import { orderInvoiceIdempotencyKey } from "@/lib/financial-idempotency";
 
 // Accepts either the RLS server client or the admin client.
 type DB = Awaited<ReturnType<typeof createClient>>;
@@ -35,7 +36,8 @@ export async function buildInvoiceFromOrder(
     .order("position", { ascending: true });
   const items = (itemData ?? []) as OrderItem[];
 
-  const { data: inv } = await db
+  const idempotencyKey = orderInvoiceIdempotencyKey(orderId);
+  const inserted = await db
     .from("invoices")
     .insert({
       customer_id: order.customer_id,
@@ -44,10 +46,29 @@ export async function buildInvoiceFromOrder(
       status: "draft",
       tax_rate: 0,
       created_by: createdBy,
+      idempotency_key: idempotencyKey,
     })
     .select("id")
     .single();
-  if (!inv) return null;
+  let inv = inserted.data;
+  if (!inv) {
+    const duplicate =
+      inserted.error?.code === "23505" ||
+      /duplicate key/i.test(inserted.error?.message ?? "");
+    if (!duplicate) return null;
+    const { data: existing } = await db
+      .from("invoices")
+      .select("id")
+      .eq("idempotency_key", idempotencyKey)
+      .maybeSingle();
+    if (!existing?.id) return null;
+    await db
+      .from("orders")
+      .update({ invoice_id: existing.id })
+      .eq("id", orderId)
+      .is("invoice_id", null);
+    return existing.id as string;
+  }
 
   const rows = items.map((it, i) => {
     // Exclusive carpet-tile office customer-order invoice qty from cuts is the order, not leftover planted quantity — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.

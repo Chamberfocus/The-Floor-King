@@ -61,6 +61,11 @@ export function CounterSaleForm({
     );
     return Math.round(sell * 100) / 100;
   };
+  const [saleToken] = useState(() =>
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `sale-${Math.random().toString(36).slice(2)}`,
+  );
   const router = useRouter();
   const [pending, start] = useTransition();
 
@@ -148,6 +153,7 @@ export function CounterSaleForm({
           .map(({ key: _k, ...l }) => l),
         taxRatePct: num(taxRate),
         payment: { method, amount: total, reference },
+        idempotencyKey: saleToken,
       });
       if (res.matches?.length) {
         setMatches(res.matches);

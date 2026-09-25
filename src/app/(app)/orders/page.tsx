@@ -5,6 +5,7 @@ import { Package } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
@@ -256,7 +257,9 @@ export default async function OrdersPage() {
               ) : (
                 <form action={createInvoiceFromOrder}>
                   <input type="hidden" name="order_id" value={o.id} />
-                  <Button type="submit" size="sm" variant="outline">Create invoice</Button>
+                  <SubmitButton size="sm" variant="outline" pendingText="Creating…">
+                    Create invoice
+                  </SubmitButton>
                 </form>
               )}
               {o.job_id ? (

@@ -1462,15 +1462,6 @@ export async function sendEstimateById(
     return { notify: { status: "not_attempted", reason: "Missing estimate." } };
   }
   const supabase = await createClient();
-  await supabase
-    .from("estimates")
-    .update({
-      status: "sent",
-      sent_at: new Date().toISOString(),
-      thankyou_sent_at: notifyClient ? null : new Date().toISOString(),
-    })
-    .eq("id", id);
-
   const { data: est } = await supabase
     .from("estimates")
     .select(
@@ -1479,33 +1470,24 @@ export async function sendEstimateById(
     .eq("id", id)
     .maybeSingle();
 
-  if (est?.customer_id)
-    await advanceFromAutoAction(est.customer_id as string, "build_quote");
-
-  const sentCust = est?.customer as unknown as {
-    assigned_to?: string | null;
-    workflow_owner_id?: string | null;
-  } | null;
-  const {
-    data: { user: sender },
-  } = await supabase.auth.getUser();
-  void onEstimateSentOps({
-    estimateId: id,
-    customerId: (est?.customer_id as string | null) ?? null,
-    assignedTo: sentCust?.workflow_owner_id ?? sentCust?.assigned_to ?? null,
-    actorId: sender?.id ?? null,
-    title: (est?.title as string | null) ?? null,
-  });
-
   const cust = est?.customer as unknown as {
     full_name: string | null;
     email: string | null;
+    assigned_to?: string | null;
+    workflow_owner_id?: string | null;
   } | null;
+
   let notify: MessageSendResult = {
     status: "not_attempted",
     reason: notifyClient ? "No email address on file." : "Marked sent without emailing.",
   };
-  if (notifyClient && cust?.email) {
+
+  // Email first. A failed or missing send must not mark the estimate sent.
+  // Mark sent (notifyClient false) records delivery outside the CRM and does not email.
+  if (notifyClient) {
+    if (!cust?.email) {
+      return { notify };
+    }
     notify = await sendEmail({
       to: cust.email,
       subject: "Your estimate from Cleveland Floor King 🎉",
@@ -1523,7 +1505,33 @@ export async function sendEstimateById(
         { name: "estimate_id", value: id },
       ],
     });
+    if (notify.status !== "success") {
+      return { notify };
+    }
   }
+
+  await supabase
+    .from("estimates")
+    .update({
+      status: "sent",
+      sent_at: new Date().toISOString(),
+      thankyou_sent_at: notifyClient ? null : new Date().toISOString(),
+    })
+    .eq("id", id);
+
+  if (est?.customer_id)
+    await advanceFromAutoAction(est.customer_id as string, "build_quote");
+
+  const {
+    data: { user: sender },
+  } = await supabase.auth.getUser();
+  void onEstimateSentOps({
+    estimateId: id,
+    customerId: (est?.customer_id as string | null) ?? null,
+    assignedTo: cust?.workflow_owner_id ?? cust?.assigned_to ?? null,
+    actorId: sender?.id ?? null,
+    title: (est?.title as string | null) ?? null,
+  });
 
   revalidatePath(`/estimates/${id}`);
   revalidatePath("/estimates");

@@ -292,6 +292,78 @@ export type SupplementalInvoiceRecord = {
  * Mirrors invoices_one_active_supplemental_per_snapshot.
  * A second snapshot is a different obligation and is allowed.
  */
+/** One active replacement for this estimate approval snapshot. A later snapshot is a new key. */
+export function replacementInvoiceIdempotencyKey(
+  estimateId: string,
+  approvalSnapshotId: string,
+): string {
+  return `repl:${estimateId}:${approvalSnapshotId}`;
+}
+
+/** One invoice per warehouse/customer order. */
+export function orderInvoiceIdempotencyKey(orderId: string): string {
+  return `order:${orderId}`;
+}
+
+/**
+ * Counter-sale request identity. A new form mount is a new sale.
+ * The stored key is owned by the acting user.
+ */
+export function resolveCounterSaleIdempotencyKey(
+  raw: string | null | undefined,
+  userId: string | null | undefined,
+): string | null {
+  const token = (raw ?? "").trim();
+  const uid = (userId ?? "").trim();
+  if (!token || !uid) return null;
+  if (token.length > 200) return null;
+  if (token.includes(":") || token.startsWith("counter")) return null;
+  return `counter:${uid}:${token}`;
+}
+
+export const COUNTER_SALE_IDEMPOTENCY_REQUIRED_MESSAGE =
+  "Missing sale token. Refresh the page and try again.";
+
+export type ObligationRecord = {
+  id: string;
+  voided: boolean;
+};
+
+/**
+ * Unique idempotency_key insert. A voided row can release its key so a later
+ * legitimate replacement of the same snapshot is still possible.
+ */
+export function insertObligation(
+  store: Map<string, ObligationRecord>,
+  args: { key: string; id: string },
+):
+  | { ok: true; id: string; duplicate: boolean }
+  | { ok: false; code: "23505"; existingId: string; voided: boolean } {
+  const existing = store.get(args.key);
+  if (existing) {
+    return {
+      ok: false,
+      code: "23505",
+      existingId: existing.id,
+      voided: existing.voided,
+    };
+  }
+  store.set(args.key, { id: args.id, voided: false });
+  return { ok: true, id: args.id, duplicate: false };
+}
+
+/** Free a voided obligation key so a later replacement can claim it. */
+export function releaseVoidedObligationKey(
+  store: Map<string, ObligationRecord>,
+  key: string,
+): boolean {
+  const existing = store.get(key);
+  if (!existing?.voided) return false;
+  store.delete(key);
+  store.set(`repl-voided:${existing.id}`, existing);
+  return true;
+}
+
 export function insertActiveSupplemental(
   store: Map<string, SupplementalInvoiceRecord>,
   args: { estimateId: string; approvalSnapshotId: string; id: string },

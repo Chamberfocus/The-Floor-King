@@ -8,6 +8,11 @@ import { finalizeInvoiceSafe } from "@/lib/invoice-issue";
 import { applyEligibleDepositsToInvoice } from "@/lib/data/apply-customer-deposits";
 import { resolveOrCreateCustomer, followActiveCustomerId } from "@/lib/data/customer-resolve";
 import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
+import {
+  BLANK_INVOICE_TOKEN_USED_MESSAGE,
+  COUNTER_SALE_IDEMPOTENCY_REQUIRED_MESSAGE,
+  resolveCounterSaleIdempotencyKey,
+} from "@/lib/financial-idempotency";
 
 export interface CounterSaleLine {
   description: string;
@@ -36,6 +41,8 @@ export interface CounterSaleInput {
   lines: CounterSaleLine[];
   taxRatePct: number;
   payment: { method: string; amount: number; reference?: string };
+  /** Stable for one form mount. A new mount is a new sale. */
+  idempotencyKey?: string | null;
 }
 
 /**
@@ -122,6 +129,21 @@ export async function ringUpCounterSale(
       .eq("marketing_opt_in", false);
   }
 
+  const idempotencyKey = resolveCounterSaleIdempotencyKey(
+    input.idempotencyKey,
+    user?.id,
+  );
+  if (!idempotencyKey) return { error: COUNTER_SALE_IDEMPOTENCY_REQUIRED_MESSAGE };
+
+  const { data: prior } = await supabase
+    .from("invoices")
+    .select("id, customer_id")
+    .eq("idempotency_key", idempotencyKey)
+    .maybeSingle();
+  if (prior?.id && prior.customer_id !== customerId) {
+    return { error: BLANK_INVOICE_TOKEN_USED_MESSAGE };
+  }
+
   // 2 · The next invoice number, from the highest one that exists — not the row
   //     count, which reuses a number the moment anything is deleted.
   const { data: nums } = await supabase.from("invoices").select("number").limit(10000);
@@ -132,82 +154,104 @@ export async function ringUpCounterSale(
   }
 
   const today = new Date().toISOString().slice(0, 10);
-  const { data: inv, error: invErr } = await supabase
-    .from("invoices")
-    .insert({
-      customer_id: customerId,
-      number: `INV-${next}`,
-      status: "draft",
-      issue_date: today,
-      due_date: today,
-      tax_rate: input.taxRatePct || 0,
-      counter_sale: true,
-      terms: "Paid in full at the counter.",
-      created_by: user?.id ?? null,
-    })
-    .select("id")
-    .single();
-  if (invErr || !inv) return { error: invErr?.message || "Couldn't create the receipt." };
+  let invoiceId = (prior?.id as string | undefined) ?? null;
+  let createdNow = false;
+  if (!invoiceId) {
+    const { data: inv, error: invErr } = await supabase
+      .from("invoices")
+      .insert({
+        customer_id: customerId,
+        number: `INV-${next}`,
+        status: "draft",
+        issue_date: today,
+        due_date: today,
+        tax_rate: input.taxRatePct || 0,
+        counter_sale: true,
+        terms: "Paid in full at the counter.",
+        created_by: user?.id ?? null,
+        idempotency_key: idempotencyKey,
+      })
+      .select("id")
+      .single();
+    if (invErr || !inv) {
+      const duplicate =
+        invErr?.code === "23505" || /duplicate key/i.test(invErr?.message ?? "");
+      if (duplicate) {
+        const { data: existing } = await supabase
+          .from("invoices")
+          .select("id, customer_id")
+          .eq("idempotency_key", idempotencyKey)
+          .maybeSingle();
+        if (existing?.id && existing.customer_id === customerId) {
+          invoiceId = existing.id as string;
+        } else {
+          return { error: BLANK_INVOICE_TOKEN_USED_MESSAGE };
+        }
+      } else {
+        return { error: "Couldn't create the receipt." };
+      }
+    } else {
+      invoiceId = inv.id as string;
+      createdNow = true;
+    }
+  }
+  if (!invoiceId) return { error: "Couldn't create the receipt." };
 
-  const { error: itemErr } = await supabase.from("invoice_items").insert(
-    lines.map((l, i) => ({
-      invoice_id: inv.id,
-      position: i,
-      description: l.description.trim(),
-      quantity: l.quantity,
-      unit: l.unit || "",
-      rate: l.rate,
-    })),
-  );
-  if (itemErr) return { error: itemErr.message };
+  if (createdNow) {
+    const { error: itemErr } = await supabase.from("invoice_items").insert(
+      lines.map((l, i) => ({
+        invoice_id: invoiceId,
+        position: i,
+        description: l.description.trim(),
+        quantity: l.quantity,
+        unit: l.unit || "",
+        rate: l.rate,
+      })),
+    );
+    if (itemErr) return { error: "Couldn't save the sale lines." };
+  }
 
-  // Canonical issue path (draft → finalize) so invoice accounting cannot be bypassed.
-  const fin = await finalizeInvoiceSafe(supabase, inv.id as string, user?.id ?? null);
-  if (!fin.ok) {
-    return { error: fin.error || "Couldn't finalize the counter-sale invoice." };
+  const fin = await finalizeInvoiceSafe(supabase, invoiceId, user?.id ?? null);
+  if (!fin.ok && createdNow) {
+    return { error: "Couldn't finalize the counter-sale invoice." };
   }
 
   await applyEligibleDepositsToInvoice(supabase, {
-    invoiceId: inv.id as string,
+    invoiceId,
     createdBy: user?.id ?? null,
     appliedOn: today,
   });
 
-  // 3 · The money — atomic overpay-safe insert (migration 0158).
   const amount = Number(input.payment?.amount) || 0;
   if (amount > 0) {
     const paidAt = new Date().toISOString().slice(0, 10);
     const { data: payRes, error: payErr } = await supabase.rpc(
       "record_invoice_payment_safe",
       {
-        p_invoice_id: inv.id,
+        p_invoice_id: invoiceId,
         p_amount: amount,
         p_method: input.payment.method || "cash",
         p_reference: input.payment.reference?.trim() || null,
         p_paid_at: paidAt,
         p_notes: null,
         p_created_by: user?.id ?? null,
-        p_idempotency_key: `counter:${inv.id}:${amount}:${paidAt}`,
+        p_idempotency_key: `counter-pay:${idempotencyKey}`,
         p_allow_deposit_on_zero_total: false,
       },
     );
-    if (payErr || !(payRes as { ok?: boolean })?.ok) {
+    const payOk = (payRes as { ok?: boolean })?.ok;
+    if (payErr || !payOk) {
       return {
-        error: `Sale saved but the payment didn't record: ${
-          payErr?.message ||
-          (payRes as { error?: string })?.error ||
-          "unknown error"
-        }`,
+        error: "Sale saved but the payment didn't record. Open the receipt and record it once.",
       };
     }
-    // sent → paid is allowed after finalize (already issued).
-    await supabase.from("invoices").update({ status: "paid" }).eq("id", inv.id);
+    await supabase.from("invoices").update({ status: "paid" }).eq("id", invoiceId);
   }
 
   revalidatePath("/invoices");
   revalidatePath(`/customers/${customerId}`);
   revalidatePath("/financials");
-  return { error: null, invoiceId: inv.id as string };
+  return { error: null, invoiceId };
 }
 
 /** Find a walk-in who's been in before, so their details aren't retyped. */
