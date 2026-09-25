@@ -11,6 +11,7 @@ import type {
   ClassifiedImportRow,
   MatchCandidateInput,
 } from "@/lib/customer-resolve";
+import { HIDDEN_DUPLICATE_MESSAGE } from "@/lib/customer-resolve";
 
 export type { ClassifiedImportRow };
 
@@ -206,6 +207,9 @@ export async function importClients(
         row.class === "POSSIBLE_DUPLICATE" ? "Import: staff accepted possible duplicate" : null,
     });
     if (resolved.action === "created") count += 1;
+    if (resolved.action === "error" && resolved.error === HIDDEN_DUPLICATE_MESSAGE) {
+      return { error: resolved.error, count, summary: preview.summary };
+    }
   }
 
   revalidatePath("/customers");

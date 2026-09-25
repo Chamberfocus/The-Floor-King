@@ -9,9 +9,11 @@ import { requireProfile } from "@/lib/auth";
 import {
   classifyImportRows,
   decidePublicBooking,
+  HIDDEN_DUPLICATE_MESSAGE,
   decideStaffCreate,
   filterMatchesForActor,
   findPotentialCustomerMatches,
+  salesmanHiddenStrongDuplicate,
   canonicalMatchingPool,
   followMergedAwayId,
   recheckBeforeInsert,
@@ -161,6 +163,36 @@ async function loadPool(
   return pool;
 }
 
+async function hiddenStrongDuplicateForSalesman(
+  db: Loose,
+  role: string,
+  input: MatchCandidateInput,
+  visible: ScoredCustomerMatch[],
+): Promise<boolean> {
+  const email = normalizeEmail(input.email);
+  const phone = normalizePhoneDigits(input.phone);
+  if (!email && phone.length !== 10) return false;
+  const rpc = (
+    db as unknown as {
+      rpc?: (
+        fn: string,
+        args: { p_email: string | null; p_phone: string | null },
+      ) => PromiseLike<{ data: boolean | null; error: { message?: string } | null }>;
+    }
+  ).rpc;
+  if (typeof rpc !== "function") return false;
+  const { data, error } = await rpc("customer_strong_identifier_taken", {
+    p_email: email || null,
+    p_phone: phone.length === 10 ? phone : null,
+  });
+  if (error || data !== true) return false;
+  return salesmanHiddenStrongDuplicate({
+    actorRole: role,
+    visibleHasStrong: visible.some((m) => m.tier === "strong"),
+    identifierTaken: true,
+  });
+}
+
 /**
  * Resolve a client-supplied customer UUID to the live identity.
  * Merged-away 0185 aliases cannot become the active identity.
@@ -227,6 +259,14 @@ export async function resolveOrCreateCustomer(args: {
     { role: profile.role, id: profile.id },
   );
 
+  const hidden = await hiddenStrongDuplicateForSalesman(
+    supabase,
+    profile.role,
+    args.input,
+    matches,
+  );
+  if (hidden) return { action: "error", error: HIDDEN_DUPLICATE_MESSAGE };
+
   const decision = decideStaffCreate({
     input: args.input,
     matches,
@@ -249,6 +289,13 @@ export async function resolveOrCreateCustomer(args: {
     findPotentialCustomerMatches(args.input, latestPool),
     { role: profile.role, id: profile.id },
   );
+  const hiddenAgain = await hiddenStrongDuplicateForSalesman(
+    supabase,
+    profile.role,
+    args.input,
+    latest,
+  );
+  if (hiddenAgain) return { action: "error", error: HIDDEN_DUPLICATE_MESSAGE };
   const recheck = recheckBeforeInsert({
     latest,
     forceCreate: args.forceCreate,

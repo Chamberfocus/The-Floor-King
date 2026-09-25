@@ -295,6 +295,26 @@ export function salesmanMayAccessMatch(
   );
 }
 
+export const HIDDEN_DUPLICATE_MESSAGE =
+  "A possible duplicate exists. Ask the office to review.";
+
+/**
+ * A salesman whose book has no strong match, while an exact email or
+ * 10-digit phone already exists outside that book, must not create.
+ * Callers must not attach the other customer's id or name to this result.
+ */
+export function salesmanHiddenStrongDuplicate(args: {
+  actorRole: string;
+  visibleHasStrong: boolean;
+  identifierTaken: boolean;
+}): boolean {
+  return (
+    args.actorRole === "salesman" &&
+    args.identifierTaken &&
+    !args.visibleHasStrong
+  );
+}
+
 /**
  * Staff matcher ACL: salesman only sees their book. Other internal roles keep
  * their existing broader access. Public callers must not use this.

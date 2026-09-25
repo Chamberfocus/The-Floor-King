@@ -81,6 +81,7 @@ import {
 } from "@/lib/data/workflow";
 import { listQualifyingQuestions } from "@/lib/data/qualifying";
 import { createInvoice } from "@/app/(app)/invoices/actions";
+import { OperationIdempotencyField } from "@/app/(app)/invoices/payment-idempotency-field";
 import { defaultInvoiceJobId } from "@/lib/invoice-job-link";
 import { optionTotals, lineTotal } from "@/lib/estimate-calc";
 import { buildJobScope } from "@/lib/job-scope";
@@ -192,6 +193,7 @@ export default async function CustomerPage({
     schedule_error?: string;
     credit_error?: string;
     credit_ok?: string;
+    invoice_error?: string;
     stage_error?: string;
     notify?: string;
     notify_detail?: string;
@@ -203,6 +205,7 @@ export default async function CustomerPage({
   const scheduleError = sp.schedule_error?.trim() || null;
   const creditError = sp.credit_error?.trim() || null;
   const creditOk = sp.credit_ok?.trim() || null;
+  const invoiceError = sp.invoice_error?.trim() || null;
   const stageError = sp.stage_error?.trim() || null;
   const notify = sp.notify?.trim() || null;
   const notifyDetail = sp.notify_detail?.trim() || null;
@@ -765,6 +768,14 @@ export default async function CustomerPage({
           className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
         >
           {scheduleError}
+        </div>
+      ) : null}
+      {invoiceError ? (
+        <div
+          role="alert"
+          className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
+          {invoiceError}
         </div>
       ) : null}
       {creditError ? (
@@ -1686,6 +1697,7 @@ export default async function CustomerPage({
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">Invoices</CardTitle>
               <form action={createInvoice} data-tour="create-invoice" className="flex flex-wrap items-center gap-2">
+                <OperationIdempotencyField />
                 <input type="hidden" name="customer_id" value={customer.id} />
                 {(() => {
                   const activeIds = jobs
