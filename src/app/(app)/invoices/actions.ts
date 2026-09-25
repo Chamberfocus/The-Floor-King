@@ -666,7 +666,10 @@ async function createEstimateDerivedInvoice(args: {
     .single();
   if (error || !invoice) {
     const duplicateWrite =
-      error?.code === "23505" || /duplicate key/i.test(error?.message ?? "");
+      error?.code === "23505" ||
+      /invoices_one_active_original_per_estimate|invoices_one_active_supplemental_per_snapshot|duplicate key/i.test(
+        error?.message ?? "",
+      );
     if (duplicateWrite && (kind === "supplemental" || kind === "original")) {
       let lookup = supabase
         .from("invoices")
