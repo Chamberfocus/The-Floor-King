@@ -34,6 +34,7 @@ import {
   CARD_PAYMENT_IDEMPOTENCY_REQUIRED_MESSAGE,
   INVOICE_ALREADY_CREATED_MESSAGE,
   INVOICE_PAYMENT_IDEMPOTENCY_REQUIRED_MESSAGE,
+  replacementInvoiceIdempotencyKey,
   resolveBlankInvoiceIdempotencyKey,
   resolveCardPaymentIdempotencyKey,
   resolveInvoicePaymentIdempotencyKey,
@@ -591,6 +592,19 @@ async function createEstimateDerivedInvoice(args: {
     );
   }
 
+  if (plan.action === "void_reissue" && snap.id) {
+    const { data: existingRepl } = await supabase
+      .from("invoices")
+      .select("id")
+      .eq("estimate_id", estimateId)
+      .eq("approval_snapshot_id", snap.id)
+      .eq("commercial_kind", "replacement")
+      .neq("status", "void")
+      .limit(1)
+      .maybeSingle();
+    if (existingRepl?.id) redirect(`/invoices/${existingRepl.id}`);
+  }
+
   if (plan.action === "void_reissue") {
     for (const vid of plan.voidIds) {
       const voided = await voidInvoiceSafe(
@@ -649,21 +663,67 @@ async function createEstimateDerivedInvoice(args: {
     }
   }
 
-  const { data: invoice, error } = await supabase
-    .from("invoices")
-    .insert({
-      customer_id: preview.customerId,
-      estimate_id: estimateId,
-      job_id: jobId,
-      number: await nextInvoiceNumber(supabase),
-      tax_rate: taxRate,
-      issue_date: today(),
-      created_by: user?.id ?? null,
-      approval_snapshot_id: snap.id,
-      commercial_kind: kind,
-    })
-    .select("id")
-    .single();
+  const replacementKey =
+    kind === "replacement" && snap.id
+      ? replacementInvoiceIdempotencyKey(estimateId, snap.id)
+      : null;
+  const insertRow = {
+    customer_id: preview.customerId,
+    estimate_id: estimateId,
+    job_id: jobId,
+    number: await nextInvoiceNumber(supabase),
+    tax_rate: taxRate,
+    issue_date: today(),
+    created_by: user?.id ?? null,
+    approval_snapshot_id: snap.id,
+    commercial_kind: kind,
+    idempotency_key: replacementKey,
+  };
+  let invoice: { id: string } | null = null;
+  let error: { code?: string; message?: string } | null = null;
+  {
+    const inserted = await supabase
+      .from("invoices")
+      .insert(insertRow)
+      .select("id")
+      .single();
+    invoice = inserted.data;
+    error = inserted.error;
+  }
+  if ((!invoice || error) && replacementKey) {
+    const duplicateWrite =
+      error?.code === "23505" || /duplicate key/i.test(error?.message ?? "");
+    if (duplicateWrite) {
+      const { data: held } = await supabase
+        .from("invoices")
+        .select("id, status")
+        .eq("idempotency_key", replacementKey)
+        .maybeSingle();
+      if (held?.id && held.status !== "void") redirect(`/invoices/${held.id}`);
+      if (held?.id && held.status === "void") {
+        await supabase
+          .from("invoices")
+          .update({ idempotency_key: `repl-voided:${held.id}` })
+          .eq("id", held.id)
+          .eq("idempotency_key", replacementKey);
+        const retry = await supabase
+          .from("invoices")
+          .insert({ ...insertRow, number: await nextInvoiceNumber(supabase) })
+          .select("id")
+          .single();
+        invoice = retry.data;
+        error = retry.error;
+        if ((!invoice || error) && (retry.error?.code === "23505" || /duplicate key/i.test(retry.error?.message ?? ""))) {
+          const { data: winner } = await supabase
+            .from("invoices")
+            .select("id, status")
+            .eq("idempotency_key", replacementKey)
+            .maybeSingle();
+          if (winner?.id && winner.status !== "void") redirect(`/invoices/${winner.id}`);
+        }
+      }
+    }
+  }
   if (error || !invoice) {
     const duplicateWrite =
       error?.code === "23505" ||

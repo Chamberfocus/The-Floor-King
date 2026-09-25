@@ -1761,10 +1761,10 @@ export function EstimateBuilder({
             : `Estimate sent to ${customer?.full_name || "the customer"}`,
         );
       } else if (sent.notify.status === "failed") {
-        toast.error(`Estimate marked sent, but email failed: ${sent.notify.error}`);
+        toast.error(`Email failed. The estimate was not marked sent. ${sent.notify.error ?? ""}`.trim());
       } else {
-        toast.success(
-          `Estimate marked sent. Email was not sent: ${sent.notify.reason}`,
+        toast.error(
+          `The estimate was not marked sent. ${sent.notify.reason ?? "Add an email address first."}`,
         );
       }
       router.push(`/estimates/${estimate.id}`);
