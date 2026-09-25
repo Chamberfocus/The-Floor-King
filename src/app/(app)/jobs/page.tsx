@@ -5,7 +5,8 @@ import { Plus, MapPin, HardHat, ArrowRight, Phone } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
-import { listJobs, listAssignableUsers, claimRequestCounts } from "@/lib/data/jobs";
+import { listJobs, listAssignableUsers, claimRequestCounts, listJobMaterialNeeds } from "@/lib/data/jobs";
+import { assessMaterialsReadyForSchedule, jobsBoardUnscheduledLabel } from "@/lib/materials-ready";
 import { requireProfile } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -18,12 +19,12 @@ type Lane = "schedule" | "prep" | "ready" | "installing" | "done";
 
 const STAGED_STATUSES: WarehouseStatus[] = ["staged", "out_for_delivery", "delivered", "picked_up"];
 
-/** Where a job sits in its lifecycle — combines job status + warehouse status. */
-function laneOf(j: Job): Lane {
+/** Where a job sits. Unscheduled material that is not warehouse-ready is prep, not "Needs scheduling". */
+function laneOf(j: Job, scheduleAllowed: boolean): Lane {
   if (j.status === "completed" || j.status === "cancelled") return "done";
   if (j.status === "in_progress") return "installing";
-  if (STAGED_STATUSES.includes(j.warehouse_status)) return "ready";
-  if (!j.scheduled_date) return "schedule";
+  if (STAGED_STATUSES.includes(j.warehouse_status) && scheduleAllowed) return "ready";
+  if (!j.scheduled_date) return scheduleAllowed ? "schedule" : "prep";
   return "prep";
 }
 
@@ -65,10 +66,16 @@ export default async function JobsPage({
   const users = isStaff ? await listAssignableUsers() : [];
   const nameById = new Map(users.map((u) => [u.id, u.name]));
   const claims = isStaff ? await claimRequestCounts() : new Map<string, number>();
+  const materialNeeds = await listJobMaterialNeeds(jobs.map((j) => j.id));
+  const scheduleAllowed = (j: Job) =>
+    assessMaterialsReadyForSchedule({
+      hasMaterialNeed: materialNeeds.get(j.id) ?? true,
+      warehouseReadyAt: j.warehouse_ready_at,
+    }).ready;
 
   const byLane = new Map<Lane, Job[]>();
   for (const j of jobs) {
-    const lane = laneOf(j);
+    const lane = laneOf(j, scheduleAllowed(j));
     (byLane.get(lane) ?? byLane.set(lane, []).get(lane)!).push(j);
   }
 
@@ -265,7 +272,21 @@ export default async function JobsPage({
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {items.map((j) => (
-                    <Card key={j.id} j={j} next={lane.next(j)} />
+                    <Card
+                      key={j.id}
+                      j={j}
+                      next={
+                        !j.scheduled_date &&
+                        j.status !== "completed" &&
+                        j.status !== "cancelled" &&
+                        j.status !== "in_progress"
+                          ? jobsBoardUnscheduledLabel({
+                              hasMaterialNeed: materialNeeds.get(j.id) ?? true,
+                              warehouseReadyAt: j.warehouse_ready_at,
+                            })
+                          : lane.next(j)
+                      }
+                    />
                   ))}
                 </div>
               </section>

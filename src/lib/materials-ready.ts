@@ -28,6 +28,21 @@ export function isMaterialsNotReadyError(msg: string | null | undefined): boolea
   return (msg ?? "").includes("Materials are not marked warehouse-ready");
 }
 
+export const JOBS_BOARD_SCHEDULE_LABEL = "Schedule the install";
+export const JOBS_BOARD_MATERIALS_LABEL = "Materials not ready";
+
+/**
+ * Jobs-board cue for an unscheduled, still-open job.
+ * Delegates the gate to assessMaterialsReadyForSchedule.
+ * Money collected and buying gaps are not inputs.
+ */
+export function jobsBoardUnscheduledLabel(
+  input: MaterialsReadyInput,
+): string {
+  const ready = assessMaterialsReadyForSchedule(input);
+  return ready.ready ? JOBS_BOARD_SCHEDULE_LABEL : JOBS_BOARD_MATERIALS_LABEL;
+}
+
 export function assessMaterialsReadyForSchedule(
   input: MaterialsReadyInput,
 ): MaterialsReadyResult {

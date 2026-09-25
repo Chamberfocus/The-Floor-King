@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { boardMaterialTypeFromScopes, installerCanDoJob, type MaterialType } from "@/lib/job-scope";
+import { boardMaterialTypeFromScopes, installerCanDoJob, isMaterialLine, type MaterialType } from "@/lib/job-scope";
 import {
   installerAssignmentOrFilter,
   installerSeesJob,
@@ -119,6 +119,43 @@ export async function listJobs(
     customer_name: r.customer?.full_name ?? null,
     customer_phone: r.customer?.phone ?? null,
   }));
+}
+
+/** Material-need flags for the jobs board. Fail closed when lines cannot be read. */
+export async function listJobMaterialNeeds(
+  jobIds: string[],
+): Promise<Map<string, boolean>> {
+  const flags = new Map<string, boolean>();
+  if (!jobIds.length) return flags;
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("job_line_items")
+    .select(
+      "job_id, line_type, category, product_id, manufacturer, color, sqft_per_box, roll_width_ft",
+    )
+    .in("job_id", jobIds);
+  if (error) {
+    for (const id of jobIds) flags.set(id, true);
+    return flags;
+  }
+  for (const id of jobIds) flags.set(id, false);
+  for (const row of data ?? []) {
+    const jobId = row.job_id as string;
+    if (
+      isMaterialLine({
+        line_type: row.line_type as string | null,
+        category: row.category as string | null,
+        product_id: row.product_id as string | null,
+        manufacturer: row.manufacturer as string | null,
+        color: row.color as string | null,
+        sqft_per_box: row.sqft_per_box as number | null,
+        roll_width_ft: row.roll_width_ft as number | null,
+      })
+    ) {
+      flags.set(jobId, true);
+    }
+  }
+  return flags;
 }
 
 export async function listJobsForCustomer(

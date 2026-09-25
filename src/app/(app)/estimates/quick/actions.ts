@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import { assertRole } from "@/lib/auth";
 import { resolveOrCreateCustomer, followActiveCustomerId } from "@/lib/data/customer-resolve";
 import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
+import { advanceFromAutoAction } from "@/lib/workflow-engine";
+import { onEstimateSentOps } from "@/lib/data/ops-automation";
 
 const OFFICE = ["admin", "office", "sales_manager", "salesman"] as const;
 
@@ -142,6 +144,22 @@ export async function createQuickEstimate(input: QuickEstimateInput): Promise<{
     })),
   );
   if (lineErr) return { error: "Couldn't save the lines." };
+
+  if (input.markSent) {
+    await advanceFromAutoAction(customerId, "build_quote");
+    const { data: owner } = await supabase
+      .from("customers")
+      .select("assigned_to, workflow_owner_id")
+      .eq("id", customerId)
+      .maybeSingle();
+    await onEstimateSentOps({
+      estimateId: estimate.id as string,
+      customerId,
+      assignedTo: owner?.workflow_owner_id ?? owner?.assigned_to ?? null,
+      actorId: user?.id ?? null,
+      title: input.title.trim() || "Estimate",
+    });
+  }
 
   revalidatePath("/estimates");
   revalidatePath(`/customers/${customerId}`);

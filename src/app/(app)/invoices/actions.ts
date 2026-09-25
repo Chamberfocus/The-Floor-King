@@ -29,8 +29,12 @@ import { followActiveCustomerId } from "@/lib/data/customer-resolve";
 import { recomputeInvoiceStatus } from "@/lib/invoice-recompute";
 import { assertRole } from "@/lib/auth";
 import {
+  BLANK_INVOICE_IDEMPOTENCY_REQUIRED_MESSAGE,
+  BLANK_INVOICE_TOKEN_USED_MESSAGE,
   CARD_PAYMENT_IDEMPOTENCY_REQUIRED_MESSAGE,
+  INVOICE_ALREADY_CREATED_MESSAGE,
   INVOICE_PAYMENT_IDEMPOTENCY_REQUIRED_MESSAGE,
+  resolveBlankInvoiceIdempotencyKey,
   resolveCardPaymentIdempotencyKey,
   resolveInvoicePaymentIdempotencyKey,
 } from "@/lib/financial-idempotency";
@@ -661,16 +665,27 @@ async function createEstimateDerivedInvoice(args: {
     .select("id")
     .single();
   if (error || !invoice) {
-    const duplicateOriginal =
-      error?.code === "23505" ||
-      /invoices_one_active_original_per_estimate|duplicate key/i.test(
-        error?.message ?? "",
-      );
+    const duplicateWrite =
+      error?.code === "23505" || /duplicate key/i.test(error?.message ?? "");
+    if (duplicateWrite && (kind === "supplemental" || kind === "original")) {
+      let lookup = supabase
+        .from("invoices")
+        .select("id")
+        .eq("estimate_id", estimateId)
+        .eq("commercial_kind", kind)
+        .neq("status", "void");
+      if (kind === "supplemental" && snap.id) {
+        lookup = lookup.eq("approval_snapshot_id", snap.id);
+      }
+      const { data: existing } = await lookup.limit(1).maybeSingle();
+      if (existing?.id) redirect(`/invoices/${existing.id}`);
+      redirectInvoiceError(estimateId, INVOICE_ALREADY_CREATED_MESSAGE);
+    }
     redirectInvoiceError(
       estimateId,
-      duplicateOriginal
-        ? "An original invoice already exists for this estimate. Refresh and continue from that invoice."
-        : (error?.message ?? "Could not create the invoice."),
+      duplicateWrite
+        ? INVOICE_ALREADY_CREATED_MESSAGE
+        : "Could not create the invoice.",
     );
   }
 
@@ -722,6 +737,12 @@ export async function createInvoiceFromSelection(
   });
 }
 
+function redirectBlankInvoiceError(customerId: string, message: string): never {
+  redirect(
+    `/customers/${customerId}?tab=invoices&invoice_error=${encodeURIComponent(message)}`,
+  );
+}
+
 export async function createInvoice(formData: FormData): Promise<void> {
   await assertRole(INVOICE_CREATE_ROLES);
   const customerId = str(formData.get("customer_id"));
@@ -731,8 +752,18 @@ export async function createInvoice(formData: FormData): Promise<void> {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const idempotencyKey = resolveBlankInvoiceIdempotencyKey(
+    str(formData.get("idempotency_key")),
+    user?.id,
+  );
   const liveCustomerId = await followActiveCustomerId(supabase, customerId);
   if (!liveCustomerId) return;
+  if (!idempotencyKey) {
+    redirectBlankInvoiceError(
+      liveCustomerId,
+      BLANK_INVOICE_IDEMPOTENCY_REQUIRED_MESSAGE,
+    );
+  }
   const { data: invoice, error } = await supabase
     .from("invoices")
     .insert({
@@ -741,10 +772,30 @@ export async function createInvoice(formData: FormData): Promise<void> {
       number: await nextInvoiceNumber(supabase),
       issue_date: today(),
       created_by: user?.id ?? null,
+      idempotency_key: idempotencyKey,
     })
     .select("id")
     .single();
-  if (error || !invoice) return;
+  if (error || !invoice) {
+    const duplicateWrite =
+      error?.code === "23505" || /duplicate key/i.test(error?.message ?? "");
+    if (duplicateWrite) {
+      const { data: existing } = await supabase
+        .from("invoices")
+        .select("id, customer_id, job_id")
+        .eq("idempotency_key", idempotencyKey)
+        .maybeSingle();
+      if (
+        existing?.id &&
+        existing.customer_id === liveCustomerId &&
+        (existing.job_id ?? null) === jobId
+      ) {
+        redirect(`/invoices/${existing.id}`);
+      }
+      redirectBlankInvoiceError(liveCustomerId, BLANK_INVOICE_TOKEN_USED_MESSAGE);
+    }
+    redirectBlankInvoiceError(liveCustomerId, "Could not create the invoice.");
+  }
   revalidatePath("/invoices");
   revalidatePath(`/customers/${liveCustomerId}`);
   if (jobId) revalidatePath(`/jobs/${jobId}`);

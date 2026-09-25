@@ -30,6 +30,14 @@ export const DIRECT_EXPENSE_IDEMPOTENCY_REQUIRED_MESSAGE =
 export const AP_IMPORT_IDEMPOTENCY_REQUIRED_MESSAGE =
   "Missing bill import operation token. Refresh the page and try again.";
 
+export const BLANK_INVOICE_IDEMPOTENCY_REQUIRED_MESSAGE =
+  "Missing invoice operation token. Refresh the page and try again.";
+
+export const BLANK_INVOICE_TOKEN_USED_MESSAGE =
+  "That request was already used.";
+
+export const INVOICE_ALREADY_CREATED_MESSAGE = "Invoice already created.";
+
 export function resolveGoodwillIdempotencyKey(
   raw: string | null | undefined,
 ): string | null {
@@ -213,6 +221,95 @@ export function resolveInvoicePaymentIdempotencyKey(
   raw: string | null | undefined,
 ): string | null {
   return prefixToken(raw, "pay-op");
+}
+
+/**
+ * Blank invoice request identity. The stored key is owned by the acting user
+ * so another user cannot replay it onto a different customer.
+ * A new form mount mints a new raw token; a retry of the same mount reuses it.
+ */
+export function resolveBlankInvoiceIdempotencyKey(
+  raw: string | null | undefined,
+  userId: string | null | undefined,
+): string | null {
+  const token = (raw ?? "").trim();
+  const uid = (userId ?? "").trim();
+  if (!token || !uid) return null;
+  if (token.length > 200) return null;
+  if (token.includes(":") || token.startsWith("blank")) return null;
+  return `blank:${uid}:${token}`;
+}
+
+export type BlankInvoiceRecord = {
+  id: string;
+  customerId: string;
+  jobId: string | null;
+};
+
+export type BlankInvoiceResult =
+  | { ok: true; invoice: BlankInvoiceRecord; duplicate: boolean }
+  | { ok: false; code: "MISSING_KEY" | "IDEMPOTENCY_CONFLICT" };
+
+/** Same request replays. Same token with a different customer or job is refused. */
+export function replayOrInsertBlankInvoice(
+  store: Map<string, BlankInvoiceRecord>,
+  args: {
+    key: string | null;
+    customerId: string;
+    jobId: string | null;
+    create: () => { id: string };
+  },
+): BlankInvoiceResult {
+  if (!args.key) return { ok: false, code: "MISSING_KEY" };
+  const existing = store.get(args.key);
+  if (existing) {
+    if (
+      existing.customerId !== args.customerId ||
+      (existing.jobId ?? null) !== (args.jobId ?? null)
+    ) {
+      return { ok: false, code: "IDEMPOTENCY_CONFLICT" };
+    }
+    return { ok: true, invoice: existing, duplicate: true };
+  }
+  const created = args.create();
+  const invoice: BlankInvoiceRecord = {
+    id: created.id,
+    customerId: args.customerId,
+    jobId: args.jobId ?? null,
+  };
+  store.set(args.key, invoice);
+  return { ok: true, invoice, duplicate: false };
+}
+
+export type SupplementalInvoiceRecord = {
+  id: string;
+  estimateId: string;
+  approvalSnapshotId: string;
+};
+
+/**
+ * One active supplemental per estimate + approval snapshot.
+ * Mirrors invoices_one_active_supplemental_per_snapshot.
+ * A second snapshot is a different obligation and is allowed.
+ */
+export function insertActiveSupplemental(
+  store: Map<string, SupplementalInvoiceRecord>,
+  args: { estimateId: string; approvalSnapshotId: string; id: string },
+):
+  | { ok: true; invoice: SupplementalInvoiceRecord; duplicate: boolean }
+  | { ok: false; code: "23505"; existingId: string } {
+  const key = `${args.estimateId}:${args.approvalSnapshotId}`;
+  const existing = store.get(key);
+  if (existing) {
+    return { ok: false, code: "23505", existingId: existing.id };
+  }
+  const invoice: SupplementalInvoiceRecord = {
+    id: args.id,
+    estimateId: args.estimateId,
+    approvalSnapshotId: args.approvalSnapshotId,
+  };
+  store.set(key, invoice);
+  return { ok: true, invoice, duplicate: false };
 }
 
 /** UPDATE identity: same bill + same save payload. Not a random UUID. */
