@@ -5,6 +5,10 @@ import { createClient } from "@/lib/supabase/server";
 import { assertRole } from "@/lib/auth";
 import { restartFlowForNewWork } from "@/lib/workflow-engine";
 import { enforceMaterialsReadyForSchedule, ensureJobForEstimate } from "@/app/(app)/jobs/actions";
+import {
+  isScheduleRpcUnavailable,
+  SCHEDULE_UNAVAILABLE_MESSAGE,
+} from "@/lib/scheduling-conflicts";
 import { formatServiceAddress } from "@/lib/types";
 import { defaultJobTitle } from "@/lib/job-label";
 import type { UserRole, LeadSource, LeadStage } from "@/lib/types";
@@ -381,6 +385,15 @@ export async function createJobForCustomer(
       },
     );
     if (schedErr) {
+      if (isScheduleRpcUnavailable(schedErr)) {
+        console.error("[schedule] schedule_job_install_safe unavailable", {
+          op: "createJobForCustomer",
+          jobId,
+          code: schedErr.code ?? null,
+          message: schedErr.message,
+        });
+        return { error: SCHEDULE_UNAVAILABLE_MESSAGE };
+      }
       return { error: schedErr.message };
     }
     const body = schedRes as { ok?: boolean; error?: string } | null;

@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { finalizeInvoiceSafe } from "@/lib/invoice-issue";
 import { enforceMaterialsReadyForSchedule } from "@/app/(app)/jobs/actions";
+import {
+  isScheduleRpcUnavailable,
+  SCHEDULE_UNAVAILABLE_MESSAGE,
+} from "@/lib/scheduling-conflicts";
 import { seedJobScopeIfEmpty } from "@/lib/data/job-operational-lines";
 import { applyEligibleDepositsToInvoice } from "@/lib/data/apply-customer-deposits";
 import { resolveOrCreateCustomer, followActiveCustomerId } from "@/lib/data/customer-resolve";
@@ -362,7 +366,18 @@ export async function carryOverDeal(
           p_open_for_claim: false,
         },
       );
-      if (schedErr) return { error: schedErr.message };
+      if (schedErr) {
+        if (isScheduleRpcUnavailable(schedErr)) {
+          console.error("[schedule] schedule_job_install_safe unavailable", {
+            op: "carryOverDeal",
+            jobId,
+            code: schedErr.code ?? null,
+            message: schedErr.message,
+          });
+          return { error: SCHEDULE_UNAVAILABLE_MESSAGE };
+        }
+        return { error: schedErr.message };
+      }
       const body = schedRes as { ok?: boolean; error?: string } | null;
       if (body && body.ok === false) {
         return { error: body.error || "Could not schedule the carried-over install." };

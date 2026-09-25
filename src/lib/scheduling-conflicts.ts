@@ -1,7 +1,27 @@
 /**
  * Server-side install booking conflict helpers (pure).
  * UI conflict warnings are not authoritative — bookInstall must use these.
+ *
+ * The schedule date itself is written only by schedule_job_install_safe.
+ * A missing function must fail closed. It must not become a direct jobs update.
  */
+
+export const SCHEDULE_UNAVAILABLE_MESSAGE =
+  "Scheduling is temporarily unavailable. Please try again or contact an administrator.";
+
+/** PostgREST / Postgres signals that schedule_job_install_safe is not callable. */
+export function isScheduleRpcUnavailable(error: {
+  message?: string | null;
+  code?: string | null;
+} | null | undefined): boolean {
+  if (!error) return false;
+  const message = error.message ?? "";
+  if (error.code === "PGRST202") return true;
+  if (/schedule_job_install_safe/i.test(message)) return true;
+  if (/could not find the function/i.test(message)) return true;
+  if (/schema cache/i.test(message) && /function/i.test(message)) return true;
+  return message.includes("does not exist") && /function/i.test(message);
+}
 
 export interface BookedInstallRange {
   jobId: string;

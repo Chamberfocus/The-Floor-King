@@ -8,6 +8,10 @@ import { listJobs, getJob } from "@/lib/data/jobs";
 import { listCustomers } from "@/lib/data/customers";
 import { ROLE_LABELS } from "@/lib/types";
 import { setJobStatus, enforceMaterialsReadyForSchedule } from "@/app/(app)/jobs/actions";
+import {
+  isScheduleRpcUnavailable,
+  SCHEDULE_UNAVAILABLE_MESSAGE,
+} from "@/lib/scheduling-conflicts";
 import { addActivity } from "@/app/(app)/customers/actions";
 import { notifyOnTheWay } from "@/app/(app)/customers/[id]/onway-actions";
 import { createDraftEstimateFromText } from "@/app/(app)/estimates/ai-actions";
@@ -321,12 +325,18 @@ export async function runAssistantAction(
         },
       );
       if (schedErr) {
+        if (isScheduleRpcUnavailable(schedErr)) {
+          console.error("[schedule] schedule_job_install_safe unavailable", {
+            op: "reschedule_job",
+            jobId: safe.jobId,
+            code: schedErr.code ?? null,
+            message: schedErr.message,
+          });
+          return { ok: false, message: SCHEDULE_UNAVAILABLE_MESSAGE };
+        }
         return {
           ok: false,
-          message:
-            /schedule_job_install_safe|does not exist|PGRST202/i.test(schedErr.message)
-              ? "Scheduling is locked until the office schedule function is available."
-              : "That date could not be booked. Pick another date.",
+          message: "That date could not be booked. Pick another date.",
         };
       }
       const body = schedRes as { ok?: boolean; error?: string; code?: string } | null;
