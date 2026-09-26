@@ -70,17 +70,20 @@ async function ledgerReceivedQty(db: DB, poItemId: string): Promise<number> {
     p_po_item_id: poItemId,
   });
   if (error) {
-    throw new Error(
-      error.message.includes("does not exist")
-        ? "Inventory receive ledger RPC missing — apply migration 0176."
-        : error.message,
-    );
+    console.error("inv_po_item_received_qty", {
+      poItemId,
+      code: error.code,
+      message: error.message,
+    });
+    throw new Error("We couldn't check what was received on that purchase order. Try again.");
   }
   return Number(data) || 0;
 }
 
 function rpcOk(data: unknown): { ok: boolean; error?: string; code?: string } {
-  if (!data || typeof data !== "object") return { ok: false, error: "Empty RPC result" };
+  if (!data || typeof data !== "object") {
+    return { ok: false, error: "We couldn't save that change. Try again." };
+  }
   const r = data as { ok?: boolean; error?: string; code?: string };
   return { ok: !!r.ok, error: r.error, code: r.code };
 }
@@ -201,15 +204,17 @@ export async function applyReceiptToStock(
       p_idempotency_key: `po-recv-rev-all:${poId}`,
     });
     if (revErr) {
-      throw new Error(
-        revErr.message.includes("does not exist")
-          ? "PO receipt reversal RPC missing — apply migration 0183."
-          : revErr.message,
-      );
+      console.error("reverse_po_receipts_safe", {
+        poId,
+        code: revErr.code,
+        message: revErr.message,
+      });
+      throw new Error("We couldn't update warehouse stock for that purchase order. Try again.");
     }
     const revRes = rpcOk(rev);
     if (!revRes.ok) {
-      throw new Error(revRes.error || revRes.code || "Could not reverse PO receipts.");
+      console.error("reverse_po_receipts_safe", { poId, error: revRes.error, code: revRes.code });
+      throw new Error("We couldn't update warehouse stock for that purchase order. Try again.");
     }
     return;
   }
@@ -282,15 +287,21 @@ export async function reverseReceivedPOs(
       p_idempotency_key: `po-recv-rev-all:${po.id}`,
     });
     if (error) {
-      throw new Error(
-        error.message.includes("does not exist")
-          ? "PO receipt reversal RPC missing — apply migration 0183."
-          : error.message,
-      );
+      console.error("reverse_po_receipts_safe", {
+        poId: po.id,
+        code: error.code,
+        message: error.message,
+      });
+      throw new Error("We couldn't update warehouse stock for that purchase order. Try again.");
     }
     const res = rpcOk(rev);
     if (!res.ok) {
-      throw new Error(res.error || res.code || "Could not reverse PO receipts.");
+      console.error("reverse_po_receipts_safe", {
+        poId: po.id,
+        error: res.error,
+        code: res.code,
+      });
+      throw new Error("We couldn't update warehouse stock for that purchase order. Try again.");
     }
   }
 }

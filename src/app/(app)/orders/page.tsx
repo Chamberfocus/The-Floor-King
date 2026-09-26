@@ -83,7 +83,7 @@ export default async function OrdersPage() {
     const contact = [o.contact_phone, o.contact_email].filter(Boolean).join(" · ");
     const stockKnown = o.stock_status !== "unknown";
     return (
-      <Card>
+      <Card id={`order-${o.id}`} className="scroll-mt-24">
         <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
           <div className="min-w-0">
             <CardTitle className="text-base">{who}</CardTitle>

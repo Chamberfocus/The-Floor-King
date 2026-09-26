@@ -322,12 +322,14 @@ describe("Phase A mobile tabs and + New", () => {
       "estimate",
       "measure",
       "job",
+      "task",
     ]);
     expect(quickCreateForRole("admin").map((action) => action.href)).toEqual([
       "/customers/new",
       "/estimates/start",
       "/calendar",
       "/jobs/new",
+      "/dashboard",
     ]);
     expect(quickCreateForRole("scheduler").map((action) => action.id)).toEqual([
       "customer",
@@ -341,7 +343,10 @@ describe("Phase A mobile tabs and + New", () => {
       "New estimate",
       "Schedule a measure",
       "New job",
+      "New task",
     ]);
+    expect(quickCreateForRole("salesman").map((action) => action.id)).not.toContain("task");
+    expect(quickCreateForRole("crew").map((action) => action.id)).not.toContain("task");
   });
 
   it("shows one New control for each viewport", () => {

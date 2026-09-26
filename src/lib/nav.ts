@@ -531,7 +531,8 @@ export interface QuickCreateAction {
  * Payment has no generic form — it is recorded on an invoice.
  * Purchase orders are created from a job/estimate or as a stock PO on the
  * inventory page, not from a blank global form.
- * Tasks are created inside the dashboard card, which is not its own screen.
+ * A new lead is a new customer — there is no second create screen.
+ * Tasks are created on the dashboard, which office and sales managers already open.
  */
 export const QUICK_CREATE: QuickCreateAction[] = [
   { id: "customer", label: "New customer", href: "/customers/new", roles: SALES_VIEW },
@@ -543,6 +544,7 @@ export const QUICK_CREATE: QuickCreateAction[] = [
     href: "/jobs/new",
     roles: ["admin", "office", "sales_manager", "salesman", "scheduler"],
   },
+  { id: "task", label: "New task", href: "/dashboard", roles: OVERVIEW },
 ];
 
 const COLLAPSIBLE_SECTIONS: readonly ShellSectionId[] = [

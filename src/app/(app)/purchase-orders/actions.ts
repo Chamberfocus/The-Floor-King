@@ -1043,14 +1043,18 @@ export async function deletePurchaseOrder(formData: FormData): Promise<void> {
     p_idempotency_key: poVoidIdempotencyKey(id),
   });
   if (error) {
-    throw new Error(
-      error.message.includes("does not exist")
-        ? "PO void RPC missing — apply migration 0183."
-        : error.message,
-    );
+    console.error("void_purchase_order_safe", {
+      id,
+      code: error.code,
+      message: error.message,
+    });
+    throw new Error("We couldn't cancel that purchase order. Try again.");
   }
   const res = data as { ok?: boolean; error?: string };
-  if (!res?.ok) throw new Error(res?.error ?? "Could not void this purchase order.");
+  if (!res?.ok) {
+    console.error("void_purchase_order_safe", { id, error: res?.error });
+    throw new Error("We couldn't cancel that purchase order. Try again.");
+  }
   if (po?.po_number == null) {
     await supabase.from("purchase_orders").delete().eq("id", id);
   }
@@ -1085,14 +1089,18 @@ export async function voidPurchaseOrder(formData: FormData): Promise<void> {
     p_idempotency_key: poVoidIdempotencyKey(id),
   });
   if (error) {
-    throw new Error(
-      error.message.includes("does not exist")
-        ? "PO void RPC missing — apply migration 0183."
-        : error.message,
-    );
+    console.error("void_purchase_order_safe", {
+      id,
+      code: error.code,
+      message: error.message,
+    });
+    throw new Error("We couldn't cancel that purchase order. Try again.");
   }
   const res = data as { ok?: boolean; error?: string };
-  if (!res?.ok) throw new Error(res?.error ?? "Could not void this purchase order.");
+  if (!res?.ok) {
+    console.error("void_purchase_order_safe", { id, error: res?.error });
+    throw new Error("We couldn't cancel that purchase order. Try again.");
+  }
   revalidatePath(`/purchase-orders/${id}`);
   revalidatePath("/purchase-orders");
   revalidatePath("/inventory");

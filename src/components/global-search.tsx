@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Search, Users, FileText, Receipt, ShoppingCart, Wrench, Package, ArrowRight, Loader2,
+  Search, Users, FileText, Receipt, ShoppingCart, ShoppingBag, Wrench, Package, ArrowRight, Loader2,
   type LucideIcon,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -13,18 +13,21 @@ import { quickSearch, type HitType, type QuickHit } from "@/app/(app)/search/act
 const ICON: Record<HitType, LucideIcon> = {
   customer: Users,
   estimate: FileText,
+  job: Wrench,
+  order: ShoppingBag,
   invoice: Receipt,
   po: ShoppingCart,
-  job: Wrench,
   product: Package,
 };
 
 export function GlobalSearch({
   className,
   autoFocus = false,
+  inputId = "crm-search",
 }: {
   className?: string;
   autoFocus?: boolean;
+  inputId?: string;
 }) {
   const router = useRouter();
   const [q, setQ] = useState("");
@@ -118,10 +121,11 @@ export function GlobalSearch({
           onChange={(e) => { setQ(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKey}
-          placeholder="Search customers, estimates, invoices, POs, work orders…"
+          id={inputId}
+          placeholder="Search name, phone, address, estimate, job…  (/)"
           aria-label="Search the CRM"
           autoFocus={autoFocus}
-          className="pl-9"
+          className="h-11 pl-9"
         />
         {pending ? (
           <Loader2 className="absolute right-3 top-1/2 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />
@@ -166,7 +170,7 @@ export function GlobalSearch({
                           onMouseEnter={() => setActive(idx)}
                           onClick={() => go(hit)}
                           className={cn(
-                            "flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-sm",
+                            "flex min-h-11 w-full items-center gap-2.5 px-3 py-1.5 text-left text-sm",
                             idx === active ? "bg-accent" : "hover:bg-accent/50",
                           )}
                         >

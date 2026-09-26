@@ -62,6 +62,7 @@ export async function loadHomeCenter(args: {
     firstName: args.firstName,
   };
 
+  const loadTasks = async (): Promise<HomeTask[]> => {
   const tasks: HomeTask[] = [];
   const { data: taskRows } = await supabase
     .from("office_tasks")
@@ -90,9 +91,13 @@ export async function loadHomeCenter(args: {
       href,
     });
   }
-  signals.tasks = tasks;
+  return tasks;
+  };
 
-  if (SALES_VIEW.includes(args.role)) {
+  const loadSales = async (): Promise<Pick<HomeSignals, "followUps" | "measures"> | null> => {
+  if (!SALES_VIEW.includes(args.role)) return null;
+  const sales: Pick<HomeSignals, "followUps" | "measures"> = {};
+  {
     let q = supabase
       .from("customers")
       .select("id, full_name, next_action_due, assigned_to, stage:workflow_stages(next_action, auto_action)")
@@ -105,7 +110,7 @@ export async function loadHomeCenter(args: {
       q = q.or(`assigned_to.eq.${args.userId},workflow_owner_id.eq.${args.userId}`);
     }
     const { data } = await q;
-    signals.followUps = ((data ?? []) as unknown as {
+    sales.followUps = ((data ?? []) as unknown as {
       id: string;
       full_name: string;
       next_action_due: string;
@@ -128,7 +133,7 @@ export async function loadHomeCenter(args: {
       .neq("status", "cancelled")
       .order("starts_at", { ascending: true })
       .limit(20);
-    signals.measures = ((appts ?? []) as unknown as {
+    sales.measures = ((appts ?? []) as unknown as {
       id: string;
       starts_at: string;
       customer_id: string | null;
@@ -147,15 +152,20 @@ export async function loadHomeCenter(args: {
         href: row.customer_id ? `/customers/${row.customer_id}` : "/calendar",
       })) satisfies HomeMeasure[];
   }
+  return sales;
+  };
 
-  if (ESTIMATE_ROLES.includes(args.role)) {
+  const loadEstimates = async (): Promise<Pick<HomeSignals, "sentEstimates" | "deposits"> | null> => {
+  if (!ESTIMATE_ROLES.includes(args.role)) return null;
+  const estimates: Pick<HomeSignals, "sentEstimates" | "deposits"> = {};
+  {
     const { data: sent } = await supabase
       .from("estimates")
       .select("id, sent_at, customer_id, customer:customers(full_name, assigned_to)")
       .eq("status", "sent")
       .order("sent_at", { ascending: true })
       .limit(20);
-    signals.sentEstimates = ((sent ?? []) as unknown as {
+    estimates.sentEstimates = ((sent ?? []) as unknown as {
       id: string;
       sent_at: string | null;
       customer_id: string | null;
@@ -198,7 +208,7 @@ export async function loadHomeCenter(args: {
         if (hasActiveDepositOnFile({ availableDeposit: amount, appliedDeposit: 0 })) depositOnFile.add(id);
       }
     }
-    signals.deposits = approvedRows
+    estimates.deposits = approvedRows
       .filter((row) => !row.customer_id || !depositOnFile.has(row.customer_id))
       .map((row) => ({
         id: row.id,
@@ -209,8 +219,12 @@ export async function loadHomeCenter(args: {
         ownerId: row.customer?.assigned_to ?? null,
       })) satisfies HomeDeposit[];
   }
+  return estimates;
+  };
 
-  if (MONEY_ROLES.includes(args.role)) {
+  const loadMoney = async (): Promise<HomeInvoice[] | null> => {
+  if (!MONEY_ROLES.includes(args.role)) return null;
+  {
     const { data: invs } = await supabase
       .from("invoices")
       .select(
@@ -249,10 +263,14 @@ export async function loadHomeCenter(args: {
         ownerId: cust?.assigned_to ?? null,
       });
     }
-    signals.invoices = invoices;
+    return invoices;
   }
+  };
 
-  if (JOB_ROLES.includes(args.role) || args.role === "warehouse") {
+  const loadJobs = async (): Promise<Pick<HomeSignals, "installs" | "unscheduled"> | null> => {
+  if (!(JOB_ROLES.includes(args.role) || args.role === "warehouse")) return null;
+  const jobsOut: Pick<HomeSignals, "installs" | "unscheduled"> = {};
+  {
     let q = supabase
       .from("jobs")
       .select(
@@ -319,18 +337,22 @@ export async function loadHomeCenter(args: {
         });
       }
     }
-    signals.installs = installs;
-    if (args.role !== "crew" && args.role !== "warehouse") signals.unscheduled = unscheduled;
+    jobsOut.installs = installs;
+    if (args.role !== "crew" && args.role !== "warehouse") jobsOut.unscheduled = unscheduled;
   }
+  return jobsOut;
+  };
 
-  if (SERVICE_ROLES.includes(args.role)) {
+  const loadService = async (): Promise<HomeCallback[] | null> => {
+  if (!SERVICE_ROLES.includes(args.role)) return null;
+  {
     const { data } = await supabase
       .from("service_callbacks")
       .select("id, follow_up_at, customer_id, customer:customers(full_name, assigned_to)")
       .in("status", ["open", "scheduled", "in_progress", "waiting"])
       .order("follow_up_at", { ascending: true, nullsFirst: false })
       .limit(20);
-    signals.callbacks = ((data ?? []) as unknown as {
+    return ((data ?? []) as unknown as {
       id: string;
       follow_up_at: string | null;
       customer_id: string | null;
@@ -344,6 +366,31 @@ export async function loadHomeCenter(args: {
         href: "/service",
       })) satisfies HomeCallback[];
   }
+  };
+
+  const [tasks, sales, estimates, invoices, jobs, callbacks] = await Promise.all([
+    loadTasks(),
+    loadSales(),
+    loadEstimates(),
+    loadMoney(),
+    loadJobs(),
+    loadService(),
+  ]);
+  signals.tasks = tasks;
+  if (sales) {
+    signals.followUps = sales.followUps;
+    signals.measures = sales.measures;
+  }
+  if (estimates) {
+    signals.sentEstimates = estimates.sentEstimates;
+    signals.deposits = estimates.deposits;
+  }
+  if (invoices) signals.invoices = invoices;
+  if (jobs) {
+    signals.installs = jobs.installs;
+    signals.unscheduled = jobs.unscheduled;
+  }
+  if (callbacks) signals.callbacks = callbacks;
 
   return buildHomeCenter(signals);
 }

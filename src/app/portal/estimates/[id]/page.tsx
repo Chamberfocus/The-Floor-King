@@ -249,10 +249,9 @@ export default async function PortalEstimatePage({
 
       {legacyMissing ? (
         <p className="mb-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
-          Historical approval snapshot unavailable. This estimate was approved
-          before approval history was recorded — the details below are the
-          current commercial record, not a verified copy of the original
-          acceptance.
+          This estimate was approved before a copy of that approval was saved.
+          What you see here is the current estimate, not a saved copy of the
+          original approval.
         </p>
       ) : null}
 

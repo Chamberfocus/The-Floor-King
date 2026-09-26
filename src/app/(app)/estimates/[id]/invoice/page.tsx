@@ -6,7 +6,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
 import { getEstimate } from "@/lib/data/estimates";
 import { getCurrentApprovalSnapshot } from "@/lib/data/estimate-approvals";
-import { assessInvoiceCommercialGate } from "@/lib/estimate-approval";
+import {
+  assessInvoiceCommercialGate,
+  INVOICE_REQUIRES_APPROVAL_SNAPSHOT_MESSAGE,
+} from "@/lib/estimate-approval";
 import { snapshotLinesAsEstimateLines } from "@/lib/approval-snapshot-view";
 import { InvoiceLinePicker } from "./invoice-line-picker";
 
@@ -30,7 +33,7 @@ export default async function BuildInvoicePage({
 
   if (!gate.ok || !snap) {
     const message = gate.ok
-      ? "This estimate does not have an approval snapshot on file. Review and reapprove it before creating an invoice."
+      ? INVOICE_REQUIRES_APPROVAL_SNAPSHOT_MESSAGE
       : gate.message;
     return (
       <div className="mx-auto max-w-2xl">

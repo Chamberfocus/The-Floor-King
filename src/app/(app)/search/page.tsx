@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import {
-  Users, FileText, Receipt, ShoppingCart, Wrench, Package,
+  Users, FileText, Receipt, ShoppingCart, ShoppingBag, Wrench, Package,
   type LucideIcon,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
@@ -13,9 +13,10 @@ export const metadata: Metadata = { title: "Search" };
 const ICON: Record<HitType, LucideIcon> = {
   customer: Users,
   estimate: FileText,
+  job: Wrench,
+  order: ShoppingBag,
   invoice: Receipt,
   po: ShoppingCart,
-  job: Wrench,
   product: Package,
 };
 
@@ -35,14 +36,13 @@ export default async function SearchPage({
         description={
           query
             ? `${total} result${total === 1 ? "" : "s"} for “${query}”`
-            : "Find any customer, estimate, invoice, purchase order, job, or catalog item."
+            : "Find a customer, phone, address, estimate, job, order, invoice, or purchase order."
         }
       />
 
       {query && total === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No matches for “{query}”. Try a name, phone number, invoice #, supplier,
-          item, color, manufacturer, or a product / SKU.
+          No matches for “{query}”. Try a name, phone, street, estimate, job, or invoice number.
         </p>
       ) : null}
 
