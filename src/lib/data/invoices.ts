@@ -12,6 +12,13 @@ import {
   appliedCreditsForInvoice,
 } from "@/lib/data/credits";
 import { effectiveInvoiceBalance } from "@/lib/credit-ar";
+import { sanitizeIlikeQuery } from "@/lib/ops-followup";
+import {
+  WORK_QUEUE_PAGE_SIZE,
+  invoiceStatusesForView,
+  listPageWindow,
+  type InvoiceQueueView,
+} from "@/lib/work-queues";
 
 export interface InvoiceScope {
   scope: CustomerScope;
@@ -362,6 +369,98 @@ export async function listInvoices(): Promise<InvoiceListRow[]> {
   }));
   await attach(supabase, list);
   return list;
+}
+
+const INVOICE_LIST_COLUMNS =
+  "id, number, status, due_date, tax_rate, customer_id, created_at, counter_sale, customer:customers(full_name)";
+
+/** One page of invoices. Overdue uses the due date plus the balance already used on this list. */
+export async function listInvoicesQueue(args: {
+  view: InvoiceQueueView;
+  search?: string;
+  page?: number;
+}): Promise<{ rows: InvoiceListRow[]; total: number; page: number; pageSize: number; capped: boolean }> {
+  const pageSize = WORK_QUEUE_PAGE_SIZE;
+  const supabase = await createClient();
+  const statuses = invoiceStatusesForView(args.view);
+  const safe = sanitizeIlikeQuery(args.search ?? "");
+  const today = new Date().toISOString().slice(0, 10);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const apply = (query: any) => {
+    let next = query;
+    if (statuses) next = next.in("status", statuses);
+    if (args.view === "overdue") next = next.lt("due_date", today);
+    return next;
+  };
+
+  const shape = (data: unknown): InvoiceListRow[] =>
+    ((data ?? []) as (Invoice & { customer?: { full_name: string | null } | null })[]).map((row) => ({
+      ...row,
+      customer_name: row.customer?.full_name ?? null,
+    }));
+
+  let rows: InvoiceListRow[] = [];
+  let total = 0;
+  let capped = false;
+  let page = 1;
+
+  if (safe.length >= 2) {
+    const like = `%${safe}%`;
+    const cap = 200;
+    const [byNumber, byName] = await Promise.all([
+      apply(supabase.from("invoices").select(INVOICE_LIST_COLUMNS).order("created_at", { ascending: false }))
+        .ilike("number", like)
+        .limit(cap),
+      apply(
+        supabase
+          .from("invoices")
+          .select(INVOICE_LIST_COLUMNS.replace("customer:customers(", "customer:customers!inner("))
+          .order("created_at", { ascending: false }),
+      )
+        .ilike("customer.full_name", like)
+        .limit(cap),
+    ]);
+    const seen = new Map<string, InvoiceListRow>();
+    for (const row of [...shape(byNumber.data), ...shape(byName.data)]) seen.set(row.id, row);
+    const merged = Array.from(seen.values());
+    capped = (byNumber.data?.length ?? 0) >= cap || (byName.data?.length ?? 0) >= cap;
+    await attach(supabase, merged);
+    const kept = args.view === "overdue"
+      ? merged.filter((row) => invoiceDisplayTotals(row).balance > 0.5)
+      : merged;
+    total = kept.length;
+    const window = listPageWindow(args.page ?? 1, pageSize, total);
+    page = window.page;
+    rows = kept.slice(window.from, window.to);
+  } else if (args.view === "overdue") {
+    const cap = 200;
+    const { data } = await apply(
+      supabase.from("invoices").select(INVOICE_LIST_COLUMNS).order("due_date", { ascending: true }),
+    ).limit(cap);
+    const candidates = shape(data);
+    capped = candidates.length >= cap;
+    await attach(supabase, candidates);
+    const kept = candidates.filter((row) => invoiceDisplayTotals(row).balance > 0.5);
+    total = kept.length;
+    const window = listPageWindow(args.page ?? 1, pageSize, total);
+    page = window.page;
+    rows = kept.slice(window.from, window.to);
+  } else {
+    const counted = await apply(
+      supabase.from("invoices").select("id", { count: "exact", head: true }),
+    );
+    total = counted.count ?? 0;
+    const window = listPageWindow(args.page ?? 1, pageSize, total);
+    page = window.page;
+    const { data } = await apply(
+      supabase.from("invoices").select(INVOICE_LIST_COLUMNS).order("created_at", { ascending: false }),
+    ).range(window.from, Math.max(window.from, window.to - 1));
+    rows = shape(data);
+    await attach(supabase, rows);
+  }
+
+  return { rows, total, page, pageSize, capped };
 }
 
 export async function listInvoicesForCustomer(

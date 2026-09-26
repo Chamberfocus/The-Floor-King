@@ -214,7 +214,7 @@ export async function quickSearch(qRaw: string, limit = 6): Promise<QuickResults
         r.contact_phone as string,
         title(String(r.status ?? "")),
       ]),
-      href: `/orders#order-${r.id}`,
+      href: `/orders?focus=${r.id}#order-${r.id}`,
     })),
     invoice: invRows.map((r) => ({
       type: "invoice",

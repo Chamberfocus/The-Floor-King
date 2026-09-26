@@ -331,10 +331,13 @@ describe("jobs board agrees with material readiness", () => {
 
   it("27 no material lines stay schedulable even if a PO exists elsewhere", () => {
     expect(label(false, null)).toBe(JOBS_BOARD_SCHEDULE_LABEL);
+    const jobsData = src("src/lib/data/jobs.ts");
+    expect(jobsData).toContain("assessMaterialsReadyForSchedule");
     const page = src("src/app/(app)/jobs/page.tsx");
-    expect(page).toContain("jobsBoardUnscheduledLabel");
-    expect(page).toContain("assessMaterialsReadyForSchedule");
-    expect(page).toContain("scheduleAllowed");
+    expect(page).toContain("listJobsQueue");
+    expect(page).toContain("jobQueueFact");
+    expect(page).toContain("openBalance: null");
+    expect(page).not.toContain("Schedule the install");
   });
 });
 

@@ -9,7 +9,14 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
-import { listOrders, getProductStock, type ProductStock } from "@/lib/data/orders";
+import { listOrdersQueue, getProductStock, type ProductStock } from "@/lib/data/orders";
+import { WorkQueueBar, WorkQueuePager } from "@/components/work-queue-bar";
+import {
+  orderQueueEmpty,
+  parseListPage,
+  parseOrderQueue,
+  resultCountLabel,
+} from "@/lib/work-queues";
 import { reorderAlertsFor } from "@/lib/data/stock-rolls";
 import { getProfileNames } from "@/lib/data/customers";
 import { ApproveOrder } from "./approve-order";
@@ -44,10 +51,24 @@ import {
 export const metadata: Metadata = { title: "Customer Orders" };
 export const dynamic = "force-dynamic";
 
-export default async function OrdersPage() {
+export default async function OrdersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; view?: string; page?: string; focus?: string }>;
+}) {
   const profile = await requireProfile();
   if (!["admin", "office"].includes(profile.role)) redirect("/");
-  const orders = await listOrders();
+  const sp = await searchParams;
+  const q = sp.q?.trim() ?? "";
+  const view = parseOrderQueue(sp.view);
+  const requestedPage = parseListPage(sp.page);
+  const queue = await listOrdersQueue({
+    view,
+    search: q,
+    page: requestedPage,
+    focusId: sp.focus,
+  });
+  const orders = queue.rows;
   const productIds = orders.flatMap((o) => (o.items ?? []).map((i) => i.product_id ?? ""));
   const stock = await getProductStock(productIds);
   const remnantAlerts = await reorderAlertsFor(productIds);
@@ -307,10 +328,36 @@ export default async function OrdersPage() {
         description="Carpet orders submitted by customers. Warehouse checks stock first; approve only after that result. In-stock approvals go to the warehouse to cut &amp; stage."
       />
       <OrderLinkCard companyName={COMPANY_NAME} />
+      <WorkQueueBar
+        action="/orders"
+        query={q}
+        placeholder="Search customer, phone, or job"
+        hidden={[
+          ...(view !== "review" ? [{ name: "view", value: view }] : []),
+          ...(sp.focus ? [{ name: "focus", value: sp.focus }] : []),
+        ]}
+        chips={(["review", "approved", "declined", "all"] as const).map((item) => ({
+          href: orderHref({ view: item, q, focus: sp.focus }),
+          label:
+            item === "review"
+              ? "Needs review"
+              : item === "approved"
+                ? "Approved"
+                : item === "declined"
+                  ? "Declined"
+                  : "All",
+          active: view === item,
+        }))}
+        countLabel={
+          queue.capped
+            ? `${resultCountLabel(orders.length, queue.total, "order")} — more matches exist. Add more of the name or phone.`
+            : resultCountLabel(orders.length, queue.total, "order")
+        }
+      />
       {orders.length === 0 ? (
         <EmptyState
           icon={Package}
-          title="No orders yet"
+          title={orderQueueEmpty(view, !!q)}
           description="Share your order link with your trade customers and their submissions land here."
         />
       ) : (
@@ -329,6 +376,21 @@ export default async function OrdersPage() {
           ) : null}
         </div>
       )}
+      <WorkQueuePager
+        page={queue.page}
+        pages={Math.max(1, Math.ceil(queue.total / queue.pageSize) || 1)}
+        hrefFor={(page) => orderHref({ view, q, focus: sp.focus, page })}
+      />
     </div>
   );
+}
+
+function orderHref(args: { view: string; q: string; focus?: string; page?: number }) {
+  const params = new URLSearchParams();
+  if (args.q) params.set("q", args.q);
+  if (args.view !== "review") params.set("view", args.view);
+  if (args.focus) params.set("focus", args.focus);
+  if (args.page && args.page > 1) params.set("page", String(args.page));
+  const qs = params.toString();
+  return qs ? `/orders?${qs}` : "/orders";
 }

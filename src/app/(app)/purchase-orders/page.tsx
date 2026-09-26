@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import {
   Table,
   TableBody,
@@ -14,7 +15,16 @@ import { ConfirmButton } from "@/components/ui/confirm-button";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { PoStatusBadge } from "@/components/po-status-badge";
-import { listPurchaseOrders } from "@/lib/data/purchase-orders";
+import { listPurchaseOrdersQueue } from "@/lib/data/purchase-orders";
+import { requireProfile } from "@/lib/auth";
+import { WorkQueuePager } from "@/components/work-queue-bar";
+import {
+  parseListPage,
+  parsePoQueue,
+  poQueueEmpty,
+  resultCountLabel,
+  ORDER_LIST_ROLES,
+} from "@/lib/work-queues";
 import { deletePurchaseOrder } from "./actions";
 import { poTotal } from "@/lib/po-calc";
 import {
@@ -22,7 +32,6 @@ import {
   PO_SOURCE_LABELS,
   formatPoNumber,
   type PoSourceType,
-  type PoStatus,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { formatDate, formatMoney } from "@/lib/format";
@@ -44,11 +53,10 @@ function SourceBadge({ source }: { source: PoSourceType | null }) {
 }
 
 const STATUS_FILTERS: { value: string; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "draft", label: "Draft" },
+  { value: "open", label: "Open" },
   { value: "ordered", label: "Ordered" },
   { value: "received", label: "Received" },
-  { value: "cancelled", label: "Cancelled" },
+  { value: "all", label: "All" },
 ];
 const SOURCE_FILTERS: { value: string; label: string }[] = [
   { value: "all", label: "All sources" },
@@ -60,35 +68,39 @@ const SOURCE_FILTERS: { value: string; label: string }[] = [
 export default async function PurchaseOrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; source?: string }>;
+  searchParams: Promise<{ status?: string; view?: string; source?: string; q?: string; page?: string }>;
 }) {
-  const { status = "all", source = "all" } = await searchParams;
-  // Stock-replenishment POs have their own home under Inventory — keep them out
-  // of the job PO list (they use a different builder).
-  const all = (await listPurchaseOrders()).filter(
-    (po) => !(po as { is_stock?: boolean }).is_stock,
-  );
-  const pos = all.filter(
-    (po) =>
-      (status === "all" || po.status === (status as PoStatus)) &&
-      (source === "all" || po.source_type === (source as PoSourceType)),
-  );
+  const profile = await requireProfile();
+  if (!ORDER_LIST_ROLES.includes(profile.role)) redirect("/");
+  const sp = await searchParams;
+  const q = sp.q?.trim() ?? "";
+  const source = sp.source ?? "all";
+  const status = parsePoQueue(sp.view ?? sp.status);
+  const queue = await listPurchaseOrdersQueue({
+    view: status,
+    source,
+    search: q,
+    page: parseListPage(sp.page),
+  });
+  const pos = queue.rows;
 
   const chip = (active: boolean) =>
     cn(
-      "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+      "inline-flex min-h-11 items-center rounded-full border px-3 text-xs font-medium transition-colors",
       active
         ? "border-foreground bg-foreground text-background"
         : "border-input text-muted-foreground hover:text-foreground",
     );
-  const href = (next: { status?: string; source?: string }) => {
+  const href = (next: { status?: string; source?: string; page?: number }) => {
     const p = new URLSearchParams();
     const s = next.status ?? status;
     const src = next.source ?? source;
-    if (s !== "all") p.set("status", s);
+    if (q) p.set("q", q);
+    if (s !== "open") p.set("view", s);
     if (src !== "all") p.set("source", src);
-    const q = p.toString();
-    return q ? `/purchase-orders?${q}` : "/purchase-orders";
+    if (next.page && next.page > 1) p.set("page", String(next.page));
+    const qs = p.toString();
+    return qs ? `/purchase-orders?${qs}` : "/purchase-orders";
   };
 
   return (
@@ -98,7 +110,27 @@ export default async function PurchaseOrdersPage({
         description="Material orders for your jobs — grouped by where they come from. Generate one from an approved estimate or a customer's file."
       />
 
-      {all.length > 0 ? (
+      <form action="/purchase-orders" method="get" className="mb-3 flex flex-col gap-2 sm:flex-row">
+        {status !== "open" ? <input type="hidden" name="view" value={status} /> : null}
+        {source !== "all" ? <input type="hidden" name="source" value={source} /> : null}
+        <input
+          name="q"
+          defaultValue={q}
+          placeholder="Search PO number, vendor, or customer"
+          aria-label="Search purchase orders"
+          className="h-11 min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 text-sm"
+        />
+        <button type="submit" className="h-11 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground">
+          Search
+        </button>
+      </form>
+      <p className="mb-3 text-sm text-muted-foreground">
+        {queue.capped
+          ? `${resultCountLabel(pos.length, queue.total, "purchase order")} — more matches exist. Add more of the name.`
+          : resultCountLabel(pos.length, queue.total, "purchase order")}
+      </p>
+
+      {queue.total > 0 || q || status !== "open" || source !== "all" ? (
         <div className="mb-4 space-y-2">
           <div className="flex flex-wrap gap-1.5">
             {STATUS_FILTERS.map((f) => (
@@ -126,15 +158,11 @@ export default async function PurchaseOrdersPage({
       ) : null}
 
       {pos.length === 0 ? (
-        all.length === 0 ? (
-          <EmptyState
-            icon={ShoppingCart}
-            title="No purchase orders yet"
-            description="Open a job’s Materials & prep tab to review requirements and raise purchase orders."
-          />
-        ) : (
-          <EmptyState title="No purchase orders match this filter" />
-        )
+        <EmptyState
+          icon={ShoppingCart}
+          title={poQueueEmpty(status, !!q)}
+          description="Open a job’s Materials & prep tab to review requirements and raise purchase orders."
+        />
       ) : (
         <div data-tour="receive-po">
           {/* Phone: tappable cards */}
@@ -274,6 +302,11 @@ export default async function PurchaseOrdersPage({
           </div>
         </div>
       )}
+      <WorkQueuePager
+        page={queue.page}
+        pages={Math.max(1, Math.ceil(queue.total / queue.pageSize) || 1)}
+        hrefFor={(page) => href({ page })}
+      />
     </div>
   );
 }

@@ -13,45 +13,46 @@ import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
-import { listInvoices, invoiceDisplayTotals } from "@/lib/data/invoices";
+import { listInvoicesQueue, invoiceDisplayTotals } from "@/lib/data/invoices";
+import { requireProfile } from "@/lib/auth";
+import { redirect } from "next/navigation";
+import { WorkQueueBar, WorkQueuePager } from "@/components/work-queue-bar";
+import {
+  invoiceQueueEmpty,
+  parseInvoiceQueue,
+  parseListPage,
+  resultCountLabel,
+  roleSeesMoneyList,
+} from "@/lib/work-queues";
 import { formatDate, formatMoney } from "@/lib/format";
 import { DeleteInvoiceButton } from "./delete-invoice-button";
-import { classifyInvoiceCollection } from "@/lib/ops-followup";
 
 export const metadata: Metadata = { title: "Invoices" };
 
 export default async function InvoicesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ aging?: string }>;
+  searchParams: Promise<{ q?: string; view?: string; page?: string; aging?: string }>;
 }) {
+  const profile = await requireProfile();
+  if (!roleSeesMoneyList(profile.role)) redirect("/");
   const sp = await searchParams;
-  const aging = sp.aging === "overdue" ? "overdue" : "all";
-  const invoices = await listInvoices();
-  const now = new Date();
-  const rows = invoices.filter((inv) => {
-    if (aging !== "overdue") return true;
-    const t = invoiceDisplayTotals(inv);
-    return (
-      classifyInvoiceCollection({
-        status: inv.status,
-        dueDate: inv.due_date,
-        balance: t.balance,
-        now,
-      }) === "overdue"
-    );
+  const q = sp.q?.trim() ?? "";
+  const view = parseInvoiceQueue(sp.view ?? (sp.aging === "overdue" ? "overdue" : undefined));
+  const queue = await listInvoicesQueue({
+    view,
+    search: q,
+    page: parseListPage(sp.page),
   });
-  const overdueCount = invoices.filter((inv) => {
-    const t = invoiceDisplayTotals(inv);
-    return (
-      classifyInvoiceCollection({
-        status: inv.status,
-        dueDate: inv.due_date,
-        balance: t.balance,
-        now,
-      }) === "overdue"
-    );
-  }).length;
+  const rows = queue.rows;
+  const invoiceHref = (nextView: string, page = 1) => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (nextView !== "open") params.set("view", nextView);
+    if (page > 1) params.set("page", String(page));
+    const qs = params.toString();
+    return qs ? `/invoices?${qs}` : "/invoices";
+  };
 
   return (
     <div>
@@ -59,29 +60,35 @@ export default async function InvoicesPage({
         title="Invoices"
         description="Bill customers and track who still owes you."
       >
-        <Link
-          href={aging === "overdue" ? "/invoices" : "/invoices?aging=overdue"}
-          className={buttonVariants({
-            size: "lg",
-            variant: aging === "overdue" ? "default" : "outline",
-          })}
-        >
-          Overdue{overdueCount ? ` (${overdueCount})` : ""}
-        </Link>
         <Link href="/counter-sale" className={buttonVariants({ size: "lg" })}>
           <Zap className="size-4" /> Counter sale
         </Link>
       </PageHeader>
 
+      <WorkQueueBar
+        action="/invoices"
+        query={q}
+        placeholder="Search customer or invoice number"
+        hidden={view !== "open" ? [{ name: "view", value: view }] : []}
+        chips={[
+          { href: invoiceHref("open"), label: "Open", active: view === "open" },
+          { href: invoiceHref("partial"), label: "Partial", active: view === "partial" },
+          { href: invoiceHref("paid"), label: "Paid", active: view === "paid" },
+          { href: invoiceHref("overdue"), label: "Overdue", active: view === "overdue" },
+          { href: invoiceHref("all"), label: "All", active: view === "all" },
+        ]}
+        countLabel={
+          queue.capped
+            ? `${resultCountLabel(rows.length, queue.total, "invoice")} — more matches exist. Add more of the name.`
+            : resultCountLabel(rows.length, queue.total, "invoice")
+        }
+      />
+
       {rows.length === 0 ? (
         <EmptyState
           icon={Receipt}
-          title={aging === "overdue" ? "No overdue invoices" : "No invoices yet"}
-          description={
-            aging === "overdue"
-              ? "Nothing past due right now."
-              : "Create one from an approved estimate or a customer profile."
-          }
+          title={invoiceQueueEmpty(view, !!q)}
+          description="Create one from an approved estimate or a customer profile."
         />
       ) : (
         <>
@@ -183,6 +190,11 @@ export default async function InvoicesPage({
         </div>
         </>
       )}
+      <WorkQueuePager
+        page={queue.page}
+        pages={Math.max(1, Math.ceil(queue.total / queue.pageSize) || 1)}
+        hrefFor={(page) => invoiceHref(view, page)}
+      />
     </div>
   );
 }

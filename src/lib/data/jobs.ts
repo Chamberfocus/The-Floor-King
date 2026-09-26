@@ -1,5 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sanitizeIlikeQuery } from "@/lib/ops-followup";
+import { phoneSearchPattern } from "@/lib/search-query";
+import { assessMaterialsReadyForSchedule } from "@/lib/materials-ready";
+import {
+  WORK_QUEUE_PAGE_SIZE,
+  listPageWindow,
+  type JobQueueView,
+} from "@/lib/work-queues";
 import { boardMaterialTypeFromScopes, installerCanDoJob, isMaterialLine, type MaterialType } from "@/lib/job-scope";
 import {
   installerAssignmentOrFilter,
@@ -119,6 +127,288 @@ export async function listJobs(
     customer_name: r.customer?.full_name ?? null,
     customer_phone: r.customer?.phone ?? null,
   }));
+}
+
+const JOB_LIST_COLUMNS =
+  "id, title, status, scheduled_date, warehouse_ready_at, warehouse_status, warehouse_submitted_at, assigned_to, assigned_crew_id, open_for_claim, arrival_window, site_street, site_city, site_state, delivery_type, created_at, customer_id, customer:customers(full_name, phone)";
+
+function shapeJobs(data: unknown): JobListRow[] {
+  return ((data ?? []) as (Job & {
+    customer?: { full_name: string | null; phone: string | null } | null;
+  })[]).map((row) => ({
+    ...row,
+    customer_name: row.customer?.full_name ?? null,
+    customer_phone: row.customer?.phone ?? null,
+  }));
+}
+
+function jobMatchesQueue(
+  job: JobListRow,
+  queue: JobQueueView,
+  hasMaterialNeed: boolean,
+  serviceJobIds: Set<string>,
+): boolean {
+  if (queue === "service") return serviceJobIds.has(job.id);
+  if (queue === "completed") return job.status === "completed";
+  if (queue === "installing") return job.status === "in_progress";
+  if (queue === "scheduled") return job.status === "scheduled";
+  if (queue === "all") return true;
+  if (queue === "open") return job.status !== "completed" && job.status !== "cancelled";
+  const ready = assessMaterialsReadyForSchedule({
+    hasMaterialNeed,
+    warehouseReadyAt: job.warehouse_ready_at,
+  }).ready;
+  if (queue === "ready") return job.status === "unscheduled" && !job.scheduled_date && ready;
+  if (queue === "material") {
+    return !ready && job.status !== "completed" && job.status !== "cancelled";
+  }
+  return true;
+}
+
+/** One page of install jobs. Completed history is its own queue so the open list stays bounded. */
+export async function listJobsQueue(args: {
+  queue: JobQueueView;
+  search?: string;
+  page?: number;
+  assignedTo?: string;
+  mineFor?: string;
+}): Promise<{
+  rows: JobListRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  capped: boolean;
+  materialNeeds: Map<string, boolean>;
+  serviceJobIds: Set<string>;
+}> {
+  const pageSize = WORK_QUEUE_PAGE_SIZE;
+  if (args.assignedTo) {
+    const mine = await listJobs({ assignedTo: args.assignedTo });
+    const safe = sanitizeIlikeQuery(args.search ?? "").toLowerCase();
+    const digits = (args.search ?? "").replace(/\D/g, "");
+    const filtered = safe
+      ? mine.filter((job) =>
+          [job.customer_name, job.title, job.site_street, job.site_city, job.customer_phone]
+            .filter(Boolean)
+            .some((value) => {
+              const text = String(value).toLowerCase();
+              if (text.includes(safe)) return true;
+              return digits.length >= 7 && text.replace(/\D/g, "").includes(digits);
+            }),
+        )
+      : mine;
+    const materialNeeds = await listJobMaterialNeeds(filtered.map((job) => job.id));
+    const serviceJobIds = await serviceIdsForJobs(filtered.map((job) => job.id));
+    const matched = filtered.filter((job) =>
+      jobMatchesQueue(job, args.queue, materialNeeds.get(job.id) ?? true, serviceJobIds),
+    );
+    const window = listPageWindow(args.page ?? 1, pageSize, matched.length);
+    return {
+      rows: matched.slice(window.from, window.to),
+      total: matched.length,
+      page: window.page,
+      pageSize,
+      capped: false,
+      materialNeeds,
+      serviceJobIds,
+    };
+  }
+
+  const supabase = await createClient();
+  const safe = sanitizeIlikeQuery(args.search ?? "");
+  const like = safe.length >= 2 ? `%${safe}%` : null;
+  const phone = phoneSearchPattern(args.search ?? "");
+  let mineIds: string[] | null = null;
+  if (args.mineFor) {
+    const { data: mine } = await supabase
+      .from("customers")
+      .select("id")
+      .or(`assigned_to.eq.${args.mineFor},workflow_owner_id.eq.${args.mineFor}`);
+    mineIds = (mine ?? []).map((row) => row.id as string);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const apply = (query: any) => {
+    let next = query.or(PICKUP_EXCLUDED);
+    if (args.queue === "open" || args.queue === "material" || args.queue === "service") {
+      next = next.in("status", ["unscheduled", "scheduled", "in_progress"]);
+    } else if (args.queue === "ready") next = next.eq("status", "unscheduled");
+    else if (args.queue === "scheduled") next = next.eq("status", "scheduled");
+    else if (args.queue === "installing") next = next.eq("status", "in_progress");
+    else if (args.queue === "completed") next = next.eq("status", "completed");
+    if (args.queue === "material") next = next.is("warehouse_ready_at", null);
+    if (mineIds) {
+      next = mineIds.length
+        ? next.or(`customer_id.in.(${mineIds.join(",")}),assigned_to.eq.${args.mineFor}`)
+        : next.eq("assigned_to", args.mineFor);
+    }
+    return next;
+  };
+
+  const classify = args.queue === "material" || args.queue === "ready" || args.queue === "service";
+  let serviceFilter: string[] | null = null;
+  if (args.queue === "service") {
+    const { data } = await supabase
+      .from("service_callbacks")
+      .select("job_id")
+      .in("status", ["open", "scheduled", "in_progress", "waiting"])
+      .limit(200);
+    serviceFilter = [...new Set((data ?? []).map((row) => row.job_id as string).filter(Boolean))];
+    if (!serviceFilter.length) {
+      return {
+        rows: [],
+        total: 0,
+        page: 1,
+        pageSize,
+        capped: false,
+        materialNeeds: new Map(),
+        serviceJobIds: new Set(),
+      };
+    }
+  }
+
+  const serviceCapped = (serviceFilter?.length ?? 0) >= 200;
+
+  if (like || phone) {
+    const cap = 200;
+    const customerOr = [
+      like ? `full_name.ilike.${like}` : null,
+      like ? `phone.ilike.${like}` : null,
+      phone ? `phone.ilike.${phone}` : null,
+      like ? `street.ilike.${like}` : null,
+      like ? `city.ilike.${like}` : null,
+    ]
+      .filter(Boolean)
+      .join(",");
+    const textPromise = like
+      ? (() => {
+          let textQuery = apply(
+            supabase.from("jobs").select(JOB_LIST_COLUMNS).order("created_at", { ascending: false }),
+          ).or(`title.ilike.${like},site_street.ilike.${like},site_city.ilike.${like}`);
+          if (serviceFilter) textQuery = textQuery.in("id", serviceFilter);
+          return textQuery.limit(cap);
+        })()
+      : Promise.resolve({ data: [] as unknown[] });
+    const [textRes, custRes] = await Promise.all([
+      textPromise,
+      customerOr
+        ? supabase.from("customers").select("id").or(customerOr).limit(80)
+        : Promise.resolve({ data: [] as { id: string }[] }),
+    ]);
+    const custIds = [...new Set((custRes.data ?? []).map((row) => row.id as string))];
+    let byCustomer: JobListRow[] = [];
+    if (custIds.length) {
+      let customerJobs = apply(
+        supabase.from("jobs").select(JOB_LIST_COLUMNS).order("created_at", { ascending: false }),
+      ).in("customer_id", custIds);
+      if (serviceFilter) customerJobs = customerJobs.in("id", serviceFilter);
+      const { data } = await customerJobs.limit(cap);
+      byCustomer = shapeJobs(data);
+    }
+    const seen = new Map<string, JobListRow>();
+    for (const row of [...shapeJobs(textRes.data), ...byCustomer]) seen.set(row.id, row);
+    const candidates = [...seen.values()];
+    const materialNeeds = await listJobMaterialNeeds(candidates.map((job) => job.id));
+    const serviceJobIds = await serviceIdsForJobs(candidates.map((job) => job.id));
+    const matched = candidates.filter((job) =>
+      jobMatchesQueue(job, args.queue, materialNeeds.get(job.id) ?? true, serviceJobIds),
+    );
+    const window = listPageWindow(args.page ?? 1, pageSize, matched.length);
+    return {
+      rows: matched.slice(window.from, window.to),
+      total: matched.length,
+      page: window.page,
+      pageSize,
+      capped:
+        serviceCapped ||
+        (textRes.data?.length ?? 0) >= cap ||
+        byCustomer.length >= cap ||
+        (custRes.data?.length ?? 0) >= 80,
+      materialNeeds,
+      serviceJobIds,
+    };
+  }
+
+  if (classify) {
+    const cap = 200;
+    let query = apply(
+      supabase.from("jobs").select(JOB_LIST_COLUMNS).order("created_at", { ascending: false }),
+    );
+    if (serviceFilter) query = query.in("id", serviceFilter);
+    const { data } = await query.limit(cap);
+    const candidates = shapeJobs(data);
+    const capped = serviceCapped || candidates.length >= cap;
+    const materialNeeds = await listJobMaterialNeeds(candidates.map((job) => job.id));
+    const serviceJobIds = await serviceIdsForJobs(candidates.map((job) => job.id));
+    const matched = candidates.filter((job) =>
+      jobMatchesQueue(job, args.queue, materialNeeds.get(job.id) ?? true, serviceJobIds),
+    );
+    const window = listPageWindow(args.page ?? 1, pageSize, matched.length);
+    return {
+      rows: matched.slice(window.from, window.to),
+      total: matched.length,
+      page: window.page,
+      pageSize,
+      capped,
+      materialNeeds,
+      serviceJobIds,
+    };
+  }
+
+  const countQuery = apply(supabase.from("jobs").select("id", { count: "exact", head: true }));
+  const counted = await countQuery;
+  const total = counted.count ?? 0;
+  const window = listPageWindow(args.page ?? 1, pageSize, total);
+  const { data } = await apply(
+    supabase.from("jobs").select(JOB_LIST_COLUMNS).order("created_at", { ascending: false }),
+  ).range(window.from, Math.max(window.from, window.to - 1));
+  const rows = shapeJobs(data);
+  const materialNeeds = await listJobMaterialNeeds(rows.map((job) => job.id));
+  const serviceJobIds = await serviceIdsForJobs(rows.map((job) => job.id));
+  return {
+    rows,
+    total,
+    page: window.page,
+    pageSize,
+    capped: false,
+    materialNeeds,
+    serviceJobIds,
+  };
+}
+
+async function serviceIdsForJobs(jobIds: string[]): Promise<Set<string>> {
+  const ids = new Set<string>();
+  if (!jobIds.length) return ids;
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("service_callbacks")
+    .select("job_id")
+    .in("job_id", jobIds)
+    .in("status", ["open", "scheduled", "in_progress", "waiting"]);
+  for (const row of data ?? []) {
+    if (row.job_id) ids.add(row.job_id as string);
+  }
+  return ids;
+}
+
+export async function countInstallJobs(opts: { mineFor?: string } = {}): Promise<number> {
+  const supabase = await createClient();
+  let query = supabase
+    .from("jobs")
+    .select("id", { count: "exact", head: true })
+    .or(PICKUP_EXCLUDED);
+  if (opts.mineFor) {
+    const { data: mine } = await supabase
+      .from("customers")
+      .select("id")
+      .or(`assigned_to.eq.${opts.mineFor},workflow_owner_id.eq.${opts.mineFor}`);
+    const ids = (mine ?? []).map((row) => row.id as string);
+    query = ids.length
+      ? query.or(`customer_id.in.(${ids.join(",")}),assigned_to.eq.${opts.mineFor}`)
+      : query.eq("assigned_to", opts.mineFor);
+  }
+  const { count } = await query;
+  return count ?? 0;
 }
 
 /** Material-need flags for the jobs board. Fail closed when lines cannot be read. */
