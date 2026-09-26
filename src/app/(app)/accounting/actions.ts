@@ -5,6 +5,7 @@ import { assertRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import {
   getAccountMappings,
+  getAccountingSettings,
   postAccountingEvent,
   reverseJournalEntry,
 } from "@/lib/data/accounting";
@@ -43,14 +44,20 @@ export async function updateAccountingSettingsAction(formData: FormData) {
       ? "cash"
       : "undeposited";
 
-  // Checkbox alone cannot flip books_of_record; openings + accountant validation required.
+  // Books of record stay off until openings and accountant validation are
+  // actually recorded. Those flags are read from the current row — they are
+  // not set by this form.
+  const current = await getAccountingSettings();
   const booksGate = assessBooksOfRecordEnable({
     requested: books_of_record,
     postingEnabled: posting_enabled,
     cutoverDate: cutover_date,
-    openingBalancesEntered: false,
-    accountantValidated: false,
+    openingBalancesEntered: current.opening_balances_entered,
+    accountantValidated: current.accountant_validated,
   });
+  if (books_of_record && !booksGate.ok) {
+    throw new Error(booksGate.error);
+  }
   const safeBooks = booksGate.ok ? booksGate.booksOfRecord : false;
 
   const { error } = await supabase
