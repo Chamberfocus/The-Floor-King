@@ -245,6 +245,7 @@ describe("Phase A active navigation", () => {
       ["/jobs/new", "jobs"],
       ["/jobs/1", "jobs"],
       ["/service", "jobs"],
+      ["/tasks", "jobs"],
       ["/board", "jobs"],
       ["/installer", "jobs"],
       ["/calendar", "schedule"],

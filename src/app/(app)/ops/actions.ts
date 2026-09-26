@@ -60,6 +60,8 @@ const CALLBACK_ROLES: UserRole[] = [
 function refreshOps(jobId?: string | null, customerId?: string | null) {
   revalidatePath("/dashboard");
   revalidatePath("/jobs");
+  revalidatePath("/tasks");
+  revalidatePath("/service");
   if (jobId) revalidatePath(`/jobs/${jobId}`);
   if (customerId) revalidatePath(`/customers/${customerId}`);
 }
