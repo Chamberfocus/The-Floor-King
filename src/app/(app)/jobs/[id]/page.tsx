@@ -102,6 +102,8 @@ import { JobChecklist } from "@/components/job-checklist";
 import { buildChecklistSlots } from "@/components/checklist-slots";
 import { STEP_OVERRIDE_ROLES } from "@/lib/job-checklist";
 import { MarkContacted } from "@/app/(app)/customers/[id]/mark-contacted";
+import { flooringJobSnapshot, shopTodayYmd } from "@/lib/job-snapshot";
+import { customerSeesCustomerMoney } from "@/lib/customer-record-access";
 import { JobAttentionStrip } from "./job-attention-strip";
 import { JobOpsFacts } from "./job-ops-facts";
 import { getJobOperationalStateForJob } from "@/lib/data/job-ops-state";
@@ -425,28 +427,28 @@ export default async function JobPage({
     checklistSlots.contact = <MarkContacted customerId={job.customer_id} />;
   }
 
-  const { state: opsState, activeHoldId } = await getJobOperationalStateForJob({
-    id: job.id,
-    status: job.status ?? "unscheduled",
-    scheduled_date: job.scheduled_date,
-    warehouse_ready_at: job.warehouse_ready_at,
-    estimate_id: job.estimate_id,
-  }).catch(() => ({
-    state: null as Awaited<
-      ReturnType<typeof getJobOperationalStateForJob>
-    >["state"] | null,
-    activeHoldId: null as string | null,
-  }));
-  const openCallbacks = await listOpenServiceCallbacksForJob(job.id).catch(
-    () => [],
-  );
-  const jobPos = await listJobPurchasingFacts(job.id).catch(() => []);
-  const depositSummary = job.customer_id
-    ? await getCustomerDepositSummary(job.customer_id).catch(() => null)
-    : null;
-  const staffCollectible = isStaff
-    ? await getJobOpenBalance(id).catch(() => null)
-    : null;
+  const [opsPack, openCallbacks, jobPos, depositSummary, staffCollectible] =
+    await Promise.all([
+      getJobOperationalStateForJob({
+        id: job.id,
+        status: job.status ?? "unscheduled",
+        scheduled_date: job.scheduled_date,
+        warehouse_ready_at: job.warehouse_ready_at,
+        estimate_id: job.estimate_id,
+      }).catch(() => ({
+        state: null as Awaited<
+          ReturnType<typeof getJobOperationalStateForJob>
+        >["state"] | null,
+        activeHoldId: null as string | null,
+      })),
+      listOpenServiceCallbacksForJob(job.id).catch(() => []),
+      listJobPurchasingFacts(job.id).catch(() => []),
+      job.customer_id
+        ? getCustomerDepositSummary(job.customer_id).catch(() => null)
+        : Promise.resolve(null),
+      isStaff ? getJobOpenBalance(id).catch(() => null) : Promise.resolve(null),
+    ]);
+  const { state: opsState, activeHoldId } = opsPack;
   const staffBalance = staffCollectible?.balance ?? 0;
   const jobAction = buildJobActionCenter({
     now: new Date(),
@@ -474,6 +476,19 @@ export default async function JobPage({
     profile.role === "office" ||
     profile.role === "sales_manager" ||
     profile.role === "scheduler";
+  const jobSnapshot = flooringJobSnapshot({
+    status: job.status ?? "unscheduled",
+    scheduledDate: job.scheduled_date,
+    todayYmd: shopTodayYmd(),
+    hasMaterialNeed: (job.line_items ?? []).some((line) => isMaterialLine(line)),
+    warehouseReadyAt: job.warehouse_ready_at,
+    purchaseOrders: jobPos,
+    hasOpenServiceCallback: openCallbacks.length > 0,
+    openBalance: customerSeesCustomerMoney(profile.role)
+      ? (staffCollectible?.balance ?? null)
+      : null,
+    onHold: opsState?.blockerCode === "manual_hold",
+  });
 
   return (
     <>
@@ -520,14 +535,12 @@ export default async function JobPage({
 
       <RecordActionCenter model={jobAction} />
 
-      {opsState ? (
-        <JobAttentionStrip
-          state={opsState}
-          jobId={job.id}
-          activeHoldId={activeHoldId}
-          canManageHold={canManageHold && isStaff}
-        />
-      ) : null}
+      <JobAttentionStrip
+        snapshot={jobSnapshot}
+        jobId={job.id}
+        activeHoldId={activeHoldId}
+        canManageHold={canManageHold && isStaff}
+      />
 
       {isStaff ? (
         <JobOpsFacts

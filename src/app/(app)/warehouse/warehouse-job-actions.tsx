@@ -107,7 +107,7 @@ export function WarehouseJobActions({
           <ClipboardCheck className="size-4 text-sky-600" />
           Accepted{job.warehouse_assignee_name ? ` by ${job.warehouse_assignee_name}` : ""} — prep in progress
         </div>
-        <Button size="sm" onClick={() => setCompleteOpen(true)}>
+        <Button size="sm" className="min-h-11" onClick={() => setCompleteOpen(true)}>
           <PackageCheck className="size-3.5" /> Mark staged &amp; notify
         </Button>
 
@@ -165,7 +165,7 @@ export function WarehouseJobActions({
   // ---- Submitted, needs acceptance -----------------------------------------
   return (
     <div>
-      <Button size="sm" onClick={() => setAcceptOpen(true)}>
+      <Button size="sm" className="min-h-11" onClick={() => setAcceptOpen(true)}>
         <ClipboardCheck className="size-3.5" /> Accept &amp; prep
       </Button>
 
@@ -182,7 +182,7 @@ export function WarehouseJobActions({
               type="checkbox"
               checked={ack}
               onChange={(e) => setAck(e.target.checked)}
-              className="mt-0.5 size-4 rounded border-input"
+              className="mt-0.5 size-5 rounded border-input"
             />
             <span>
               I confirm I&apos;ll <strong>cut the right carpet</strong>, make the{" "}

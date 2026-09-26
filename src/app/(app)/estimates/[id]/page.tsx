@@ -30,7 +30,11 @@ import { getEstimateDelivery } from "@/lib/data/estimate-delivery";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { getEstimate, getEstimatorName } from "@/lib/data/estimates";
 import { getCurrentApprovalSnapshot } from "@/lib/data/estimate-approvals";
-import { legacyApprovalSnapshotUnavailable } from "@/lib/estimate-approval";
+import {
+  ESTIMATE_CHANGED_AFTER_APPROVAL_MESSAGE,
+  LEGACY_APPROVAL_UNAVAILABLE_MESSAGE,
+  legacyApprovalSnapshotUnavailable,
+} from "@/lib/estimate-approval";
 import { getCustomer } from "@/lib/data/customers";
 import { getOrgSettings } from "@/lib/data/org";
 import { getBusinessSettings } from "@/lib/data/business-settings";
@@ -364,27 +368,23 @@ export default async function EstimatePage({
             {estimate.approved_at
               ? ` · ${formatDate(estimate.approved_at)}`
               : ""}
-            ). Editing the live estimate does not change that snapshot, the job,
-            POs, or invoices. Material price/qty changes will require reapproval.
+            ). Editing this estimate does not change the approved copy, the job,
+            purchase orders, or invoices. A material price or quantity change needs
+            customer approval again.
           </p>
         ) : null}
         {legacyApprovalSnapshotUnavailable(estimate.status, !!approvalSnap) ? (
           <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
-            Historical approval snapshot unavailable — this was approved before
-            approval history was recorded. Do not treat the live estimate as a
-            verified original acceptance.
+            {LEGACY_APPROVAL_UNAVAILABLE_MESSAGE}
           </p>
         ) : null}
         {estimate.approval_stale ||
         (estimate.status === "sent" && approvalSnap) ? (
           <p className="rounded-md border border-sky-300 bg-sky-50 p-3 text-sm text-sky-950 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
-            Revised commercial proposal awaiting customer reapproval. Previous
-            approval (v{approvalSnap?.version ?? "?"}) is preserved. Job scope,
-            POs, and invoices were not updated automatically
+            {ESTIMATE_CHANGED_AFTER_APPROVAL_MESSAGE}
             {approvalSnap
-              ? ` — approved total was ${formatMoney(approvalSnap.payload.total)}`
+              ? ` The approved total was ${formatMoney(approvalSnap.payload.total)}.`
               : ""}
-            .
           </p>
         ) : null}
       </div>

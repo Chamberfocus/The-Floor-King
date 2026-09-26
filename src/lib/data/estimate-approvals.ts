@@ -166,9 +166,12 @@ export async function recordEstimateApproval(
       rpcErr.code === "PGRST202");
 
   if (missingRpc) {
+    console.error("record_estimate_approval_safe", {
+      code: rpcErr?.code,
+      message: rpcErr?.message,
+    });
     return {
-      error:
-        "Approval could not be completed — apply migration 0178 (record_estimate_approval_safe), then try again.",
+      error: "We couldn't save that approval. Try again.",
       snapshotId: null,
     };
   }

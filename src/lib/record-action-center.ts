@@ -643,11 +643,12 @@ export function buildJobActionCenter(input: {
     };
   }
 
+  const opsNote = input.ops?.explanation ?? null;
   return {
     situation: [input.ops?.blockerLabel || "In progress"],
     attention: null,
     blocker: null,
-    also: input.ops?.explanation ?? null,
+    also: seeMoney || !opsNote?.includes("$") ? opsNote : null,
     primary: null,
     secondary: [],
     history,

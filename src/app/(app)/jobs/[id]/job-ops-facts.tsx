@@ -35,7 +35,7 @@ export function JobOpsFacts({
       <Fact label="Warehouse">
         {warehouseReadyAt
           ? `Ready${stagingLocation ? ` · ${stagingLocation}` : ""}`
-          : "Not marked ready"}
+          : "Material isn't ready yet."}
       </Fact>
       <Fact label="Material ETA">
         {backordered ? (
@@ -43,9 +43,9 @@ export function JobOpsFacts({
         ) : nextEta ? (
           formatDate(nextEta)
         ) : pos.length ? (
-          "No ETA on PO"
+          "No arrival date yet"
         ) : (
-          "No PO yet"
+          "No purchase order on this job"
         )}
       </Fact>
       <Fact label="Customer balance">{formatMoney(openBalance)}</Fact>

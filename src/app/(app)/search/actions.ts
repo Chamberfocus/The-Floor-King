@@ -1,10 +1,16 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { PRODUCT_CATEGORY_LABELS } from "@/lib/types";
+import { getProfile } from "@/lib/auth";
 import { parsePoNumberQuery, sanitizeIlikeQuery } from "@/lib/ops-followup";
+import {
+  phoneSearchPattern,
+  searchTypesForRole,
+  type SearchHitType,
+} from "@/lib/search-query";
+import { PRODUCT_CATEGORY_LABELS } from "@/lib/types";
 
-export type HitType = "customer" | "estimate" | "invoice" | "po" | "job" | "product";
+export type HitType = SearchHitType;
 
 export interface QuickHit {
   type: HitType;
@@ -27,13 +33,21 @@ export interface QuickResults {
 const GROUP_LABEL: Record<HitType, string> = {
   customer: "Customers",
   estimate: "Estimates",
+  job: "Jobs",
+  order: "Orders",
   invoice: "Invoices",
-  po: "Purchase Orders",
-  job: "Work Orders",
+  po: "Purchase orders",
   product: "Catalog",
 };
-// Display order of the groups.
-const GROUP_ORDER: HitType[] = ["customer", "estimate", "invoice", "po", "job", "product"];
+const GROUP_ORDER: HitType[] = [
+  "customer",
+  "estimate",
+  "job",
+  "order",
+  "invoice",
+  "po",
+  "product",
+];
 
 type Row = Record<string, unknown>;
 // Minimal chainable shape of the query builder for dynamically-built queries.
@@ -70,10 +84,15 @@ export async function quickSearch(qRaw: string, limit = 6): Promise<QuickResults
   const q = (qRaw ?? "").trim();
   if (q.length < 2) return { query: q, groups: [], total: 0 };
 
+  const profile = await getProfile();
+  const allowed = new Set(profile ? searchTypesForRole(profile.role) : []);
+  if (!allowed.size) return { query: q, groups: [], total: 0 };
+
   const supabase = await createClient();
   const safe = sanitizeIlikeQuery(q);
-  const poNumber = parsePoNumberQuery(q);
-  if (safe.length < 2 && poNumber == null) {
+  const poNumber = allowed.has("po") ? parsePoNumberQuery(q) : null;
+  const phone = allowed.has("customer") ? phoneSearchPattern(q) : null;
+  if (safe.length < 2 && poNumber == null && !phone) {
     return { query: q, groups: [], total: 0 };
   }
   const like = `%${safe}%`;
@@ -105,43 +124,60 @@ export async function quickSearch(qRaw: string, limit = 6): Promise<QuickResults
     return Array.from(seen.values()).slice(0, limit);
   }
 
-  const [custRes, estRows, invRows, poRows, jobRows, prodRes] = await Promise.all([
-    supabase
-      .from("customers")
-      .select("id, full_name, company, phone, city, street, zip, email")
-      .or(
-        [
-          `full_name.ilike.${like}`,
-          `company.ilike.${like}`,
-          `email.ilike.${like}`,
-          `phone.ilike.${like}`,
-          `city.ilike.${like}`,
-          `street.ilike.${like}`,
-          `zip.ilike.${like}`,
-        ].join(","),
-      )
-      .limit(limit),
-    docs("estimates", `title.ilike.${like}`, "title"),
-    docs("invoices", `number.ilike.${like}`, "number"),
-    docs("purchase_orders", `supplier.ilike.${like},notes.ilike.${like}`, "supplier, po_number"),
-    docs("jobs", `title.ilike.${like},site_street.ilike.${like},site_city.ilike.${like}`, "title, site_street, site_city"),
-    supabase
-      .from("products")
-      .select("id, name, sku, category")
-      .or(
-        [
-          `name.ilike.${like}`,
-          `sku.ilike.${like}`,
-          `manufacturer.ilike.${like}`,
-          `style.ilike.${like}`,
-          `color.ilike.${like}`,
-        ].join(","),
-      )
-      .limit(limit),
+  const customerOr = [
+    `full_name.ilike.${like}`,
+    `company.ilike.${like}`,
+    `email.ilike.${like}`,
+    `phone.ilike.${like}`,
+    `city.ilike.${like}`,
+    `street.ilike.${like}`,
+    `zip.ilike.${like}`,
+  ];
+  if (phone) customerOr.push(`phone.ilike.${phone}`);
+
+  const emptyRows = Promise.resolve([] as Row[]);
+  const [custRes, estRows, jobRows, orderRows, invRows, poRows, prodRes] = await Promise.all([
+    allowed.has("customer")
+      ? supabase
+          .from("customers")
+          .select("id, full_name, company, phone, city, street, zip, email")
+          .or(customerOr.join(","))
+          .limit(limit)
+      : Promise.resolve({ data: [] as Row[] }),
+    allowed.has("estimate") ? docs("estimates", `title.ilike.${like}`, "title") : emptyRows,
+    allowed.has("job")
+      ? docs("jobs", `title.ilike.${like},site_street.ilike.${like},site_city.ilike.${like}`, "title, site_street, site_city")
+      : emptyRows,
+    allowed.has("order")
+      ? docs(
+          "orders",
+          `contact_name.ilike.${like},contact_phone.ilike.${like},contact_email.ilike.${like}`,
+          "contact_name, contact_phone",
+        )
+      : emptyRows,
+    allowed.has("invoice") ? docs("invoices", `number.ilike.${like}`, "number") : emptyRows,
+    allowed.has("po")
+      ? docs("purchase_orders", `supplier.ilike.${like},notes.ilike.${like}`, "supplier, po_number")
+      : emptyRows,
+    allowed.has("product")
+      ? supabase
+          .from("products")
+          .select("id, name, sku, category")
+          .or(
+            [
+              `name.ilike.${like}`,
+              `sku.ilike.${like}`,
+              `manufacturer.ilike.${like}`,
+              `style.ilike.${like}`,
+              `color.ilike.${like}`,
+            ].join(","),
+          )
+          .limit(limit)
+      : Promise.resolve({ data: [] as Row[] }),
   ]);
 
   let poHits = poRows;
-  if (poNumber != null) {
+  if (poNumber != null && allowed.has("po")) {
     const { data: byNum } = await supabase
       .from("purchase_orders")
       .select("id, status, supplier, po_number, customers(full_name)")
@@ -168,6 +204,17 @@ export async function quickSearch(qRaw: string, limit = 6): Promise<QuickResults
       title: (r.title as string) || "Estimate",
       subtitle: dot([custName(r), title(String(r.status ?? ""))]),
       href: `/estimates/${r.id}`,
+    })),
+    order: orderRows.map((r) => ({
+      type: "order",
+      id: r.id as string,
+      title: (r.contact_name as string) || custName(r) || "Order",
+      subtitle: dot([
+        r.contact_name && custName(r) !== r.contact_name ? custName(r) : null,
+        r.contact_phone as string,
+        title(String(r.status ?? "")),
+      ]),
+      href: `/orders#order-${r.id}`,
     })),
     invoice: invRows.map((r) => ({
       type: "invoice",

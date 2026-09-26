@@ -426,7 +426,13 @@ export const INVOICE_REQUIRES_REAPPROVAL_MESSAGE =
   "This estimate has changes that have not been approved yet. Reapprove the estimate before creating an invoice.";
 
 export const INVOICE_REQUIRES_APPROVAL_SNAPSHOT_MESSAGE =
-  "This estimate does not have an approval snapshot on file. Review and reapprove it before creating an invoice.";
+  "This estimate was approved before the approved copy was saved. Approve it again before creating an invoice.";
+
+export const ESTIMATE_CHANGED_AFTER_APPROVAL_MESSAGE =
+  "Estimate changed after approval — customer approval is needed again. The earlier approval is still on file. The job, purchase orders, and invoices were not changed.";
+
+export const LEGACY_APPROVAL_UNAVAILABLE_MESSAGE =
+  "This estimate was approved before we saved a copy of that approval. Use the job and invoices already on file as the original agreement.";
 
 export const INVOICE_REQUIRES_APPROVED_STATUS_MESSAGE =
   "This estimate is not approved. Approve it before creating an invoice.";

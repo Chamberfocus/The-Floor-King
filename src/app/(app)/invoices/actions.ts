@@ -10,7 +10,10 @@ import {
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 import { advanceFromAutoAction } from "@/lib/workflow-engine";
 import { getCurrentApprovalSnapshot } from "@/lib/data/estimate-approvals";
-import { assessInvoiceCommercialGate } from "@/lib/estimate-approval";
+import {
+  assessInvoiceCommercialGate,
+  INVOICE_REQUIRES_APPROVAL_SNAPSHOT_MESSAGE,
+} from "@/lib/estimate-approval";
 import { buildInvoiceItemsFromApprovalSnapshot } from "@/lib/invoice-from-approval";
 import {
   invoiceCommercialEditBlocked,
@@ -300,7 +303,7 @@ async function requireApprovalSnapshotForInvoice(estimateId: string) {
   });
   if (!gate.ok || !snap) {
     const msg = gate.ok
-      ? "This estimate does not have an approval snapshot on file. Review and reapprove it before creating an invoice."
+      ? INVOICE_REQUIRES_APPROVAL_SNAPSHOT_MESSAGE
       : gate.message;
     redirect(`/estimates/${estimateId}?invoice_error=${encodeURIComponent(msg)}`);
   }

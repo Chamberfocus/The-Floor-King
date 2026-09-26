@@ -248,17 +248,22 @@ function Brand({ org, homeHref }: { org?: OrgSettings; homeHref?: string }) {
 }
 
 /** Phone search starts as a button so the field can use the full header when opened. */
-function HeaderSearch() {
-  const [open, setOpen] = useState(false);
+function HeaderSearch({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   if (!open) {
     return (
       <Button
         type="button"
         variant="outline"
         size="icon"
-        className="shrink-0 md:hidden"
+        className="size-11 shrink-0 md:hidden"
         aria-label="Search"
-        onClick={() => setOpen(true)}
+        onClick={() => onOpenChange(true)}
       >
         <Search className="size-5" />
       </Button>
@@ -266,13 +271,13 @@ function HeaderSearch() {
   }
   return (
     <div className="absolute inset-0 z-10 flex items-center gap-2 bg-background px-3 md:hidden">
-      <GlobalSearch className="min-w-0 flex-1" autoFocus />
+      <GlobalSearch className="min-w-0 flex-1" autoFocus inputId="crm-search-mobile" />
       <Button
         type="button"
         variant="ghost"
         size="sm"
-        className="shrink-0"
-        onClick={() => setOpen(false)}
+        className="min-h-11 shrink-0"
+        onClick={() => onOpenChange(false)}
       >
         Close
       </Button>
@@ -410,8 +415,37 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobileSearch, setMobileSearch] = useState(false);
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const homeHref = homeHrefForRole(profile.role);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && mobileSearch) {
+        setMobileSearch(false);
+        return;
+      }
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) {
+        return;
+      }
+      const fields = ["crm-search", "crm-search-mobile"]
+        .map((id) => document.getElementById(id))
+        .filter((el): el is HTMLInputElement => el instanceof HTMLInputElement);
+      const visible = fields.find((el) => el.offsetParent !== null);
+      if (visible) {
+        e.preventDefault();
+        visible.focus();
+        return;
+      }
+      e.preventDefault();
+      setMobileSearch(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mobileSearch]);
 
   const toggleSidebar = () => {
     const next = !collapsed;
@@ -508,7 +542,7 @@ export function AppShell({
           <div className="hidden min-w-0 flex-1 items-center gap-3 md:flex">
             <GlobalSearch className="w-full max-w-xl" />
           </div>
-          <HeaderSearch />
+          <HeaderSearch open={mobileSearch} onOpenChange={setMobileSearch} />
           {shell === "new" ? (
             <QuickCreate
               role={profile.role}
