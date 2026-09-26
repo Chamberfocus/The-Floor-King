@@ -1,4 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
+import { phoneSearchPattern } from "@/lib/search-query";
+import { listPageWindow, WORK_QUEUE_PAGE_SIZE } from "@/lib/work-queues";
 import { fetchAll } from "@/lib/supabase/paginate";
 import {
   OPEN_STAGES,
@@ -431,16 +433,20 @@ export async function listCustomers(
       query = query.in("id", extraIds);
     } else if (search) {
       const like = `%${search}%`;
+      const phone = phoneSearchPattern(opts.search ?? "");
       query = query.or(
         [
           `full_name.ilike.${like}`,
           `company.ilike.${like}`,
           `email.ilike.${like}`,
           `phone.ilike.${like}`,
+          phone ? `phone.ilike.${phone}` : null,
           `street.ilike.${like}`,
           `city.ilike.${like}`,
           `zip.ilike.${like}`,
-        ].join(","),
+        ]
+          .filter(Boolean)
+          .join(","),
       );
     }
 
@@ -459,6 +465,43 @@ export async function listCustomers(
   const missing = relatedIds.filter((id) => !already.has(id));
   const related = missing.length ? await run(missing) : [];
   return uniqueCustomersById([...identity, ...related]);
+}
+
+/** Active customer lists page through the file. A search still uses listCustomers, then slices. */
+export async function listCustomersPage(
+  opts: CustomerListOpts & { page?: number; pageSize?: number },
+): Promise<{ rows: Customer[]; total: number; page: number; pageSize: number }> {
+  const pageSize = opts.pageSize ?? WORK_QUEUE_PAGE_SIZE;
+  if (opts.search?.trim()) {
+    const all = await listCustomers(opts);
+    const window = listPageWindow(opts.page ?? 1, pageSize, all.length);
+    return {
+      rows: all.slice(window.from, window.to),
+      total: all.length,
+      page: window.page,
+      pageSize,
+    };
+  }
+  const supabase = await createClient();
+  const counted = await applyCustomerListFilters(
+    supabase.from("customers").select("id", { count: "exact", head: true }) as never,
+    opts,
+  );
+  const total = (counted.count as number | null) ?? 0;
+  const window = listPageWindow(opts.page ?? 1, pageSize, total);
+  const { data, error } = await applyCustomerListFilters(
+    supabase.from("customers").select("*") as never,
+    opts,
+  )
+    .order("updated_at", { ascending: false })
+    .range(window.from, Math.max(window.from, window.to - 1));
+  if (error) throw error;
+  return {
+    rows: uniqueCustomersById((data ?? []) as Customer[]),
+    total,
+    page: window.page,
+    pageSize,
+  };
 }
 
 export async function getCustomer(id: string): Promise<Customer | null> {

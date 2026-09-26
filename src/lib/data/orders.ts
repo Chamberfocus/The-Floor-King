@@ -1,5 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sanitizeIlikeQuery } from "@/lib/ops-followup";
+import { phoneSearchPattern } from "@/lib/search-query";
+import {
+  WORK_QUEUE_PAGE_SIZE,
+  listPageWindow,
+  orderStatusesForView,
+  type OrderQueueView,
+} from "@/lib/work-queues";
 import { enrichCatalogProducts } from "@/lib/data/products";
 import type { Order, OrderItem, OrderStockStatus, Product } from "@/lib/types";
 import {
@@ -87,6 +95,135 @@ export async function listOrders(
   } catch {
     return [];
   }
+}
+
+const ORDER_LIST_COLUMNS =
+  "id, customer_id, contact_name, contact_phone, contact_email, status, source, date_needed, notes, stock_status, stock_note, stock_checked_by, stock_checked_at, ready_date, ready_kind, invoice_id, job_id, decline_reason, created_at, customer:customers(full_name)";
+
+function asOrderRows(
+  data: (Order & { customer?: { full_name: string | null } | null })[] | null,
+): OrderListRow[] {
+  return (data ?? []).map((row) => ({
+    ...row,
+    customer_name: row.customer?.full_name ?? null,
+  }));
+}
+
+/**
+ * One page of customer orders. The default queue is orders waiting for review.
+ * Search is capped at 200 matches and says so when that cap is hit.
+ */
+export async function listOrdersQueue(args: {
+  view: OrderQueueView;
+  search?: string;
+  page?: number;
+  focusId?: string;
+}): Promise<{
+  rows: OrderListRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  capped: boolean;
+}> {
+  const pageSize = WORK_QUEUE_PAGE_SIZE;
+  const supabase = await createClient();
+  const statuses = orderStatusesForView(args.view);
+  const safe = sanitizeIlikeQuery(args.search ?? "");
+  const phone = phoneSearchPattern(args.search ?? "");
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const applyView = (query: any) => (statuses ? query.in("status", statuses) : query);
+
+  let rows: OrderListRow[] = [];
+  let total = 0;
+  let capped = false;
+  let page = 1;
+
+  if (safe.length >= 2 || phone) {
+    const like = `%${safe}%`;
+    const ors = [
+      safe.length >= 2 ? `contact_name.ilike.${like}` : null,
+      safe.length >= 2 ? `contact_email.ilike.${like}` : null,
+      safe.length >= 2 ? `contact_phone.ilike.${like}` : null,
+      safe.length >= 2 ? `notes.ilike.${like}` : null,
+      phone ? `contact_phone.ilike.${phone}` : null,
+    ].filter(Boolean);
+    const cap = 200;
+    const jobIds = safe.length >= 2
+      ? (
+          await supabase.from("jobs").select("id").ilike("title", like).limit(40)
+        ).data?.map((row) => row.id as string) ?? []
+      : [];
+    const [own, byName, byJob] = await Promise.all([
+      applyView(
+        supabase.from("orders").select(ORDER_LIST_COLUMNS).order("created_at", { ascending: false }),
+      )
+        .or(ors.join(","))
+        .limit(cap),
+      safe.length >= 2
+        ? applyView(
+            supabase
+              .from("orders")
+              .select(ORDER_LIST_COLUMNS.replace("customer:customers(full_name)", "customer:customers!inner(full_name)"))
+              .order("created_at", { ascending: false }),
+          )
+            .ilike("customer.full_name", like)
+            .limit(cap)
+        : Promise.resolve({ data: [] as never[] }),
+      jobIds.length
+        ? applyView(
+            supabase.from("orders").select(ORDER_LIST_COLUMNS).order("created_at", { ascending: false }),
+          )
+            .in("job_id", jobIds)
+            .limit(cap)
+        : Promise.resolve({ data: [] as never[] }),
+    ]);
+    const seen = new Map<string, OrderListRow>();
+    for (const row of [
+      ...asOrderRows(own.data as never),
+      ...asOrderRows((byName.data ?? []) as never),
+      ...asOrderRows((byJob.data ?? []) as never),
+    ]) {
+      seen.set(row.id, row);
+    }
+    const merged = Array.from(seen.values()).sort((a, b) =>
+      (b.created_at || "").localeCompare(a.created_at || ""),
+    );
+    capped =
+      (own.data?.length ?? 0) >= cap ||
+      (byName.data?.length ?? 0) >= cap ||
+      (byJob.data?.length ?? 0) >= cap;
+    total = merged.length;
+    const window = listPageWindow(args.page ?? 1, pageSize, total);
+    page = window.page;
+    rows = merged.slice(window.from, window.to);
+  } else {
+    let countQuery = supabase.from("orders").select("id", { count: "exact", head: true });
+    if (statuses) countQuery = countQuery.in("status", statuses);
+    const { count } = await countQuery;
+    total = count ?? 0;
+    const window = listPageWindow(args.page ?? 1, pageSize, total);
+    page = window.page;
+    let dataQuery = supabase
+      .from("orders")
+      .select(ORDER_LIST_COLUMNS)
+      .order("created_at", { ascending: false });
+    if (statuses) dataQuery = dataQuery.in("status", statuses);
+    const { data } = await dataQuery.range(window.from, Math.max(window.from, window.to - 1));
+    rows = asOrderRows(data as never);
+  }
+
+  if (args.focusId && !rows.some((row) => row.id === args.focusId)) {
+    const { data } = await supabase
+      .from("orders")
+      .select(ORDER_LIST_COLUMNS)
+      .eq("id", args.focusId)
+      .maybeSingle();
+    if (data) rows = [asOrderRows([data as never])[0], ...rows];
+  }
+
+  await attachItems(supabase, rows);
+  return { rows, total, page, pageSize, capped };
 }
 
 export async function getOrder(id: string): Promise<Order | null> {

@@ -6,7 +6,9 @@ import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { SearchPicker } from "@/components/ui/search-picker";
-import { listCustomers, getCustomerRowContexts, getCustomerListActivity } from "@/lib/data/customers";
+import { listCustomersPage, getCustomerRowContexts, getCustomerListActivity } from "@/lib/data/customers";
+import { WorkQueuePager } from "@/components/work-queue-bar";
+import { parseListPage, resultCountLabel } from "@/lib/work-queues";
 import { listWorkflowStages, listHandoffMembers } from "@/lib/data/workflow";
 import { getSchedulingSettings } from "@/lib/data/scheduling";
 import { getUserPreferences } from "@/lib/data/preferences";
@@ -26,6 +28,7 @@ export default async function CustomersPage({
     owner?: string;
     stuck?: string;
     view?: string;
+    page?: string;
   }>;
 }) {
   const sp = await searchParams;
@@ -73,7 +76,7 @@ export default async function CustomersPage({
       excludeWorkflowStageIds = closedStageIds;
   }
 
-  const customers = await listCustomers({
+  const listed = await listCustomersPage({
     search: q,
     workflowStageIds,
     excludeWorkflowStageIds,
@@ -84,7 +87,10 @@ export default async function CustomersPage({
     // still spans cancelled so past customers are findable.
     cancelledOnly: view === "cancelled" && !q,
     excludeCancelled: !q && (view === "active" || view === "closed"),
+    page: parseListPage(sp.page),
   });
+  const customers = listed.rows;
+  const customerPages = Math.max(1, Math.ceil(listed.total / listed.pageSize));
 
   // Shared data for per-row quick actions — fetched once for the whole list.
   const [members, schedSettings, prefs, contexts, activity] = await Promise.all([
@@ -127,6 +133,7 @@ export default async function CustomersPage({
       if (owner) params.set("owner", owner);
       if (stuck) params.set("stuck", "1");
       if (view !== "active") params.set("view", view);
+      if (listed.page > 1) params.set("page", String(listed.page));
       const qs = params.toString();
       return qs ? `/customers?${qs}` : "/customers";
     })(),
@@ -167,8 +174,8 @@ export default async function CustomersPage({
       <PageHeader
         title="Customers"
         description={
-          customers.length
-            ? `${customers.length} customer${customers.length === 1 ? "" : "s"} — one row per customer.`
+          listed.total
+            ? `${resultCountLabel(customers.length, listed.total, "customer")} — one row per customer.`
             : "Everyone in your pipeline — leads and customers alike."
         }
       >
@@ -214,7 +221,7 @@ export default async function CustomersPage({
             name="q"
             defaultValue={q}
             placeholder="Search name, phone, email, address, job…"
-            className="pl-8"
+            className="h-11 pl-8"
           />
         </div>
         <SearchPicker
@@ -300,6 +307,21 @@ export default async function CustomersPage({
           isAdmin={isAdmin}
         />
       )}
+      <WorkQueuePager
+        page={listed.page}
+        pages={customerPages}
+        hrefFor={(page) => {
+          const params = new URLSearchParams();
+          if (q) params.set("q", q);
+          if (stage) params.set("stage", stage);
+          if (owner) params.set("owner", owner);
+          if (stuck) params.set("stuck", "1");
+          if (view !== "active") params.set("view", view);
+          if (page > 1) params.set("page", String(page));
+          const qs = params.toString();
+          return qs ? `/customers?${qs}` : "/customers";
+        }}
+      />
     </div>
   );
 }
