@@ -149,8 +149,13 @@ describe("job queues include records past the old cap", () => {
     expect(body).not.toContain(".limit(");
     const sql = src("supabase/migrations/0478_ops_queue_scale.sql");
     const materialFn = sql.slice(sql.indexOf("function public.job_has_material_need"));
-    expect(materialFn.slice(0, 800)).not.toContain("purchase_orders");
-    expect(materialFn.slice(0, 800)).not.toContain("deposit");
+    expect(materialFn.slice(0, 900)).not.toContain("purchase_orders");
+    expect(materialFn.slice(0, 900)).not.toContain("deposit");
+    expect(materialFn).toContain("l.line_type::text");
+    expect(materialFn).toContain("l.category::text");
+    expect(sql).toContain(
+      "line_is_material(text, text, uuid, text, text, numeric, numeric)",
+    );
     expect(sql).toContain("when 'service' then");
     expect(sql).toContain("'open', 'scheduled', 'in_progress', 'waiting'");
   });

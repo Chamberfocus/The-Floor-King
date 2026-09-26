@@ -6,6 +6,11 @@
 
 -- Same rule as src/lib/job-scope.ts isMaterialLine.
 -- A purchase order is not an input. A deposit is not an input.
+-- Arguments stay text. job_line_items.line_type is public.line_type and
+-- job_line_items.category is public.product_category. Those enums do not
+-- implicitly match text, so job_has_material_need casts them at the call.
+-- Safe to re-run after a partial apply: every function is create or replace
+-- with the same signature, and every index is create index if not exists.
 create or replace function public.line_is_material(
   p_line_type text,
   p_category text,
@@ -46,8 +51,8 @@ as $$
     from public.job_line_items l
     where l.job_id = p_job_id
       and public.line_is_material(
-        l.line_type,
-        l.category,
+        l.line_type::text,
+        l.category::text,
         l.product_id,
         l.manufacturer,
         l.color,
