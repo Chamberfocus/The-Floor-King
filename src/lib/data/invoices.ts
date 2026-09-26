@@ -13,6 +13,8 @@ import {
 } from "@/lib/data/credits";
 import { effectiveInvoiceBalance } from "@/lib/credit-ar";
 import { sanitizeIlikeQuery } from "@/lib/ops-followup";
+import { readQueueWindow } from "@/lib/data/queue-rpc";
+import { QUEUE_LIST_UNAVAILABLE, logQueueFailure } from "@/lib/ops-scale";
 import {
   WORK_QUEUE_PAGE_SIZE,
   invoiceStatusesForView,
@@ -405,7 +407,30 @@ export async function listInvoicesQueue(args: {
   let capped = false;
   let page = 1;
 
-  if (safe.length >= 2) {
+  if (args.view === "overdue") {
+    const found = await readQueueWindow(
+      supabase,
+      "invoice_overdue_page",
+      { p_today: today, p_search: safe.length >= 2 ? safe : null },
+      args.page ?? 1,
+      pageSize,
+    );
+    page = found.page;
+    total = found.total;
+    if (found.ids.length) {
+      const { data, error } = await supabase
+        .from("invoices")
+        .select(INVOICE_LIST_COLUMNS)
+        .in("id", found.ids);
+      if (error) {
+        logQueueFailure("invoice_overdue_page", error);
+        throw new Error(QUEUE_LIST_UNAVAILABLE);
+      }
+      const order = new Map(found.ids.map((id, index) => [id, index]));
+      rows = shape(data).sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+      await attach(supabase, rows);
+    }
+  } else if (safe.length >= 2) {
     const like = `%${safe}%`;
     const cap = 200;
     const [byNumber, byName] = await Promise.all([
@@ -426,26 +451,10 @@ export async function listInvoicesQueue(args: {
     const merged = Array.from(seen.values());
     capped = (byNumber.data?.length ?? 0) >= cap || (byName.data?.length ?? 0) >= cap;
     await attach(supabase, merged);
-    const kept = args.view === "overdue"
-      ? merged.filter((row) => invoiceDisplayTotals(row).balance > 0.5)
-      : merged;
-    total = kept.length;
+    total = merged.length;
     const window = listPageWindow(args.page ?? 1, pageSize, total);
     page = window.page;
-    rows = kept.slice(window.from, window.to);
-  } else if (args.view === "overdue") {
-    const cap = 200;
-    const { data } = await apply(
-      supabase.from("invoices").select(INVOICE_LIST_COLUMNS).order("due_date", { ascending: true }),
-    ).limit(cap);
-    const candidates = shape(data);
-    capped = candidates.length >= cap;
-    await attach(supabase, candidates);
-    const kept = candidates.filter((row) => invoiceDisplayTotals(row).balance > 0.5);
-    total = kept.length;
-    const window = listPageWindow(args.page ?? 1, pageSize, total);
-    page = window.page;
-    rows = kept.slice(window.from, window.to);
+    rows = merged.slice(window.from, window.to);
   } else {
     const counted = await apply(
       supabase.from("invoices").select("id", { count: "exact", head: true }),

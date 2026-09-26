@@ -20,7 +20,10 @@ import { SegmentedField } from "@/components/ui/segmented-field";
 import { requireProfile } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import Link from "next/link";
-import { listWarehouseJobs } from "@/lib/data/jobs";
+import { listWarehouseBoard } from "@/lib/data/jobs";
+import { WorkQueueBar, WorkQueuePager } from "@/components/work-queue-bar";
+import { parseListPage, resultCountLabel } from "@/lib/work-queues";
+import { QUEUE_LIST_UNAVAILABLE, queueFailureMessage } from "@/lib/ops-scale";
 import { listWorkflowStages } from "@/lib/data/workflow";
 import { FlowPositionBadge } from "@/components/flow-position-badge";
 import { newRemnants, reorderAlertsFor } from "@/lib/data/stock-rolls";
@@ -61,7 +64,6 @@ import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { getOrgSettings } from "@/lib/data/org";
 import { StagingSheetDoc } from "./staging-sheet-doc";
 import { WarehousePrintProvider, PrintStagingButton } from "./warehouse-print";
-import { WarehouseArchive } from "./warehouse-archive";
 
 export const metadata: Metadata = { title: "Warehouse" };
 
@@ -83,7 +85,11 @@ const DELIVERY_STEPS = WAREHOUSE_STATUS_ORDER.filter(
 const fieldClass =
   "h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
-export default async function WarehousePage() {
+export default async function WarehousePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; view?: string; page?: string }>;
+}) {
   const profile = await requireProfile();
   if (
     profile.role !== "warehouse" &&
@@ -93,22 +99,39 @@ export default async function WarehousePage() {
     redirect("/");
   }
 
-  // Viewer is authorized above → read the queue with the service role so the
-  // warehouse sees every scheduled job AND its full prep detail (stock levels,
-  // pull-vs-order, POs), which the warehouse role's own RLS can't reach.
+  const sp = await searchParams;
+  const q = sp.q?.trim() ?? "";
+  const section = sp.view === "staged" ? "staged" : "active";
+
+  // Viewer is authorized above → read this page with the service role so the
+  // warehouse sees prep detail (stock levels, pull-vs-order, POs), which the
+  // warehouse role's own RLS can't reach. The board itself is one database page.
   const wh = createAdminClient();
-  const jobsRaw = await listWarehouseJobs(wh);
+  let listError: string | null = null;
+  let board: Awaited<ReturnType<typeof listWarehouseBoard>> = {
+    rows: [],
+    total: 0,
+    page: 1,
+    pageSize: 40,
+  };
+  try {
+    board = await listWarehouseBoard({
+      db: wh,
+      section,
+      search: q,
+      page: parseListPage(sp.page),
+    });
+  } catch (error) {
+    listError = queueFailureMessage(error);
+  }
+  const jobsRaw = board.rows;
   const flowStages = await listWorkflowStages();
   const remnantsToShelve = await newRemnants(wh);
   // The real sourcing (pull-from-stock vs order, with cut sizes) per job.
   const sourcedArr = await Promise.all(jobsRaw.map((j) => getJobMaterials(j.id, wh)));
   const sourced = new Map(jobsRaw.map((j, i) => [j.id, sourcedArr[i]]));
-  // Ready to prep (sent to warehouse, not yet staged) first; then coming up;
-  // then already staged.
   const stagedSet = new Set(["staged", "out_for_delivery", "delivered", "picked_up"]);
-  const prepRank = (j: (typeof jobsRaw)[number]) =>
-    stagedSet.has(j.warehouse_status) ? 3 : j.warehouse_submitted_at ? 0 : 1;
-  const jobs = [...jobsRaw].sort((a, b) => prepRank(a) - prepRank(b));
+  const jobs = jobsRaw;
   const cutOf = (m: { lengthIn: number | null; widthIn: number | null }) => {
     const ft = (t: number | null) => {
       const v = Number(t) || 0;
@@ -152,9 +175,6 @@ export default async function WarehousePage() {
 
   // Staged jobs are done with prep → move them to the searchable archive; the
   // active queue only shows what still needs prepping / staging.
-  const activeJobs = jobs.filter((j) => !stagedSet.has(j.warehouse_status));
-  const archivedJobs = jobs.filter((j) => stagedSet.has(j.warehouse_status));
-
   const renderCard = (j: (typeof jobs)[number]) => {
     const site = [j.site_street, j.site_city, j.site_state]
       .filter(Boolean)
@@ -460,23 +480,15 @@ export default async function WarehousePage() {
     );
   };
 
-  const archiveItems = archivedJobs.map((j) => ({
-    id: j.id,
-    search: [
-      j.customer_name,
-      j.title,
-      j.site_street,
-      j.site_city,
-      j.site_state,
-      j.staging_location,
-      j.crew_name,
-      JOB_DELIVERY_LABELS[j.delivery_type],
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase(),
-    node: renderCard(j),
-  }));
+  const warehouseHref = (nextView: "active" | "staged", page = 1) => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (nextView === "staged") params.set("view", "staged");
+    if (page > 1) params.set("page", String(page));
+    const qs = params.toString();
+    return qs ? `/warehouse?${qs}` : "/warehouse";
+  };
+  const pages = Math.max(1, Math.ceil(board.total / board.pageSize));
 
   return (
     <WarehousePrintProvider sheets={sheets}>
@@ -485,6 +497,22 @@ export default async function WarehousePage() {
       <PageHeader
         title="Warehouse"
         description="What's on order, what's landed, and what to prep for upcoming jobs."
+      />
+
+      <WorkQueueBar
+        action="/warehouse"
+        query={q}
+        placeholder="Search customer, address, or job"
+        hidden={section === "staged" ? [{ name: "view", value: "staged" }] : []}
+        chips={[
+          { href: warehouseHref("active"), label: "Needs prep", active: section === "active" },
+          { href: warehouseHref("staged"), label: "Staged", active: section === "staged" },
+        ]}
+        countLabel={
+          listError
+            ? listError
+            : resultCountLabel(jobs.length, board.total, "job")
+        }
       />
 
       {/* Customer-submitted orders — stock check before owner approval. */}
@@ -683,25 +711,32 @@ export default async function WarehousePage() {
         </div>
       ) : null}
 
-      {activeJobs.length === 0 && archivedJobs.length === 0 ? (
+      {listError ? (
+        <EmptyState icon={HardHat} title={QUEUE_LIST_UNAVAILABLE} />
+      ) : jobs.length === 0 ? (
         <EmptyState
-          icon={HardHat}
-          title="No active jobs need materials right now"
+          icon={section === "staged" ? Archive : HardHat}
+          title={
+            q
+              ? "No jobs match that search"
+              : section === "staged"
+                ? "No staged jobs right now"
+                : "Nothing to prep right now"
+          }
+          description={
+            section === "active" && !q
+              ? "Staged jobs are on the Staged list."
+              : undefined
+          }
         />
       ) : (
-        <>
-          {activeJobs.length === 0 ? (
-            <EmptyState
-              icon={Archive}
-              title="Nothing to prep right now"
-              description="Staged jobs are in the archive below."
-            />
-          ) : (
-            <div className="space-y-4">{activeJobs.map(renderCard)}</div>
-          )}
-          <WarehouseArchive items={archiveItems} />
-        </>
+        <div className="space-y-4">{jobs.map(renderCard)}</div>
       )}
+      <WorkQueuePager
+        page={board.page}
+        pages={pages}
+        hrefFor={(page) => warehouseHref(section, page)}
+      />
     </WarehousePrintProvider>
   );
 }

@@ -17,6 +17,7 @@ import { listInvoicesQueue, invoiceDisplayTotals } from "@/lib/data/invoices";
 import { requireProfile } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { WorkQueueBar, WorkQueuePager } from "@/components/work-queue-bar";
+import { QUEUE_LIST_UNAVAILABLE, queueFailureMessage } from "@/lib/ops-scale";
 import {
   invoiceQueueEmpty,
   parseInvoiceQueue,
@@ -39,11 +40,23 @@ export default async function InvoicesPage({
   const sp = await searchParams;
   const q = sp.q?.trim() ?? "";
   const view = parseInvoiceQueue(sp.view ?? (sp.aging === "overdue" ? "overdue" : undefined));
-  const queue = await listInvoicesQueue({
-    view,
-    search: q,
-    page: parseListPage(sp.page),
-  });
+  let listError: string | null = null;
+  let queue: Awaited<ReturnType<typeof listInvoicesQueue>> = {
+    rows: [],
+    total: 0,
+    page: 1,
+    pageSize: 40,
+    capped: false,
+  };
+  try {
+    queue = await listInvoicesQueue({
+      view,
+      search: q,
+      page: parseListPage(sp.page),
+    });
+  } catch (error) {
+    listError = queueFailureMessage(error);
+  }
   const rows = queue.rows;
   const invoiceHref = (nextView: string, page = 1) => {
     const params = new URLSearchParams();
@@ -78,13 +91,17 @@ export default async function InvoicesPage({
           { href: invoiceHref("all"), label: "All", active: view === "all" },
         ]}
         countLabel={
-          queue.capped
-            ? `${resultCountLabel(rows.length, queue.total, "invoice")} — more matches exist. Add more of the name.`
-            : resultCountLabel(rows.length, queue.total, "invoice")
+          listError
+            ? listError
+            : queue.capped
+              ? `${resultCountLabel(rows.length, queue.total, "invoice")} — more matches exist. Add more of the name.`
+              : resultCountLabel(rows.length, queue.total, "invoice")
         }
       />
 
-      {rows.length === 0 ? (
+      {listError ? (
+        <EmptyState icon={Receipt} title={QUEUE_LIST_UNAVAILABLE} />
+      ) : rows.length === 0 ? (
         <EmptyState
           icon={Receipt}
           title={invoiceQueueEmpty(view, !!q)}
