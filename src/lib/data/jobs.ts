@@ -355,7 +355,7 @@ export async function listJobsQueue(args: {
     };
   }
 
-  let countQuery = apply(supabase.from("jobs").select("id", { count: "exact", head: true }));
+  const countQuery = apply(supabase.from("jobs").select("id", { count: "exact", head: true }));
   const counted = await countQuery;
   const total = counted.count ?? 0;
   const window = listPageWindow(args.page ?? 1, pageSize, total);
