@@ -31,9 +31,8 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { JobStatusBadge } from "@/components/job-status-badge";
-import { RecordActionCenter } from "@/components/record-action-center";
-import { buildJobActionCenter } from "@/lib/record-action-center";
 import { isMaterialLine } from "@/lib/job-scope";
+import { serviceQueueKindLabel, serviceQueueStatusLabel } from "@/lib/work-queues";
 import { FlowPositionBadge } from "@/components/flow-position-badge";
 import { JobStage } from "./job-stage";
 import { CopyJob } from "./copy-job";
@@ -324,9 +323,8 @@ export default async function JobPage({
     collectsBalance && canInstallerTools ? await getJobOpenBalance(id) : null;
   // Balance for the printed installation work order (shown when the installer
   // collects on site) — reuse the one above, else fetch it.
-  const woCollectBalance = collectsBalance
-    ? (balanceInfo?.balance ?? (await getJobOpenBalance(id)).balance)
-    : null;
+  const woCollectBalance =
+    collectsBalance && canInstallerTools ? (balanceInfo?.balance ?? null) : null;
 
   const siteParts = [
     job.site_street,
@@ -339,7 +337,9 @@ export default async function JobPage({
   // (estimates, invoices, POs, job total, balance detail) are staff-only —
   // installers get the non-financial docs (work order, staging, completion,
   // measurements). The COD balance still surfaces when they collect.
-  const jobDocsFull = canInstallerTools ? await listJobDocuments(job) : null;
+  const jobDocsFull = canInstallerTools
+    ? await listJobDocuments(job, { includeFinancials: isStaff })
+    : null;
   const docGroups = jobDocsFull
     ? isStaff
       ? jobDocsFull.groups
@@ -443,34 +443,13 @@ export default async function JobPage({
       })),
       listOpenServiceCallbacksForJob(job.id).catch(() => []),
       listJobPurchasingFacts(job.id).catch(() => []),
-      job.customer_id
+      isStaff && job.customer_id
         ? getCustomerDepositSummary(job.customer_id).catch(() => null)
         : Promise.resolve(null),
       isStaff ? getJobOpenBalance(id).catch(() => null) : Promise.resolve(null),
     ]);
   const { state: opsState, activeHoldId } = opsPack;
   const staffBalance = staffCollectible?.balance ?? 0;
-  const jobAction = buildJobActionCenter({
-    now: new Date(),
-    role: profile.role,
-    jobId: job.id,
-    title: job.title,
-    status: job.status,
-    scheduledDate: job.scheduled_date,
-    warehouseReadyAt: job.warehouse_ready_at,
-    hasMaterialNeed: (job.line_items ?? []).some((line) => isMaterialLine(line)),
-    createdAt: job.created_at,
-    completedAt: (job as { completed_at?: string | null }).completed_at ?? null,
-    ops: opsState,
-    openBalance: isStaff
-      ? (staffCollectible?.balance ?? null)
-      : collectsBalance && canInstallerTools
-        ? (balanceInfo?.balance ?? null)
-        : null,
-    invoiceHref: staffCollectible?.invoiceId ? `/invoices/${staffCollectible.invoiceId}` : null,
-    hasOpenCallback: openCallbacks.length > 0,
-    crewCollectsBalance: collectsBalance && canInstallerTools,
-  });
   const canManageHold =
     profile.role === "admin" ||
     profile.role === "office" ||
@@ -533,8 +512,6 @@ export default async function JobPage({
         </div>
       ) : null}
 
-      <RecordActionCenter model={jobAction} />
-
       <JobAttentionStrip
         snapshot={jobSnapshot}
         jobId={job.id}
@@ -565,7 +542,7 @@ export default async function JobPage({
             <ul className="mb-2 space-y-1 text-sm">
               {openCallbacks.map((c) => (
                 <li key={c.id}>
-                  Open · {c.category.replace(/_/g, " ")} · {c.status}
+                  {serviceQueueKindLabel(c.category)} · {serviceQueueStatusLabel(c.status)}
                 </li>
               ))}
             </ul>

@@ -205,8 +205,8 @@ export default async function InstallSchedulerPage({
             </span>
           </h2>
           <p className="mb-3 text-xs text-muted-foreground">
-            These jobs can be scheduled. A job with no material lines is included.
-            Material jobs show up after the warehouse marks them ready.
+            These jobs can be scheduled. Jobs with nothing to order are included.
+            Jobs that need material show up after the warehouse marks them ready.
           </p>
           <div className="space-y-2">
             {needsProps.map(({ j, props }) => (

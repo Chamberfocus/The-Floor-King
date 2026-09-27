@@ -199,7 +199,7 @@ export function InstallSchedule({
                   {!materialsReady ? (
                     <div className="w-full sm:w-64">
                       <label className="mb-1 block text-xs text-muted-foreground">
-                        Materials override reason
+                        Why schedule before material is ready?
                       </label>
                       <input
                         name="materials_override_reason"

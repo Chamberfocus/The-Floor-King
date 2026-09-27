@@ -9,10 +9,10 @@ export const dynamic = "force-dynamic";
 export default async function HomePage() {
   const profile = await requireProfile();
   const firstName = profile.full_name?.split(" ")[0] || "there";
-  const center = await loadHomeCenter({
+  const board = await loadHomeCenter({
     role: profile.role,
     userId: profile.id,
     firstName,
   });
-  return <HomeCenterView center={center} />;
+  return <HomeCenterView board={board} />;
 }

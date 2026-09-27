@@ -857,7 +857,7 @@ export default async function CustomerPage({
               {overdue ? (
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
                   <AlertTriangle className="size-3.5" aria-hidden />
-                  Stuck
+                  Follow-up due
                   <span className="sr-only">Follow-up is overdue.</span>
                 </span>
               ) : null}

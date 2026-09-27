@@ -17,6 +17,8 @@ export interface QuickHit {
   id: string;
   title: string;
   subtitle: string;
+  /** Second line of context. Never a dollar amount. */
+  detail?: string;
   href: string;
 }
 export interface QuickGroup {
@@ -64,14 +66,51 @@ function one<T>(v: T | T[] | null | undefined): T | null {
   if (Array.isArray(v)) return (v[0] as T) ?? null;
   return (v as T) ?? null;
 }
+function customerOf(r: Row): {
+  full_name?: string;
+  street?: string;
+  city?: string;
+  phone?: string;
+} | null {
+  return one(r.customers as object) as {
+    full_name?: string;
+    street?: string;
+    city?: string;
+    phone?: string;
+  } | null;
+}
 function custName(r: Row): string | null {
-  const c = one(r.customers as object) as { full_name?: string } | null;
-  return c?.full_name ?? null;
+  return customerOf(r)?.full_name ?? null;
 }
 function dot(parts: (string | null | undefined)[]): string {
   return parts.filter(Boolean).join(" · ");
 }
-const title = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const STATUS_LABEL: Record<string, string> = {
+  in_progress: "In progress",
+  unscheduled: "Not scheduled",
+  scheduled: "Scheduled",
+  completed: "Completed",
+  cancelled: "Cancelled",
+  sent: "Sent",
+  draft: "Draft",
+  approved: "Approved",
+  submitted: "Needs review",
+  partial: "Partly paid",
+  paid: "Paid",
+  void: "Void",
+  ordered: "Ordered",
+  received: "Received",
+  open: "Open",
+  waiting: "Waiting",
+  resolved: "Completed",
+  declined: "Declined",
+  changes_requested: "Changes requested",
+};
+function plainStatus(s: string): string {
+  const key = s.trim().toLowerCase();
+  if (!key) return "";
+  return STATUS_LABEL[key] ?? key.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+}
 
 /**
  * Smart, typed search across the whole CRM. Returns hits grouped by what they
@@ -109,13 +148,11 @@ export async function quickSearch(qRaw: string, limit = 6): Promise<QuickResults
     extraCols: string,
   ): Promise<Row[]> {
     const cols = `id, status, ${extraCols}`;
+    const embed = "customers(full_name, street, city, phone)";
+    const embedInner = "customers!inner(full_name, street, city, phone)";
     const [own, byCust] = await Promise.all([
-      sb.from(table).select(`${cols}, customers(full_name)`).or(ownOr).limit(limit),
-      sb
-        .from(table)
-        .select(`${cols}, customers!inner(full_name)`)
-        .ilike("customers.full_name", like)
-        .limit(limit),
+      sb.from(table).select(`${cols}, ${embed}`).or(ownOr).limit(limit),
+      sb.from(table).select(`${cols}, ${embedInner}`).ilike("customers.full_name", like).limit(limit),
     ]);
     const seen = new Map<string, Row>();
     for (const r of [...(own.data ?? []), ...(byCust.data ?? [])]) {
@@ -195,55 +232,81 @@ export async function quickSearch(qRaw: string, limit = 6): Promise<QuickResults
       type: "customer",
       id: c.id as string,
       title: (c.full_name as string) || "Customer",
-      subtitle: dot([c.company as string, c.street as string, c.city as string, c.phone as string]),
+      subtitle: dot([
+        c.company as string,
+        c.street as string,
+        c.city as string,
+        c.phone as string,
+        c.email as string,
+      ]),
       href: `/customers/${c.id}`,
     })),
-    estimate: estRows.map((r) => ({
-      type: "estimate",
-      id: r.id as string,
-      title: (r.title as string) || "Estimate",
-      subtitle: dot([custName(r), title(String(r.status ?? ""))]),
-      href: `/estimates/${r.id}`,
-    })),
-    order: orderRows.map((r) => ({
-      type: "order",
-      id: r.id as string,
-      title: (r.contact_name as string) || custName(r) || "Order",
-      subtitle: dot([
-        r.contact_name && custName(r) !== r.contact_name ? custName(r) : null,
-        r.contact_phone as string,
-        title(String(r.status ?? "")),
-      ]),
-      href: `/orders?focus=${r.id}#order-${r.id}`,
-    })),
-    invoice: invRows.map((r) => ({
-      type: "invoice",
-      id: r.id as string,
-      title: r.number ? `Invoice #${r.number}` : "Invoice",
-      subtitle: dot([custName(r), title(String(r.status ?? ""))]),
-      href: `/invoices/${r.id}`,
-    })),
-    po: poHits.map((r) => ({
-      type: "po",
-      id: r.id as string,
-      title: r.po_number
-        ? `PO ${r.po_number}${r.supplier ? ` — ${r.supplier}` : ""}`
-        : (r.supplier as string) || "Purchase order",
-      subtitle: dot([custName(r), title(String(r.status ?? ""))]),
-      href: `/purchase-orders/${r.id}`,
-    })),
-    job: jobRows.map((r) => ({
-      type: "job",
-      id: r.id as string,
-      title: (r.title as string) || "Work order",
-      subtitle: dot([
-        custName(r),
-        r.site_street as string,
-        r.site_city as string,
-        title(String(r.status ?? "")),
-      ]),
-      href: `/jobs/${r.id}`,
-    })),
+    estimate: estRows.map((r) => {
+      const customer = customerOf(r);
+      return {
+        type: "estimate" as const,
+        id: r.id as string,
+        title: (r.title as string) || "Estimate",
+        subtitle: customer?.full_name || "Estimate",
+        detail: dot([customer?.street, customer?.city, plainStatus(String(r.status ?? ""))]),
+        href: `/estimates/${r.id}`,
+      };
+    }),
+    order: orderRows.map((r) => {
+      const customer = customerOf(r);
+      return {
+        type: "order" as const,
+        id: r.id as string,
+        title: (r.contact_name as string) || customer?.full_name || "Order",
+        subtitle: dot([
+          r.contact_name && customer?.full_name !== r.contact_name ? customer?.full_name : null,
+          (r.contact_phone as string) || customer?.phone,
+        ]),
+        detail: dot([customer?.street, customer?.city, plainStatus(String(r.status ?? ""))]),
+        href: `/orders?focus=${r.id}#order-${r.id}`,
+      };
+    }),
+    invoice: invRows.map((r) => {
+      const customer = customerOf(r);
+      return {
+        type: "invoice" as const,
+        id: r.id as string,
+        title: r.number ? `Invoice #${r.number}` : "Invoice",
+        subtitle: customer?.full_name || "Invoice",
+        detail: dot([customer?.street, customer?.city, plainStatus(String(r.status ?? ""))]),
+        href: `/invoices/${r.id}`,
+      };
+    }),
+    po: poHits.map((r) => {
+      const customer = customerOf(r);
+      return {
+        type: "po" as const,
+        id: r.id as string,
+        title: r.po_number
+          ? `PO ${r.po_number}${r.supplier ? ` — ${r.supplier}` : ""}`
+          : (r.supplier as string) || "Purchase order",
+        subtitle: customer?.full_name || (r.supplier as string) || "Purchase order",
+        detail: dot([customer?.street, customer?.city, plainStatus(String(r.status ?? ""))]),
+        href: `/purchase-orders/${r.id}`,
+      };
+    }),
+    job: jobRows.map((r) => {
+      const customer = customerOf(r);
+      const scope = (r.title as string) || "";
+      const who = customer?.full_name || "";
+      return {
+        type: "job" as const,
+        id: r.id as string,
+        title: who || scope || "Job",
+        subtitle: who && scope && scope !== who ? scope : "",
+        detail: dot([
+          (r.site_street as string) || customer?.street,
+          (r.site_city as string) || customer?.city,
+          plainStatus(String(r.status ?? "")),
+        ]),
+        href: `/jobs/${r.id}`,
+      };
+    }),
     product: (prodRes.data ?? []).map((p: Row) => ({
       type: "product",
       id: p.id as string,

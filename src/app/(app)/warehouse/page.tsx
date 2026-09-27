@@ -720,8 +720,8 @@ export default async function WarehousePage({
             q
               ? "No jobs match that search"
               : section === "staged"
-                ? "No staged jobs right now"
-                : "Nothing to prep right now"
+                ? "Nothing is staged."
+                : "No material needs prep."
           }
           description={
             section === "active" && !q

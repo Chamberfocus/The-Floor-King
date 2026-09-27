@@ -126,19 +126,19 @@ export const NAV_GROUPS: NavGroup[] = [
       // "Team Schedule" is neither — it's who's working and who's off — so it
       // sits under Settings-ish territory, not beside two customer calendars.
       { label: "Calendar", href: "/calendar", icon: CalendarRange, roles: SALES_VIEW },
-      { label: "Install Scheduler", href: "/install-scheduler", icon: CalendarCheck, roles: ["admin", "office", "scheduler"] },
+      { label: "Install schedule", href: "/install-scheduler", icon: CalendarCheck, roles: ["admin", "office", "scheduler"] },
       { label: "Who's working", href: "/team", icon: UserCheck, roles: SCHEDULE_ROLES },
     ],
   },
   {
     id: "jobs",
-    label: "Jobs & Field",
+    label: "Jobs",
     icon: CalendarDays,
     items: [
       { label: "Jobs", href: "/jobs", icon: CalendarDays, roles: JOBS_ROLES },
-      { label: "Job Board", href: "/board", icon: ClipboardList, roles: ["admin", "office", "scheduler", "crew"] },
-      { label: "Service", href: "/service", icon: Wrench, roles: ["admin", "office", "sales_manager", "salesman", "scheduler"] },
       { label: "Tasks", href: "/tasks", icon: ListTodo, roles: ["admin", "office", "sales_manager", "salesman"] },
+      { label: "Service", href: "/service", icon: Wrench, roles: ["admin", "office", "sales_manager", "salesman", "scheduler"] },
+      { label: "Job board", href: "/board", icon: ClipboardList, roles: ["admin", "office", "scheduler", "crew"] },
       // "Quick install" was a second door to the same thing — everything it did
       // now lives on /jobs/new, which is reached from the New job button on the
       // Jobs page and on every customer's file.
@@ -159,6 +159,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Catalog", href: "/catalog", icon: Package, roles: SALES },
       { label: "Inventory", href: "/inventory", icon: Boxes, roles: ["admin", "office", "warehouse", "sales_manager"] },
       { label: "Warehouse", href: "/warehouse", icon: Warehouse, roles: ["admin", "office", "warehouse"] },
+      { label: "Orders", href: "/orders", icon: ShoppingBag, roles: OFFICE_PLUS },
+      { label: "Purchase orders", href: "/purchase-orders", icon: ShoppingCart, roles: OFFICE_PLUS },
     ],
   },
   {
@@ -166,8 +168,6 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Money",
     icon: Wallet,
     items: [
-      { label: "Customer Orders", href: "/orders", icon: ShoppingBag, roles: OFFICE_PLUS },
-      { label: "Purchase Orders", href: "/purchase-orders", icon: ShoppingCart, roles: OFFICE_PLUS },
       { label: "Invoices", href: "/invoices", icon: Receipt, roles: SALES },
       { label: "Bills (A/P)", href: "/bills", icon: Wallet, roles: OFFICE_PLUS },
       {
@@ -337,7 +337,6 @@ const SHELL_BLUEPRINT: {
       { href: "/saved", label: "Saved for later" },
       { href: "/quick-order", label: "Quick order" },
       { href: "/counter-sale", label: "Counter sale" },
-      { href: "/orders", label: "Customer orders" },
     ],
   },
   {
@@ -345,9 +344,9 @@ const SHELL_BLUEPRINT: {
     label: "Jobs",
     items: [
       { href: "/jobs" },
-      { href: "/board", label: "Job board" },
-      { href: "/service" },
       { href: "/tasks" },
+      { href: "/service" },
+      { href: "/board", label: "Job board" },
       { href: "/installer", label: "My Work" },
     ],
   },
@@ -376,7 +375,8 @@ const SHELL_BLUEPRINT: {
       { href: "/catalog", label: "Products" },
       { href: "/inventory" },
       { href: "/warehouse" },
-      { href: "/purchase-orders" },
+      { href: "/orders", label: "Orders" },
+      { href: "/purchase-orders", label: "Purchase orders" },
     ],
   },
   {

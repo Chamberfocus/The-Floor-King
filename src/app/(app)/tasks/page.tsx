@@ -133,12 +133,16 @@ export default async function TasksPage({
                     <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
                       Completed
                     </span>
-                  ) : null}
+                  ) : (
+                    <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
+                      {task.status === "in_progress" ? "In progress" : "Open"}
+                    </span>
+                  )}
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  {task.due_at ? formatDate(task.due_at) : "No due date"}
+                  {task.due_at ? `Due ${formatDate(task.due_at)}` : "No due date"}
                   {seeAll && task.assigned_to
-                    ? ` · ${names[task.assigned_to] ?? "Assigned"}`
+                    ? ` · Assigned to ${names[task.assigned_to] ?? "someone"}`
                     : ""}
                 </div>
                 {task.description ? (

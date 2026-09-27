@@ -51,7 +51,7 @@ export default async function SearchPage({
 
       {query && total === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No matches for “{query}”. Try a name, phone, street, estimate, job, or invoice number.
+          No matches for “{query}”. Try a name, phone, email, street, job, or invoice number.
         </p>
       ) : null}
 
@@ -71,8 +71,13 @@ export default async function SearchPage({
                         <div className="min-w-0">
                           <div className="truncate font-semibold">{hit.title}</div>
                           {hit.subtitle ? (
-                            <div className="truncate text-xs text-muted-foreground">
+                            <div className="truncate text-sm text-muted-foreground">
                               {hit.subtitle}
+                            </div>
+                          ) : null}
+                          {hit.detail ? (
+                            <div className="truncate text-xs text-muted-foreground">
+                              {hit.detail}
                             </div>
                           ) : null}
                         </div>

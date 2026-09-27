@@ -4,6 +4,7 @@ import { queueSearchArgs, readQueueWindow } from "@/lib/data/queue-rpc";
 import { QUEUE_LIST_UNAVAILABLE, logQueueFailure } from "@/lib/ops-scale";
 import {
   WORK_QUEUE_PAGE_SIZE,
+  listPageWindow,
   type JobQueueView,
 } from "@/lib/work-queues";
 import { boardMaterialTypeFromScopes, installerCanDoJob, isMaterialLine, type MaterialType } from "@/lib/job-scope";
@@ -228,6 +229,117 @@ async function serviceIdsForJobs(jobIds: string[]): Promise<Set<string>> {
     if (row.job_id) ids.add(row.job_id as string);
   }
   return ids;
+}
+
+type JobsOnDateArgs = {
+  date: string;
+  search?: string;
+  page?: number;
+  assignedTo?: string;
+  mineFor?: string;
+};
+
+async function jobsOnDateBase(args: JobsOnDateArgs) {
+  const supabase = args.assignedTo ? createAdminClient() : await createClient();
+  let crewIds: string[] = [];
+  if (args.assignedTo) {
+    const { data: crewRows } = await supabase
+      .from("install_crews")
+      .select("id")
+      .eq("profile_id", args.assignedTo)
+      .eq("active", true);
+    crewIds = (crewRows ?? []).map((row) => row.id as string);
+  }
+  let mineCustomerIds: string[] = [];
+  if (args.mineFor && !args.assignedTo) {
+    const { data: mine } = await supabase
+      .from("customers")
+      .select("id")
+      .or(`assigned_to.eq.${args.mineFor},workflow_owner_id.eq.${args.mineFor}`);
+    mineCustomerIds = (mine ?? []).map((row) => row.id as string);
+  }
+  const search = (args.search ?? "").trim().replace(/[%_]/g, "");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const apply = (query: any) => {
+    let next = query
+      .eq("scheduled_date", args.date)
+      .in("status", ["scheduled", "in_progress"])
+      .or(PICKUP_EXCLUDED);
+    if (args.assignedTo) {
+      next = next.or(installerAssignmentOrFilter(args.assignedTo, crewIds));
+    } else if (args.mineFor) {
+      next = mineCustomerIds.length
+        ? next.or(
+            `customer_id.in.(${mineCustomerIds.join(",")}),assigned_to.eq.${args.mineFor}`,
+          )
+        : next.eq("assigned_to", args.mineFor);
+    }
+    if (search.length >= 2) {
+      const like = `%${search}%`;
+      next = next.or(`title.ilike.${like},site_street.ilike.${like},site_city.ilike.${like}`);
+    }
+    return next;
+  };
+  return { supabase, apply };
+}
+
+/** Installs on one shop day. Pickup orders stay off this list. */
+export async function listJobsOnDate(args: JobsOnDateArgs): Promise<{
+  rows: JobListRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  capped: boolean;
+  materialNeeds: Map<string, boolean>;
+  serviceJobIds: Set<string>;
+}> {
+  const pageSize = WORK_QUEUE_PAGE_SIZE;
+  const { supabase, apply } = await jobsOnDateBase(args);
+  const counted = await apply(
+    supabase.from("jobs").select("id", { count: "exact", head: true }),
+  );
+  if (counted.error) {
+    logQueueFailure("jobs_on_date", counted.error);
+    throw new Error(QUEUE_LIST_UNAVAILABLE);
+  }
+  const total = (counted.count as number | null) ?? 0;
+  const window = listPageWindow(args.page ?? 1, pageSize, total);
+  const { data, error } = await apply(supabase.from("jobs").select(JOB_LIST_COLUMNS))
+    .order("arrival_window", { ascending: true, nullsFirst: false })
+    .order("title", { ascending: true })
+    .range(window.from, Math.max(window.from, window.to - 1));
+  if (error) {
+    logQueueFailure("jobs_on_date", error);
+    throw new Error(QUEUE_LIST_UNAVAILABLE);
+  }
+  const rows = shapeJobs(data);
+  const [materialNeeds, serviceJobIds] = await Promise.all([
+    listJobMaterialNeeds(rows.map((job) => job.id)),
+    serviceIdsForJobs(rows.map((job) => job.id)),
+  ]);
+  return {
+    rows,
+    total,
+    page: window.page,
+    pageSize,
+    capped: false,
+    materialNeeds,
+    serviceJobIds,
+  };
+}
+
+export async function countJobsOnDate(
+  args: Pick<JobsOnDateArgs, "date" | "assignedTo" | "mineFor">,
+): Promise<number> {
+  const { supabase, apply } = await jobsOnDateBase(args);
+  const counted = await apply(
+    supabase.from("jobs").select("id", { count: "exact", head: true }),
+  );
+  if (counted.error) {
+    logQueueFailure("jobs_on_date", counted.error);
+    throw new Error(QUEUE_LIST_UNAVAILABLE);
+  }
+  return (counted.count as number | null) ?? 0;
 }
 
 export async function countInstallJobs(opts: { mineFor?: string } = {}): Promise<number> {

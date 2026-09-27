@@ -3793,6 +3793,7 @@ export function EstimateBuilder({
           <Button
             type="button"
             variant="outline"
+            className="min-h-11"
             disabled={isPending}
             onClick={saveThenPrint}
           >
@@ -3801,6 +3802,7 @@ export function EstimateBuilder({
           <Button
             type="button"
             variant="outline"
+            className="min-h-11"
             disabled={isPending}
             onClick={() => save(true)}
           >
@@ -3809,6 +3811,7 @@ export function EstimateBuilder({
           <Button
             type="button"
             variant="outline"
+            className="min-h-11"
             disabled={isPending}
             onClick={() => save(false)}
           >
@@ -3821,6 +3824,7 @@ export function EstimateBuilder({
             description="We'll save it, mark it sent, and email your branded estimate with a link to review & approve."
             sendLabel="Save & send"
             skipLabel="Save, no email"
+            className="min-h-11"
             disabled={isPending}
             onChoose={(send) => saveAndSend(send)}
           >
