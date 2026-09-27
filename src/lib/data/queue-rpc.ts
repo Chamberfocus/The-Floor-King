@@ -39,6 +39,11 @@ export async function readQueuePage(
   };
 }
 
+export function orderByIds<T extends { id: string }>(rows: T[], ids: string[]): T[] {
+  const order = new Map(ids.map((id, index) => [id, index]));
+  return [...rows].sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+}
+
 /** Clamp a requested page onto the database window, including a short last page. */
 export async function readQueueWindow(
   supabase: RpcClient,

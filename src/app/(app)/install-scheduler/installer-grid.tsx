@@ -20,6 +20,7 @@ import { to12, parseLocalDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { rescheduleInstall } from "@/app/(app)/jobs/actions";
 import { isMaterialsNotReadyError } from "@/lib/materials-ready";
+import { SCHEDULER_CALENDAR_MAX_DAYS } from "@/lib/scheduler-window";
 import type { CalEvent, CalResource } from "./installer-calendar";
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -53,20 +54,36 @@ export function InstallerGrid({
   events,
   resources,
   canEdit = false,
+  startYmd,
+  span,
+  listQuery,
 }: {
   events: CalEvent[];
   resources: CalResource[];
   canEdit?: boolean;
+  startYmd: string;
+  span: number;
+  listQuery?: { q?: string; page?: number; booked?: number };
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
-  const [start, setStart] = useState<Date>(() => startOfWeek(new Date()));
-  const [days, setDays] = useState(7);
-  const [custom, setCustom] = useState(false);
+  const start = parseLocalDate(startYmd);
+  const days = span;
+  const [custom, setCustom] = useState(!RANGES.some((range) => range.days === span));
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [filter, setFilter] = useState("all");
   const [dragOver, setDragOver] = useState<string | null>(null);
+
+  const go = (nextStart: Date, nextSpan: number) => {
+    const params = new URLSearchParams();
+    if (listQuery?.q) params.set("q", listQuery.q);
+    if (listQuery?.page && listQuery.page > 1) params.set("page", String(listQuery.page));
+    if (listQuery?.booked && listQuery.booked > 1) params.set("booked", String(listQuery.booked));
+    params.set("cal", ymd(nextStart));
+    params.set("span", String(nextSpan));
+    router.push(`/install-scheduler?${params.toString()}`);
+  };
 
   const cols = useMemo(
     () => Array.from({ length: days }, (_, i) => addDays(start, i)),
@@ -143,11 +160,10 @@ export function InstallerGrid({
     });
   };
 
-  const shift = (dir: number) => setStart((s) => addDays(s, dir * days));
+  const shift = (dir: number) => go(addDays(start, dir * days), days);
   const pickRange = (n: number) => {
     setCustom(false);
-    setDays(n);
-    setStart((s) => (n === 7 ? startOfWeek(s) : startOfWeek(s)));
+    go(startOfWeek(start), n);
   };
   const applyCustom = () => {
     if (!from || !to) return;
@@ -155,8 +171,8 @@ export function InstallerGrid({
     const e = parseLocalDate(to);
     const n = Math.round((e.getTime() - s.getTime()) / 86_400_000) + 1;
     if (n < 1) return;
-    setStart(s);
-    setDays(Math.min(n, 92));
+    setCustom(true);
+    go(s, Math.min(n, SCHEDULER_CALENDAR_MAX_DAYS));
   };
 
   const rangeLabel = `${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${addDays(
@@ -170,20 +186,20 @@ export function InstallerGrid({
         {/* Toolbar */}
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1">
-            <Button variant="outline" size="icon-sm" onClick={() => shift(-1)} aria-label="Previous">
+            <Button variant="outline" size="icon" className="min-h-11 min-w-11" onClick={() => shift(-1)} aria-label="Previous">
               <ChevronLeft className="size-4" />
             </Button>
             <Button
               variant="outline"
-              size="sm"
+              className="min-h-11"
               onClick={() => {
                 setCustom(false);
-                setStart(startOfWeek(new Date()));
+                go(startOfWeek(new Date()), days);
               }}
             >
               Today
             </Button>
-            <Button variant="outline" size="icon-sm" onClick={() => shift(1)} aria-label="Next">
+            <Button variant="outline" size="icon" className="min-h-11 min-w-11" onClick={() => shift(1)} aria-label="Next">
               <ChevronRight className="size-4" />
             </Button>
           </div>
@@ -195,7 +211,7 @@ export function InstallerGrid({
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
                 aria-label="Filter installer"
-                className="h-8 max-w-44 rounded-md border border-input bg-transparent px-2 text-sm"
+                className="h-11 max-w-44 rounded-md border border-input bg-transparent px-2 text-sm"
               >
                 <option value="all">All installers</option>
                 {resources.map((r) => (
@@ -212,7 +228,7 @@ export function InstallerGrid({
                   type="button"
                   onClick={() => pickRange(r.days)}
                   className={cn(
-                    "px-2.5 py-1.5 text-xs font-medium transition-colors",
+                    "min-h-11 px-3 text-sm font-medium transition-colors",
                     !custom && days === r.days
                       ? "bg-primary text-primary-foreground"
                       : "hover:bg-muted",
@@ -225,7 +241,7 @@ export function InstallerGrid({
                 type="button"
                 onClick={() => setCustom((v) => !v)}
                 className={cn(
-                  "px-2.5 py-1.5 text-xs font-medium transition-colors",
+                  "min-h-11 px-3 text-sm font-medium transition-colors",
                   custom ? "bg-primary text-primary-foreground" : "hover:bg-muted",
                 )}
               >
@@ -243,7 +259,7 @@ export function InstallerGrid({
                 type="date"
                 value={from}
                 onChange={(e) => setFrom(e.target.value)}
-                className="ml-1 h-8 rounded-md border border-input bg-transparent px-2 text-sm"
+                className="ml-1 h-11 rounded-md border border-input bg-transparent px-2 text-sm"
               />
             </label>
             <label className="text-xs text-muted-foreground">
@@ -252,10 +268,10 @@ export function InstallerGrid({
                 type="date"
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
-                className="ml-1 h-8 rounded-md border border-input bg-transparent px-2 text-sm"
+                className="ml-1 h-11 rounded-md border border-input bg-transparent px-2 text-sm"
               />
             </label>
-            <Button size="sm" onClick={applyCustom} disabled={!from || !to}>
+            <Button className="min-h-11" onClick={applyCustom} disabled={!from || !to}>
               Apply
             </Button>
           </div>

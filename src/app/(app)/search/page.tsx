@@ -20,6 +20,15 @@ const ICON: Record<HitType, LucideIcon> = {
   product: Package,
 };
 
+const LIST_HREF: Partial<Record<HitType, string>> = {
+  customer: "/customers",
+  estimate: "/estimates",
+  job: "/jobs",
+  order: "/orders",
+  invoice: "/invoices",
+  po: "/purchase-orders",
+};
+
 export default async function SearchPage({
   searchParams,
 }: {
@@ -71,6 +80,14 @@ export default async function SearchPage({
                     </Card>
                   </Link>
                 ))}
+                {g.hits.length >= 30 && LIST_HREF[g.type] ? (
+                  <Link
+                    href={`${LIST_HREF[g.type]}?q=${encodeURIComponent(query)}`}
+                    className="inline-flex min-h-11 items-center text-sm font-medium underline-offset-4 hover:underline"
+                  >
+                    See every {g.label.toLowerCase()} match
+                  </Link>
+                ) : null}
               </div>
             </div>
           );

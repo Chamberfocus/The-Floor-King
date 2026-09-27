@@ -17,6 +17,7 @@ import { listEstimatesQueue, type EstimateListRow } from "@/lib/data/estimates";
 import { WorkQueueBar, WorkQueuePager } from "@/components/work-queue-bar";
 import { requireProfile } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { QUEUE_LIST_UNAVAILABLE, queueFailureMessage } from "@/lib/ops-scale";
 import {
   estimateQueueEmpty,
   estimateQueueMine,
@@ -51,12 +52,24 @@ export default async function EstimatesPage({
   const q = sp.q?.trim() ?? "";
   const view = parseEstimateQueue(sp.view);
   const mine = estimateQueueMine(sp.who, profile.role);
-  const queue = await listEstimatesQueue({
-    view,
-    search: q,
-    page: parseListPage(sp.page),
-    mineFor: mine ? profile.id : null,
-  });
+  let listError: string | null = null;
+  let queue: Awaited<ReturnType<typeof listEstimatesQueue>> = {
+    rows: [],
+    total: 0,
+    page: 1,
+    pageSize: 40,
+    capped: false,
+  };
+  try {
+    queue = await listEstimatesQueue({
+      view,
+      search: q,
+      page: parseListPage(sp.page),
+      mineFor: mine ? profile.id : null,
+    });
+  } catch (error) {
+    listError = queueFailureMessage(error);
+  }
   const estimates = queue.rows;
   const estimateHref = (next: { view?: string; who?: string; page?: number }) => {
     const params = new URLSearchParams();
@@ -101,16 +114,23 @@ export default async function EstimatesPage({
           { href: estimateHref({ view: "sent", page: 1 }), label: "Sent", active: view === "sent" },
           { href: estimateHref({ view: "followup", page: 1 }), label: "Follow-up", active: view === "followup" },
           { href: estimateHref({ view: "approved", page: 1 }), label: "Approved", active: view === "approved" },
-          { href: estimateHref({ who: mine ? "all" : "mine", page: 1 }), label: mine ? "All salespeople" : "Mine", active: false },
+          ...(profile.role === "salesman"
+            ? [{ href: estimateHref({ who: "mine", page: 1 }), label: "Mine", active: mine }]
+            : [
+                { href: estimateHref({ who: "mine", page: 1 }), label: "Mine", active: mine },
+                { href: estimateHref({ who: "all", page: 1 }), label: "Everyone", active: !mine },
+              ]),
         ]}
         countLabel={
-          queue.capped
-            ? `${resultCountLabel(estimates.length, queue.total, "estimate")} — more matches exist. Add more of the name or address.`
+          listError
+            ? listError
             : resultCountLabel(estimates.length, queue.total, "estimate")
         }
       />
 
-      {estimates.length === 0 ? (
+      {listError ? (
+        <EmptyState icon={FileText} title={QUEUE_LIST_UNAVAILABLE} />
+      ) : estimates.length === 0 ? (
         <EmptyState
           icon={FileText}
           title={estimateQueueEmpty(view, !!q)}

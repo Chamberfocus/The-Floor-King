@@ -110,29 +110,36 @@ export interface InstallerSuggestion {
  * Earliest window per installer for a job — each installer is sized with THEIR
  * own daily capacities and work days (falling back to the shop defaults).
  */
-export async function getInstallerSuggestions(
-  lines: EstimateLineItem[],
-  global: SchedulingSettings,
-  fromDate?: string,
-): Promise<InstallerSuggestion[]> {
+export interface InstallerOutlook {
+  installers: InstallerProfile[];
+  overrides: Map<string, Record<string, unknown>>;
+  booked: Map<string, DateRange[]>;
+}
+
+/**
+ * Installer capacity and the bookings that can still block a future opening.
+ * Jobs that already ended before `fromDate` are not loaded.
+ */
+export async function loadInstallerOutlook(fromDate?: string): Promise<InstallerOutlook> {
   const supabase = await createClient();
   const installers = await listInstallers();
-  if (!installers.length) return [];
+  const from = fromDate ?? ymd(new Date());
+  if (!installers.length) {
+    return { installers, overrides: new Map(), booked: new Map() };
+  }
   const ids = installers.map((i) => i.id);
-
-  const { data: ovRows } = await supabase
-    .from("installer_settings")
-    .select("*")
-    .in("installer_id", ids);
+  const [{ data: ovRows }, { data: jobs }] = await Promise.all([
+    supabase.from("installer_settings").select("*").in("installer_id", ids),
+    supabase
+      .from("jobs")
+      .select("assigned_to, scheduled_date, scheduled_end")
+      .in("assigned_to", ids)
+      .not("scheduled_date", "is", null)
+      .or(`scheduled_end.gte.${from},scheduled_date.gte.${from}`),
+  ]);
   const overrides = new Map<string, Record<string, unknown>>();
   for (const r of ovRows ?? [])
     overrides.set(r.installer_id as string, r as Record<string, unknown>);
-
-  const { data: jobs } = await supabase
-    .from("jobs")
-    .select("assigned_to, scheduled_date, scheduled_end")
-    .in("assigned_to", ids)
-    .not("scheduled_date", "is", null);
   const booked = new Map<string, DateRange[]>();
   for (const j of jobs ?? []) {
     const who = j.assigned_to as string;
@@ -142,15 +149,23 @@ export async function getInstallerSuggestions(
     arr.push({ start, end });
     booked.set(who, arr);
   }
+  return { installers, overrides, booked };
+}
 
+export function suggestionsFromOutlook(
+  outlook: InstallerOutlook,
+  lines: EstimateLineItem[],
+  global: SchedulingSettings,
+  fromDate?: string,
+): InstallerSuggestion[] {
   const from = fromDate ?? ymd(new Date());
   const out: InstallerSuggestion[] = [];
-  for (const inst of installers) {
-    const settings = mergeInstaller(global, overrides.get(inst.id));
+  for (const inst of outlook.installers) {
+    const settings = mergeInstaller(global, outlook.overrides.get(inst.id));
     const days = installDaysForJob(lines, settings).days;
     if (days <= 0) continue;
     const win = nextFreeWindow(
-      booked.get(inst.id) ?? [],
+      outlook.booked.get(inst.id) ?? [],
       workDaySet(settings),
       days,
       from,
@@ -165,6 +180,15 @@ export async function getInstallerSuggestions(
       });
   }
   return out.sort((a, b) => a.start.localeCompare(b.start) || a.days - b.days);
+}
+
+export async function getInstallerSuggestions(
+  lines: EstimateLineItem[],
+  global: SchedulingSettings,
+  fromDate?: string,
+): Promise<InstallerSuggestion[]> {
+  const outlook = await loadInstallerOutlook(fromDate);
+  return suggestionsFromOutlook(outlook, lines, global, fromDate);
 }
 
 export interface InstallerSettingsRow {

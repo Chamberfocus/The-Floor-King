@@ -93,9 +93,7 @@ export default async function InvoicesPage({
         countLabel={
           listError
             ? listError
-            : queue.capped
-              ? `${resultCountLabel(rows.length, queue.total, "invoice")} — more matches exist. Add more of the name.`
-              : resultCountLabel(rows.length, queue.total, "invoice")
+            : resultCountLabel(rows.length, queue.total, "invoice")
         }
       />
 

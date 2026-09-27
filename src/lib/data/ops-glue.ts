@@ -2,6 +2,8 @@
  * F2 office tasks / holds / callbacks data access.
  */
 import { createClient } from "@/lib/supabase/server";
+import { orderByIds, readQueueWindow } from "@/lib/data/queue-rpc";
+import { QUEUE_LIST_UNAVAILABLE, logQueueFailure } from "@/lib/ops-scale";
 import { isOpenTaskStatus, isTaskOverdue } from "@/lib/office-task";
 import { sanitizeIlikeQuery } from "@/lib/ops-followup";
 import {
@@ -268,73 +270,30 @@ export async function listServiceQueue(args: {
     return { rows: shapeServiceRows(data), total, page: window.page, pageSize, capped: false };
   }
 
-  const like = `%${safe}%`;
-  const cap = 200;
-  const [{ data: customers }, { data: jobs }] = await Promise.all([
-    supabase
-      .from("customers")
-      .select("id")
-      .or(`full_name.ilike.${like},street.ilike.${like},city.ilike.${like}`)
-      .limit(80),
-    supabase
-      .from("jobs")
-      .select("id")
-      .or(`title.ilike.${like},site_street.ilike.${like},site_city.ilike.${like}`)
-      .limit(80),
-  ]);
-  const customerIds = (customers ?? []).map((row) => row.id as string);
-  const jobIds = (jobs ?? []).map((row) => row.id as string);
-  const [byText, byCustomer, byJob] = await Promise.all([
-    applyStatus(
-      supabase
-        .from("service_callbacks")
-        .select(SERVICE_COLUMNS)
-        .order("follow_up_at", { ascending: true, nullsFirst: false }),
-    )
-      .ilike("description", like)
-      .limit(cap),
-    customerIds.length
-      ? applyStatus(
-          supabase
-            .from("service_callbacks")
-            .select(SERVICE_COLUMNS)
-            .order("follow_up_at", { ascending: true, nullsFirst: false }),
-        )
-          .in("customer_id", customerIds)
-          .limit(cap)
-      : Promise.resolve({ data: [] }),
-    jobIds.length
-      ? applyStatus(
-          supabase
-            .from("service_callbacks")
-            .select(SERVICE_COLUMNS)
-            .order("follow_up_at", { ascending: true, nullsFirst: false }),
-        )
-          .in("job_id", jobIds)
-          .limit(cap)
-      : Promise.resolve({ data: [] }),
-  ]);
-  const seen = new Map<string, ServiceQueueRow>();
-  for (const row of [
-    ...shapeServiceRows(byText.data),
-    ...shapeServiceRows(byCustomer.data),
-    ...shapeServiceRows(byJob.data),
-  ]) {
-    seen.set(row.id, row);
-  }
-  const matched = [...seen.values()];
-  const window = listPageWindow(args.page ?? 1, pageSize, matched.length);
-  return {
-    rows: matched.slice(window.from, window.to),
-    total: matched.length,
-    page: window.page,
+  const found = await readQueueWindow(
+    supabase,
+    "service_queue_page",
+    { p_statuses: statuses, p_search: safe },
+    args.page ?? 1,
     pageSize,
-    capped:
-      (byText.data?.length ?? 0) >= cap ||
-      (byCustomer.data?.length ?? 0) >= cap ||
-      (byJob.data?.length ?? 0) >= cap ||
-      (customers?.length ?? 0) >= 80 ||
-      (jobs?.length ?? 0) >= 80,
+  );
+  if (!found.ids.length) {
+    return { rows: [], total: found.total, page: found.page, pageSize, capped: false };
+  }
+  const { data, error } = await supabase
+    .from("service_callbacks")
+    .select(SERVICE_COLUMNS)
+    .in("id", found.ids);
+  if (error) {
+    logQueueFailure("service_queue_page", error);
+    throw new Error(QUEUE_LIST_UNAVAILABLE);
+  }
+  return {
+    rows: orderByIds(shapeServiceRows(data), found.ids),
+    total: found.total,
+    page: found.page,
+    pageSize,
+    capped: false,
   };
 }
 
@@ -394,66 +353,32 @@ export async function listTaskQueue(args: {
     return { rows: shapeTaskRows(data), total, page: window.page, pageSize, capped: false };
   }
 
-  const like = `%${safe}%`;
-  const cap = 200;
-  const [{ data: customers }, assigneeLookup] = await Promise.all([
-    supabase.from("customers").select("id").ilike("full_name", like).limit(40),
-    args.seeAll
-      ? supabase.from("profiles").select("id").ilike("full_name", like).limit(20)
-      : Promise.resolve({ data: [] as { id: string }[] }),
-  ]);
-  const customerIds = (customers ?? []).map((row) => row.id as string);
-  const assigneeIds = (assigneeLookup.data ?? []).map((row) => row.id as string);
-  const [byText, byCustomer, byAssignee] = await Promise.all([
-    apply(
-      supabase
-        .from("office_tasks")
-        .select(TASK_COLUMNS)
-        .order("due_at", { ascending: true, nullsFirst: false }),
-    )
-      .or(`title.ilike.${like},description.ilike.${like}`)
-      .limit(cap),
-    customerIds.length
-      ? apply(
-          supabase
-            .from("office_tasks")
-            .select(TASK_COLUMNS)
-            .order("due_at", { ascending: true, nullsFirst: false }),
-        )
-          .in("customer_id", customerIds)
-          .limit(cap)
-      : Promise.resolve({ data: [] }),
-    args.seeAll && assigneeIds.length
-      ? apply(
-          supabase
-            .from("office_tasks")
-            .select(TASK_COLUMNS)
-            .order("due_at", { ascending: true, nullsFirst: false }),
-        )
-          .in("assigned_to", assigneeIds)
-          .limit(cap)
-      : Promise.resolve({ data: [] }),
-  ]);
-  const seen = new Map<string, OfficeTaskRow & { customer_name: string | null }>();
-  for (const row of [
-    ...shapeTaskRows(byText.data),
-    ...shapeTaskRows(byCustomer.data),
-    ...shapeTaskRows(byAssignee.data),
-  ]) {
-    if (args.view === "overdue" && !isTaskOverdue({ status: row.status, dueAt: row.due_at })) continue;
-    seen.set(row.id, row);
-  }
-  const matched = [...seen.values()];
-  const window = listPageWindow(args.page ?? 1, pageSize, matched.length);
-  return {
-    rows: matched.slice(window.from, window.to),
-    total: matched.length,
-    page: window.page,
+  const found = await readQueueWindow(
+    supabase,
+    "task_queue_page",
+    {
+      p_view: args.view,
+      p_user: args.userId,
+      p_see_all: args.seeAll,
+      p_now: nowIso,
+      p_search: safe,
+    },
+    args.page ?? 1,
     pageSize,
-    capped:
-      (byText.data?.length ?? 0) >= cap ||
-      (byCustomer.data?.length ?? 0) >= cap ||
-      (byAssignee.data?.length ?? 0) >= cap ||
-      (customers?.length ?? 0) >= 40,
+  );
+  if (!found.ids.length) {
+    return { rows: [], total: found.total, page: found.page, pageSize, capped: false };
+  }
+  const { data, error } = await supabase.from("office_tasks").select(TASK_COLUMNS).in("id", found.ids);
+  if (error) {
+    logQueueFailure("task_queue_page", error);
+    throw new Error(QUEUE_LIST_UNAVAILABLE);
+  }
+  return {
+    rows: orderByIds(shapeTaskRows(data), found.ids),
+    total: found.total,
+    page: found.page,
+    pageSize,
+    capped: false,
   };
 }

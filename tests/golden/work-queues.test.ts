@@ -180,7 +180,8 @@ describe("list pages stay role-scoped and bounded", () => {
 
     expect(src("src/app/(app)/estimates/page.tsx")).toContain("roleSeesMoneyList");
     expect(src("src/app/(app)/estimates/page.tsx")).toContain("listEstimatesQueue");
-    expect(src("src/lib/data/estimates.ts")).toContain("customer.street");
+    expect(src("src/lib/data/estimates.ts")).toContain("estimate_queue_page");
+    expect(src("supabase/migrations/0479_ops_search_page.sql")).toContain("c.street ilike");
     expect(src("src/app/(app)/invoices/page.tsx")).toContain("roleSeesMoneyList");
     expect(src("src/app/(app)/purchase-orders/page.tsx")).toContain("ORDER_LIST_ROLES");
     expect(src("src/app/(app)/invoices/page.tsx")).toContain("md:hidden");

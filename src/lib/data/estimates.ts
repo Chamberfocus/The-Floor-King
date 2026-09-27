@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAll } from "@/lib/supabase/paginate";
+import { orderByIds, readQueueWindow } from "@/lib/data/queue-rpc";
+import { QUEUE_LIST_UNAVAILABLE, logQueueFailure } from "@/lib/ops-scale";
 import { sanitizeIlikeQuery } from "@/lib/ops-followup";
 import { DEFAULT_ESTIMATE_FOLLOWUP_DAYS } from "@/lib/ops-followup";
 import {
@@ -199,42 +201,28 @@ export async function listEstimatesQueue(args: {
   let page = 1;
 
   if (safe.length >= 2) {
-    const like = `%${safe}%`;
-    const cap = 200;
-    const inner = columns
-      .replace("customer:customers(", "customer:customers!inner(")
-      .replace("!inner!inner", "!inner");
-    const customerQuery = () =>
-      apply(
-        supabase.from("estimates").select(inner).order("created_at", { ascending: false }),
-      );
-    const [byTitle, byName, byStreet, byCity] = await Promise.all([
-      apply(
-        supabase.from("estimates").select(columns).order("created_at", { ascending: false }),
-      )
-        .ilike("title", like)
-        .limit(cap),
-      customerQuery().ilike("customer.full_name", like).limit(cap),
-      customerQuery().ilike("customer.street", like).limit(cap),
-      customerQuery().ilike("customer.city", like).limit(cap),
-    ]);
-    const seen = new Map<string, EstimateListRow>();
-    for (const row of [
-      ...shape(byTitle.data),
-      ...shape(byName.data),
-      ...shape(byStreet.data),
-      ...shape(byCity.data),
-    ]) {
-      seen.set(row.id, row);
-    }
-    const merged = Array.from(seen.values()).sort((a, b) =>
-      (b.created_at || "").localeCompare(a.created_at || ""),
+    const found = await readQueueWindow(
+      supabase,
+      "estimate_queue_page",
+      {
+        p_status: status,
+        p_sent_before: followupBefore,
+        p_mine: args.mineFor ?? null,
+        p_search: safe,
+      },
+      args.page ?? 1,
+      pageSize,
     );
-    capped = [byTitle, byName, byStreet, byCity].some((res) => (res.data?.length ?? 0) >= cap);
-    total = merged.length;
-    const window = listPageWindow(args.page ?? 1, pageSize, total);
-    page = window.page;
-    rows = merged.slice(window.from, window.to);
+    page = found.page;
+    total = found.total;
+    if (found.ids.length) {
+      const { data, error } = await supabase.from("estimates").select(columns).in("id", found.ids);
+      if (error) {
+        logQueueFailure("estimate_queue_page", error);
+        throw new Error(QUEUE_LIST_UNAVAILABLE);
+      }
+      rows = orderByIds(shape(data), found.ids);
+    }
   } else {
     let countQuery = apply(supabase.from("estimates").select("id, customer:customers(assigned_to)", { count: "exact", head: true }));
     if (args.mineFor) {

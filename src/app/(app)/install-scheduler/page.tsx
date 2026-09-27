@@ -8,11 +8,12 @@ import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { formatDate } from "@/lib/format";
 import { InstallSchedule } from "../customers/[id]/install-schedule";
-import { buildInstallScheduleProps } from "@/lib/data/install-schedule";
 import { listAssignableUsers, listSchedulerQueue } from "@/lib/data/jobs";
+import { buildSchedulerInstallProps } from "@/lib/data/install-schedule";
+import { calendarWindow } from "@/lib/scheduler-window";
 import { WorkQueueBar, WorkQueuePager } from "@/components/work-queue-bar";
 import { parseListPage, resultCountLabel } from "@/lib/work-queues";
-import { QUEUE_LIST_UNAVAILABLE, queueFailureMessage } from "@/lib/ops-scale";
+import { QUEUE_LIST_UNAVAILABLE, logQueueFailure, queueFailureMessage } from "@/lib/ops-scale";
 import { listInstallCrews } from "@/lib/data/install-crews";
 import { INSTALL_ROLES } from "@/lib/types";
 import type { CalEvent, CalResource } from "./installer-calendar";
@@ -28,13 +29,14 @@ export const maxDuration = 60;
 export default async function InstallSchedulerPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; page?: string; booked?: string }>;
+  searchParams: Promise<{ q?: string; page?: string; booked?: string; cal?: string; span?: string }>;
 }) {
   const profile = await requireProfile();
   if (!["admin", "office", "scheduler"].includes(profile.role)) redirect("/");
 
   const sp = await searchParams;
   const q = sp.q?.trim() ?? "";
+  const window = calendarWindow(sp.cal, sp.span);
   const supabase = await createClient();
   const empty: Awaited<ReturnType<typeof listSchedulerQueue>> = {
     rows: [],
@@ -54,26 +56,46 @@ export default async function InstallSchedulerPage({
     listError = queueFailureMessage(error);
   }
 
-  // ---- Install calendar: every booked install (recent past + all future),
-  // with its installer/crew, for the day/week/month calendar. ----
-  const since = (() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 120);
-    return d.toISOString().slice(0, 10);
-  })();
-  const [{ data: calRows }, installerUsers, crews] = await Promise.all([
-    supabase
-      .from("jobs")
-      .select(
-        "id, title, customer_id, scheduled_date, scheduled_end, arrival_window, assigned_to, assigned_crew_id, site_city, status, customer:customers(full_name)",
-      )
-      .not("scheduled_date", "is", null)
-      .gte("scheduled_date", since)
-      .or("delivery_type.is.null,delivery_type.neq.cash_carry")
-      .order("scheduled_date", { ascending: true }),
-    listAssignableUsers(),
-    listInstallCrews({ activeOnly: false }),
-  ]);
+  // Booked installs for the week (or range) on screen. Multi-day jobs that
+  // started earlier still show when they overlap this range.
+  let calRows: unknown[] | null = [];
+  let installerUsers: Awaited<ReturnType<typeof listAssignableUsers>> = [];
+  let crews: Awaited<ReturnType<typeof listInstallCrews>> = [];
+  let scheduleProps: Awaited<ReturnType<typeof buildSchedulerInstallProps>> = new Map();
+  let crewAvailability: Awaited<ReturnType<typeof listCrewAvailabilityForOffice>> = [];
+  try {
+    const [cal, users, crewList, props, availability] = await Promise.all([
+      supabase
+        .from("jobs")
+        .select(
+          "id, title, customer_id, scheduled_date, scheduled_end, arrival_window, assigned_to, assigned_crew_id, site_city, status, customer:customers(full_name)",
+        )
+        .not("scheduled_date", "is", null)
+        .lte("scheduled_date", window.end)
+        .or(`scheduled_end.gte.${window.start},scheduled_date.gte.${window.start}`)
+        .or("delivery_type.is.null,delivery_type.neq.cash_carry")
+        .order("scheduled_date", { ascending: true }),
+      listAssignableUsers(),
+      listInstallCrews({ activeOnly: false }),
+      buildSchedulerInstallProps(
+        ready.rows
+          .filter((job) => job.customer_id)
+          .map((job) => ({ id: job.id, customerId: job.customer_id as string })),
+      ),
+      listCrewAvailabilityForOffice(),
+    ]);
+    if (cal.error) {
+      logQueueFailure("scheduler_calendar", cal.error);
+      throw new Error(QUEUE_LIST_UNAVAILABLE);
+    }
+    calRows = (cal.data ?? []) as unknown[];
+    installerUsers = users;
+    crews = crewList;
+    scheduleProps = props;
+    crewAvailability = availability;
+  } catch (error) {
+    if (!listError) listError = queueFailureMessage(error);
+  }
   const userName = new Map(installerUsers.map((u) => [u.id, u.name] as const));
   const crewName = new Map(
     crews.map(
@@ -81,7 +103,7 @@ export default async function InstallSchedulerPage({
         [c.id, `${c.name}${c.kind === "subcontractor" ? " (sub)" : ""}`] as const,
     ),
   );
-  const calEvents: CalEvent[] = ((calRows ?? []) as unknown[]).map((row) => {
+  const calEvents: CalEvent[] = (calRows ?? []).map((row) => {
     const r = row as {
       id: string;
       title: string | null;
@@ -136,16 +158,12 @@ export default async function InstallSchedulerPage({
   if (calEvents.some((e) => e.resourceId === "unassigned"))
     calResources.push({ id: "unassigned", name: "Unassigned" });
 
-  // Only the "needs a date" jobs render the full scheduler (that's the work);
-  // upcoming installs are quick links so the page stays fast.
-  const needsProps = await Promise.all(
-    ready.rows.map(async (j) => ({
-      j,
-      props: j.customer_id ? await buildInstallScheduleProps(j.id, j.customer_id) : null,
-    })),
-  );
-
-  const crewAvailability = await listCrewAvailabilityForOffice();
+  // Only the "needs a date" jobs render the scheduler. Their scope is loaded
+  // once for this page, not one full job per row.
+  const needsProps = ready.rows.map((j) => ({
+    j,
+    props: j.customer_id ? (scheduleProps.get(j.id) ?? null) : null,
+  }));
 
   const name = (j: { customer_name: string | null; title: string | null }) =>
     j.customer_name ?? j.title ?? "Job";
@@ -156,6 +174,8 @@ export default async function InstallSchedulerPage({
     const bookedPage = next.booked ?? 1;
     if (page > 1) params.set("page", String(page));
     if (bookedPage > 1) params.set("booked", String(bookedPage));
+    if (sp.cal) params.set("cal", window.start);
+    if (sp.span) params.set("span", String(window.span));
     const qs = params.toString();
     return qs ? `/install-scheduler?${qs}` : "/install-scheduler";
   };
@@ -171,7 +191,7 @@ export default async function InstallSchedulerPage({
       ) : ready.total === 0 && booked.total === 0 ? (
         <EmptyState
           icon={CalendarCheck}
-          title={q ? "No jobs match that search" : "No installs to schedule right now"}
+          title={q ? "No jobs match this search." : "No jobs are ready to schedule."}
           description={q ? "Try a customer, address, or job name." : "Jobs appear here once a work order is ready to schedule."}
         />
       ) : null}
@@ -264,6 +284,10 @@ export default async function InstallSchedulerPage({
         action="/install-scheduler"
         query={q}
         placeholder="Search customer, address, or job"
+        hidden={[
+          ...(sp.cal ? [{ name: "cal", value: window.start }] : []),
+          ...(sp.span ? [{ name: "span", value: String(window.span) }] : []),
+        ]}
         chips={[
           { href: "#needs-a-date", label: "Needs a date", active: true },
           { href: "#upcoming", label: "Upcoming", active: false },
@@ -278,7 +302,18 @@ export default async function InstallSchedulerPage({
         needsCount={ready.total}
         list={list}
         calendar={
-          <InstallerGrid events={calEvents} resources={calResources} canEdit />
+          <InstallerGrid
+            events={calEvents}
+            resources={calResources}
+            canEdit
+            startYmd={window.start}
+            span={window.span}
+            listQuery={{
+              q,
+              page: ready.page > 1 ? ready.page : undefined,
+              booked: booked.page > 1 ? booked.page : undefined,
+            }}
+          />
         }
       />
     </div>
