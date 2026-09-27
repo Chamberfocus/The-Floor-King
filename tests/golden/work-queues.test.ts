@@ -171,8 +171,8 @@ describe("list pages stay role-scoped and bounded", () => {
     expect(jobs).toContain('placeholder="Search customer, job, or address"');
 
     expect(src("src/lib/data/jobs.ts")).toContain("assessMaterialsReadyForSchedule");
-    expect(src("src/lib/data/jobs.ts")).toContain(".range(");
-    expect(src("src/lib/data/jobs.ts")).toContain("full_name.ilike");
+    expect(src("src/lib/data/jobs.ts")).toContain("job_queue_page");
+    expect(src("supabase/migrations/0478_ops_queue_scale.sql")).toContain("c.full_name ilike");
 
     const customers = src("src/app/(app)/customers/page.tsx");
     expect(customers).toContain("listCustomersPage");

@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { phoneSearchPattern } from "@/lib/search-query";
+import { readQueueWindow } from "@/lib/data/queue-rpc";
+import { QUEUE_LIST_UNAVAILABLE, logQueueFailure } from "@/lib/ops-scale";
 import { listPageWindow, WORK_QUEUE_PAGE_SIZE } from "@/lib/work-queues";
 import { fetchAll } from "@/lib/supabase/paginate";
 import {
@@ -467,20 +469,50 @@ export async function listCustomers(
   return uniqueCustomersById([...identity, ...related]);
 }
 
-/** Active customer lists page through the file. A search still uses listCustomers, then slices. */
+/**
+ * Active customer lists page in the database.
+ * A search uses customer_queue_page so the full match set is never loaded first.
+ */
 export async function listCustomersPage(
   opts: CustomerListOpts & { page?: number; pageSize?: number },
 ): Promise<{ rows: Customer[]; total: number; page: number; pageSize: number }> {
   const pageSize = opts.pageSize ?? WORK_QUEUE_PAGE_SIZE;
   if (opts.search?.trim()) {
-    const all = await listCustomers(opts);
-    const window = listPageWindow(opts.page ?? 1, pageSize, all.length);
-    return {
-      rows: all.slice(window.from, window.to),
-      total: all.length,
-      page: window.page,
+    const supabase = await createClient();
+    const safe = sanitize(opts.search);
+    const digits = opts.search.replace(/\D/g, "");
+    const found = await readQueueWindow(
+      supabase,
+      "customer_queue_page",
+      {
+        p_search: safe || null,
+        p_phone_like: phoneSearchPattern(opts.search),
+        p_digits: digits.length >= 7 ? digits : null,
+        p_cancelled: opts.cancelledOnly ? "only" : opts.excludeCancelled ? "exclude" : "any",
+        p_stage_ids: opts.workflowStageIds?.length ? opts.workflowStageIds : null,
+        p_exclude_stage_ids: opts.excludeWorkflowStageIds?.length
+          ? opts.excludeWorkflowStageIds
+          : null,
+        p_assigned: opts.unassignedOnly ? null : (opts.assignedTo ?? null),
+        p_unassigned: !!opts.unassignedOnly,
+        p_stuck: !!opts.stuckOnly,
+      },
+      opts.page ?? 1,
       pageSize,
-    };
+    );
+    if (!found.ids.length) {
+      return { rows: [], total: found.total, page: found.page, pageSize };
+    }
+    const { data, error } = await supabase.from("customers").select("*").in("id", found.ids);
+    if (error) {
+      logQueueFailure("customer_queue_page", error);
+      throw new Error(QUEUE_LIST_UNAVAILABLE);
+    }
+    const order = new Map(found.ids.map((id, index) => [id, index]));
+    const rows = uniqueCustomersById((data ?? []) as Customer[]).sort(
+      (a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0),
+    );
+    return { rows, total: found.total, page: found.page, pageSize };
   }
   const supabase = await createClient();
   const counted = await applyCustomerListFilters(

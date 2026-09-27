@@ -12,6 +12,7 @@ import { formatDate } from "@/lib/format";
 import { shopTodayYmd } from "@/lib/job-snapshot";
 import { cn } from "@/lib/utils";
 import type { Job } from "@/lib/types";
+import { QUEUE_LIST_UNAVAILABLE, queueFailureMessage } from "@/lib/ops-scale";
 import {
   jobQueueEmpty,
   jobQueueFact,
@@ -51,14 +52,30 @@ export default async function JobsPage({
   const defaultView: JobQueueView = profile.role === "scheduler" ? "ready" : "open";
   const todayYmd = shopTodayYmd();
 
-  const [queue, mineCount, allCount, users, claims] = await Promise.all([
-    listJobsQueue({
-      queue: view,
-      search: q,
-      page: parseListPage(sp.page),
-      assignedTo: isCrew ? profile.id : undefined,
-      mineFor: !isCrew && mine ? profile.id : undefined,
+  const loadedQueue = await listJobsQueue({
+    queue: view,
+    search: q,
+    page: parseListPage(sp.page),
+    assignedTo: isCrew ? profile.id : undefined,
+    mineFor: !isCrew && mine ? profile.id : undefined,
+  }).then(
+    (value) => ({ value, listError: null as string | null }),
+    (error: unknown) => ({
+      value: {
+        rows: [],
+        total: 0,
+        page: 1,
+        pageSize: 40,
+        capped: false,
+        materialNeeds: new Map<string, boolean>(),
+        serviceJobIds: new Set<string>(),
+      },
+      listError: queueFailureMessage(error),
     }),
+  );
+  const listError = loadedQueue.listError;
+  const queue = loadedQueue.value;
+  const [mineCount, allCount, users, claims] = await Promise.all([
     isCrew ? Promise.resolve(0) : countInstallJobs({ mineFor: profile.id }),
     isCrew ? Promise.resolve(0) : countInstallJobs(),
     isStaff ? listAssignableUsers() : Promise.resolve([]),
@@ -187,10 +204,12 @@ export default async function JobsPage({
           label: chip.label,
           active: view === chip.view,
         }))}
-        countLabel={countLabel}
+        countLabel={listError ?? countLabel}
       />
 
-      {jobs.length === 0 ? (
+      {listError ? (
+        <EmptyState icon={HardHat} title={QUEUE_LIST_UNAVAILABLE} />
+      ) : jobs.length === 0 ? (
         <EmptyState
           icon={HardHat}
           title={jobQueueEmpty(view, !!q)}

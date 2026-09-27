@@ -1,11 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sanitizeIlikeQuery } from "@/lib/ops-followup";
-import { phoneSearchPattern } from "@/lib/search-query";
-import { assessMaterialsReadyForSchedule } from "@/lib/materials-ready";
+import { queueSearchArgs, readQueueWindow } from "@/lib/data/queue-rpc";
+import { QUEUE_LIST_UNAVAILABLE, logQueueFailure } from "@/lib/ops-scale";
 import {
   WORK_QUEUE_PAGE_SIZE,
-  listPageWindow,
   type JobQueueView,
 } from "@/lib/work-queues";
 import { boardMaterialTypeFromScopes, installerCanDoJob, isMaterialLine, type MaterialType } from "@/lib/job-scope";
@@ -41,7 +39,7 @@ export interface JobListRow extends Job {
  * installs that had never been scheduled.
  *
  * The Install Scheduler already excluded them; this brings the rest into line.
- * The WAREHOUSE deliberately keeps them (listWarehouseJobs) — cutting and
+ * The WAREHOUSE board keeps cash-and-carry (listWarehouseBoard) — cutting and
  * staging is the entire reason the job exists.
  *
  * Written as an `.or()` so rows with no delivery_type at all still match.
@@ -142,30 +140,9 @@ function shapeJobs(data: unknown): JobListRow[] {
   }));
 }
 
-function jobMatchesQueue(
-  job: JobListRow,
-  queue: JobQueueView,
-  hasMaterialNeed: boolean,
-  serviceJobIds: Set<string>,
-): boolean {
-  if (queue === "service") return serviceJobIds.has(job.id);
-  if (queue === "completed") return job.status === "completed";
-  if (queue === "installing") return job.status === "in_progress";
-  if (queue === "scheduled") return job.status === "scheduled";
-  if (queue === "all") return true;
-  if (queue === "open") return job.status !== "completed" && job.status !== "cancelled";
-  const ready = assessMaterialsReadyForSchedule({
-    hasMaterialNeed,
-    warehouseReadyAt: job.warehouse_ready_at,
-  }).ready;
-  if (queue === "ready") return job.status === "unscheduled" && !job.scheduled_date && ready;
-  if (queue === "material") {
-    return !ready && job.status !== "completed" && job.status !== "cancelled";
-  }
-  return true;
-}
-
-/** One page of install jobs. Completed history is its own queue so the open list stays bounded. */
+/** One page of install jobs. The database chooses the matches, then returns that page.
+ *  Membership uses job_queue_page and the same material rule as assessMaterialsReadyForSchedule
+ *  (no material lines, or warehouse_ready_at). A purchase order is not an input. */
 export async function listJobsQueue(args: {
   queue: JobQueueView;
   search?: string;
@@ -182,193 +159,55 @@ export async function listJobsQueue(args: {
   serviceJobIds: Set<string>;
 }> {
   const pageSize = WORK_QUEUE_PAGE_SIZE;
+  const supabase = args.assignedTo ? createAdminClient() : await createClient();
+  let crewIds: string[] = [];
   if (args.assignedTo) {
-    const mine = await listJobs({ assignedTo: args.assignedTo });
-    const safe = sanitizeIlikeQuery(args.search ?? "").toLowerCase();
-    const digits = (args.search ?? "").replace(/\D/g, "");
-    const filtered = safe
-      ? mine.filter((job) =>
-          [job.customer_name, job.title, job.site_street, job.site_city, job.customer_phone]
-            .filter(Boolean)
-            .some((value) => {
-              const text = String(value).toLowerCase();
-              if (text.includes(safe)) return true;
-              return digits.length >= 7 && text.replace(/\D/g, "").includes(digits);
-            }),
-        )
-      : mine;
-    const materialNeeds = await listJobMaterialNeeds(filtered.map((job) => job.id));
-    const serviceJobIds = await serviceIdsForJobs(filtered.map((job) => job.id));
-    const matched = filtered.filter((job) =>
-      jobMatchesQueue(job, args.queue, materialNeeds.get(job.id) ?? true, serviceJobIds),
-    );
-    const window = listPageWindow(args.page ?? 1, pageSize, matched.length);
+    const { data: crewRows } = await supabase
+      .from("install_crews")
+      .select("id")
+      .eq("profile_id", args.assignedTo)
+      .eq("active", true);
+    crewIds = (crewRows ?? []).map((row) => row.id as string);
+  }
+  const search = queueSearchArgs(args.search);
+  const found = await readQueueWindow(
+    supabase,
+    "job_queue_page",
+    {
+      p_queue: args.queue,
+      ...search,
+      p_mine: args.mineFor ?? null,
+      p_assigned: args.assignedTo ?? null,
+      p_crew_ids: crewIds.length ? crewIds : null,
+      p_keep_pickup: false,
+    },
+    args.page ?? 1,
+    pageSize,
+  );
+  if (!found.ids.length) {
     return {
-      rows: matched.slice(window.from, window.to),
-      total: matched.length,
-      page: window.page,
+      rows: [],
+      total: found.total,
+      page: found.page,
       pageSize,
       capped: false,
-      materialNeeds,
-      serviceJobIds,
+      materialNeeds: new Map(),
+      serviceJobIds: new Set(),
     };
   }
-
-  const supabase = await createClient();
-  const safe = sanitizeIlikeQuery(args.search ?? "");
-  const like = safe.length >= 2 ? `%${safe}%` : null;
-  const phone = phoneSearchPattern(args.search ?? "");
-  let mineIds: string[] | null = null;
-  if (args.mineFor) {
-    const { data: mine } = await supabase
-      .from("customers")
-      .select("id")
-      .or(`assigned_to.eq.${args.mineFor},workflow_owner_id.eq.${args.mineFor}`);
-    mineIds = (mine ?? []).map((row) => row.id as string);
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const apply = (query: any) => {
-    let next = query.or(PICKUP_EXCLUDED);
-    if (args.queue === "open" || args.queue === "material" || args.queue === "service") {
-      next = next.in("status", ["unscheduled", "scheduled", "in_progress"]);
-    } else if (args.queue === "ready") next = next.eq("status", "unscheduled");
-    else if (args.queue === "scheduled") next = next.eq("status", "scheduled");
-    else if (args.queue === "installing") next = next.eq("status", "in_progress");
-    else if (args.queue === "completed") next = next.eq("status", "completed");
-    if (args.queue === "material") next = next.is("warehouse_ready_at", null);
-    if (mineIds) {
-      next = mineIds.length
-        ? next.or(`customer_id.in.(${mineIds.join(",")}),assigned_to.eq.${args.mineFor}`)
-        : next.eq("assigned_to", args.mineFor);
-    }
-    return next;
-  };
-
-  const classify = args.queue === "material" || args.queue === "ready" || args.queue === "service";
-  let serviceFilter: string[] | null = null;
-  if (args.queue === "service") {
-    const { data } = await supabase
-      .from("service_callbacks")
-      .select("job_id")
-      .in("status", ["open", "scheduled", "in_progress", "waiting"])
-      .limit(200);
-    serviceFilter = [...new Set((data ?? []).map((row) => row.job_id as string).filter(Boolean))];
-    if (!serviceFilter.length) {
-      return {
-        rows: [],
-        total: 0,
-        page: 1,
-        pageSize,
-        capped: false,
-        materialNeeds: new Map(),
-        serviceJobIds: new Set(),
-      };
-    }
-  }
-
-  const serviceCapped = (serviceFilter?.length ?? 0) >= 200;
-
-  if (like || phone) {
-    const cap = 200;
-    const customerOr = [
-      like ? `full_name.ilike.${like}` : null,
-      like ? `phone.ilike.${like}` : null,
-      phone ? `phone.ilike.${phone}` : null,
-      like ? `street.ilike.${like}` : null,
-      like ? `city.ilike.${like}` : null,
-    ]
-      .filter(Boolean)
-      .join(",");
-    const textPromise = like
-      ? (() => {
-          let textQuery = apply(
-            supabase.from("jobs").select(JOB_LIST_COLUMNS).order("created_at", { ascending: false }),
-          ).or(`title.ilike.${like},site_street.ilike.${like},site_city.ilike.${like}`);
-          if (serviceFilter) textQuery = textQuery.in("id", serviceFilter);
-          return textQuery.limit(cap);
-        })()
-      : Promise.resolve({ data: [] as unknown[] });
-    const [textRes, custRes] = await Promise.all([
-      textPromise,
-      customerOr
-        ? supabase.from("customers").select("id").or(customerOr).limit(80)
-        : Promise.resolve({ data: [] as { id: string }[] }),
-    ]);
-    const custIds = [...new Set((custRes.data ?? []).map((row) => row.id as string))];
-    let byCustomer: JobListRow[] = [];
-    if (custIds.length) {
-      let customerJobs = apply(
-        supabase.from("jobs").select(JOB_LIST_COLUMNS).order("created_at", { ascending: false }),
-      ).in("customer_id", custIds);
-      if (serviceFilter) customerJobs = customerJobs.in("id", serviceFilter);
-      const { data } = await customerJobs.limit(cap);
-      byCustomer = shapeJobs(data);
-    }
-    const seen = new Map<string, JobListRow>();
-    for (const row of [...shapeJobs(textRes.data), ...byCustomer]) seen.set(row.id, row);
-    const candidates = [...seen.values()];
-    const materialNeeds = await listJobMaterialNeeds(candidates.map((job) => job.id));
-    const serviceJobIds = await serviceIdsForJobs(candidates.map((job) => job.id));
-    const matched = candidates.filter((job) =>
-      jobMatchesQueue(job, args.queue, materialNeeds.get(job.id) ?? true, serviceJobIds),
-    );
-    const window = listPageWindow(args.page ?? 1, pageSize, matched.length);
-    return {
-      rows: matched.slice(window.from, window.to),
-      total: matched.length,
-      page: window.page,
-      pageSize,
-      capped:
-        serviceCapped ||
-        (textRes.data?.length ?? 0) >= cap ||
-        byCustomer.length >= cap ||
-        (custRes.data?.length ?? 0) >= 80,
-      materialNeeds,
-      serviceJobIds,
-    };
-  }
-
-  if (classify) {
-    const cap = 200;
-    let query = apply(
-      supabase.from("jobs").select(JOB_LIST_COLUMNS).order("created_at", { ascending: false }),
-    );
-    if (serviceFilter) query = query.in("id", serviceFilter);
-    const { data } = await query.limit(cap);
-    const candidates = shapeJobs(data);
-    const capped = serviceCapped || candidates.length >= cap;
-    const materialNeeds = await listJobMaterialNeeds(candidates.map((job) => job.id));
-    const serviceJobIds = await serviceIdsForJobs(candidates.map((job) => job.id));
-    const matched = candidates.filter((job) =>
-      jobMatchesQueue(job, args.queue, materialNeeds.get(job.id) ?? true, serviceJobIds),
-    );
-    const window = listPageWindow(args.page ?? 1, pageSize, matched.length);
-    return {
-      rows: matched.slice(window.from, window.to),
-      total: matched.length,
-      page: window.page,
-      pageSize,
-      capped,
-      materialNeeds,
-      serviceJobIds,
-    };
-  }
-
-  const countQuery = apply(supabase.from("jobs").select("id", { count: "exact", head: true }));
-  const counted = await countQuery;
-  const total = counted.count ?? 0;
-  const window = listPageWindow(args.page ?? 1, pageSize, total);
-  const { data } = await apply(
-    supabase.from("jobs").select(JOB_LIST_COLUMNS).order("created_at", { ascending: false }),
-  ).range(window.from, Math.max(window.from, window.to - 1));
-  const rows = shapeJobs(data);
-  const materialNeeds = await listJobMaterialNeeds(rows.map((job) => job.id));
-  const serviceJobIds = await serviceIdsForJobs(rows.map((job) => job.id));
+  const { data } = await supabase.from("jobs").select(JOB_LIST_COLUMNS).in("id", found.ids);
+  const order = new Map(found.ids.map((id, index) => [id, index]));
+  const rows = shapeJobs(data).sort(
+    (a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0),
+  );
+  const [materialNeeds, serviceJobIds] = await Promise.all([
+    listJobMaterialNeeds(rows.map((job) => job.id)),
+    serviceIdsForJobs(rows.map((job) => job.id)),
+  ]);
   return {
     rows,
-    total,
-    page: window.page,
+    total: found.total,
+    page: found.page,
     pageSize,
     capped: false,
     materialNeeds,
@@ -898,32 +737,124 @@ export async function getWarehouseJob(
   } as WarehouseJob;
 }
 
-export async function listWarehouseJobs(
-  dbArg?: Awaited<ReturnType<typeof createClient>>,
-): Promise<WarehouseJob[]> {
-  // The warehouse queue must read jobs + crew/installer names + material scope
-  // for ALL active jobs. Callers (the warehouse page) verify the viewer's role
-  // first and pass the service-role client, since the warehouse role's RLS
-  // can't reach products/POs/etc. — same pattern the other warehouse loaders use.
-  const supabase = dbArg ?? (await createClient());
-  const { data } = await supabase
+const WAREHOUSE_BOARD_COLUMNS =
+  "id, title, status, scheduled_date, scheduled_end, site_street, site_city, site_state, site_zip, notes, delivery_type, warehouse_status, warehouse_submitted_at, warehouse_assigned_to, warehouse_accepted_at, staging_location, warehouse_ready_at, assigned_to, assigned_crew_id, customer_id, created_at, customer:customers(full_name, workflow_stage_id)";
+
+const SCHEDULER_LIST_COLUMNS =
+  "id, title, customer_id, scheduled_date, site_street, site_city, warehouse_ready_at, status, customer:customers(full_name)";
+
+export interface SchedulerQueueRow {
+  id: string;
+  title: string | null;
+  customer_id: string | null;
+  scheduled_date: string | null;
+  site_street: string | null;
+  site_city: string | null;
+  warehouse_ready_at: string | null;
+  status: string;
+  customer_name: string | null;
+}
+
+/** Ready-to-schedule or booked installs. One database page. No balance or deposit columns. */
+export async function listSchedulerQueue(args: {
+  section: "ready" | "booked";
+  search?: string;
+  page?: number;
+}): Promise<{ rows: SchedulerQueueRow[]; total: number; page: number; pageSize: number }> {
+  const pageSize = WORK_QUEUE_PAGE_SIZE;
+  const supabase = await createClient();
+  const found = await readQueueWindow(
+    supabase,
+    "job_queue_page",
+    {
+      p_queue: args.section === "booked" ? "scheduler_booked" : "scheduler_ready",
+      ...queueSearchArgs(args.search),
+      p_keep_pickup: false,
+    },
+    args.page ?? 1,
+    pageSize,
+  );
+  if (!found.ids.length) {
+    return { rows: [], total: found.total, page: found.page, pageSize };
+  }
+  const { data, error } = await supabase.from("jobs").select(SCHEDULER_LIST_COLUMNS).in("id", found.ids);
+  if (error) {
+    logQueueFailure("scheduler_queue", error);
+    throw new Error(QUEUE_LIST_UNAVAILABLE);
+  }
+  const order = new Map(found.ids.map((id, index) => [id, index]));
+  const rows = ((data ?? []) as (SchedulerQueueRow & {
+    customer?: { full_name: string | null } | { full_name: string | null }[] | null;
+  })[])
+    .map((row) => {
+      const customer = Array.isArray(row.customer) ? row.customer[0] : row.customer;
+      return {
+        id: row.id,
+        title: row.title,
+        customer_id: row.customer_id,
+        scheduled_date: row.scheduled_date,
+        site_street: row.site_street,
+        site_city: row.site_city,
+        warehouse_ready_at: row.warehouse_ready_at,
+        status: row.status,
+        customer_name: customer?.full_name ?? null,
+      };
+    })
+    .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+  return { rows, total: found.total, page: found.page, pageSize };
+}
+
+/**
+ * One page of warehouse work. Callers verify warehouse/admin/office first and
+ * pass the service-role client. Columns are operational only — no cost, margin,
+ * balance, or deposit.
+ */
+export async function listWarehouseBoard(args: {
+  db?: Awaited<ReturnType<typeof createClient>>;
+  section: "active" | "staged";
+  search?: string;
+  page?: number;
+}): Promise<{ rows: WarehouseJob[]; total: number; page: number; pageSize: number }> {
+  const pageSize = WORK_QUEUE_PAGE_SIZE;
+  const supabase = args.db ?? (await createClient());
+  const found = await readQueueWindow(
+    supabase,
+    "job_queue_page",
+    {
+      p_queue: args.section === "staged" ? "warehouse_staged" : "warehouse_active",
+      ...queueSearchArgs(args.search),
+      p_keep_pickup: true,
+    },
+    args.page ?? 1,
+    pageSize,
+  );
+  if (!found.ids.length) {
+    return { rows: [], total: found.total, page: found.page, pageSize };
+  }
+  const { data, error } = await supabase
     .from("jobs")
-    .select("*, customer:customers(full_name, workflow_stage_id)")
-    .in("status", ["unscheduled", "scheduled", "in_progress"])
-    .order("scheduled_date", { ascending: true });
-  const jobs = (data ?? []) as (Job & {
+    .select(WAREHOUSE_BOARD_COLUMNS)
+    .in("id", found.ids);
+  if (error) {
+    logQueueFailure("warehouse_board", error);
+    throw new Error(QUEUE_LIST_UNAVAILABLE);
+  }
+  const jobs = (data ?? []) as unknown as (Job & {
     customer?: { full_name: string | null; workflow_stage_id: string | null } | null;
     assigned_to?: string | null;
     assigned_crew_id?: string | null;
     warehouse_assigned_to?: string | null;
   })[];
-  const rows: WarehouseJob[] = jobs.map((j) => ({
-    ...j,
-    customer_name: j.customer?.full_name ?? null,
-    crew_name: null,
-    warehouse_assignee_name: null,
-    customer_stage_id: j.customer?.workflow_stage_id ?? null,
-  }));
+  const order = new Map(found.ids.map((id, index) => [id, index]));
+  const rows: WarehouseJob[] = jobs
+    .map((j) => ({
+      ...j,
+      customer_name: j.customer?.full_name ?? null,
+      crew_name: null,
+      warehouse_assignee_name: null,
+      customer_stage_id: j.customer?.workflow_stage_id ?? null,
+    }))
+    .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
 
   // Resolve who's doing each job so the warehouse can see the installer/crew:
   // prefer the assigned install crew, else the assigned individual installer.
@@ -972,9 +903,8 @@ export async function listWarehouseJobs(
   }
 
   // Materials for the warehouse (queue + staging sheet) come from the single
-  // sourced list, getJobMaterials — so there's no parallel material shape to
-  // drift. The warehouse page loads it per job.
-  return rows;
+  // sourced list, getJobMaterials — the page loads that only for this page.
+  return { rows, total: found.total, page: found.page, pageSize };
 }
 
 export interface ActiveInstallJob {

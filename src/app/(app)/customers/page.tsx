@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { SearchPicker } from "@/components/ui/search-picker";
 import { listCustomersPage, getCustomerRowContexts, getCustomerListActivity } from "@/lib/data/customers";
+import { QUEUE_LIST_UNAVAILABLE, queueFailureMessage } from "@/lib/ops-scale";
 import { WorkQueuePager } from "@/components/work-queue-bar";
 import { parseListPage, resultCountLabel } from "@/lib/work-queues";
 import { listWorkflowStages, listHandoffMembers } from "@/lib/data/workflow";
@@ -76,19 +77,30 @@ export default async function CustomersPage({
       excludeWorkflowStageIds = closedStageIds;
   }
 
-  const listed = await listCustomersPage({
-    search: q,
-    workflowStageIds,
-    excludeWorkflowStageIds,
-    assignedTo: unassignedOnly ? undefined : owner,
-    unassignedOnly,
-    stuckOnly: stuck,
-    // Cancelled stays out of active/closed and gets its own view. A name search
-    // still spans cancelled so past customers are findable.
-    cancelledOnly: view === "cancelled" && !q,
-    excludeCancelled: !q && (view === "active" || view === "closed"),
-    page: parseListPage(sp.page),
-  });
+  let listError: string | null = null;
+  let listed: Awaited<ReturnType<typeof listCustomersPage>> = {
+    rows: [],
+    total: 0,
+    page: 1,
+    pageSize: 40,
+  };
+  try {
+    listed = await listCustomersPage({
+      search: q,
+      workflowStageIds,
+      excludeWorkflowStageIds,
+      assignedTo: unassignedOnly ? undefined : owner,
+      unassignedOnly,
+      stuckOnly: stuck,
+      // Cancelled stays out of active/closed and gets its own view. A name search
+      // still spans cancelled so past customers are findable.
+      cancelledOnly: view === "cancelled" && !q,
+      excludeCancelled: !q && (view === "active" || view === "closed"),
+      page: parseListPage(sp.page),
+    });
+  } catch (error) {
+    listError = queueFailureMessage(error);
+  }
   const customers = listed.rows;
   const customerPages = Math.max(1, Math.ceil(listed.total / listed.pageSize));
 
@@ -275,7 +287,9 @@ export default async function CustomersPage({
         )}
       </form>
 
-      {customers.length === 0 ? (
+      {listError ? (
+        <EmptyState icon={Users} title={QUEUE_LIST_UNAVAILABLE} />
+      ) : customers.length === 0 ? (
         <EmptyState
           icon={Users}
           title={
