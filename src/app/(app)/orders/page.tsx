@@ -17,6 +17,7 @@ import {
   parseOrderQueue,
   resultCountLabel,
 } from "@/lib/work-queues";
+import { QUEUE_LIST_UNAVAILABLE, queueFailureMessage } from "@/lib/ops-scale";
 import { reorderAlertsFor } from "@/lib/data/stock-rolls";
 import { getProfileNames } from "@/lib/data/customers";
 import { ApproveOrder } from "./approve-order";
@@ -62,12 +63,24 @@ export default async function OrdersPage({
   const q = sp.q?.trim() ?? "";
   const view = parseOrderQueue(sp.view);
   const requestedPage = parseListPage(sp.page);
-  const queue = await listOrdersQueue({
-    view,
-    search: q,
-    page: requestedPage,
-    focusId: sp.focus,
-  });
+  let listError: string | null = null;
+  let queue: Awaited<ReturnType<typeof listOrdersQueue>> = {
+    rows: [],
+    total: 0,
+    page: 1,
+    pageSize: 40,
+    capped: false,
+  };
+  try {
+    queue = await listOrdersQueue({
+      view,
+      search: q,
+      page: requestedPage,
+      focusId: sp.focus,
+    });
+  } catch (error) {
+    listError = queueFailureMessage(error);
+  }
   const orders = queue.rows;
   const productIds = orders.flatMap((o) => (o.items ?? []).map((i) => i.product_id ?? ""));
   const stock = await getProductStock(productIds);
@@ -348,13 +361,11 @@ export default async function OrdersPage({
                   : "All",
           active: view === item,
         }))}
-        countLabel={
-          queue.capped
-            ? `${resultCountLabel(orders.length, queue.total, "order")} — more matches exist. Add more of the name or phone.`
-            : resultCountLabel(orders.length, queue.total, "order")
-        }
+        countLabel={listError ?? resultCountLabel(orders.length, queue.total, "order")}
       />
-      {orders.length === 0 ? (
+      {listError ? (
+        <EmptyState icon={Package} title={QUEUE_LIST_UNAVAILABLE} />
+      ) : orders.length === 0 ? (
         <EmptyState
           icon={Package}
           title={orderQueueEmpty(view, !!q)}

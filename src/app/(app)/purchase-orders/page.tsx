@@ -27,6 +27,7 @@ import {
 } from "@/lib/work-queues";
 import { deletePurchaseOrder } from "./actions";
 import { poTotal } from "@/lib/po-calc";
+import { QUEUE_LIST_UNAVAILABLE, queueFailureMessage } from "@/lib/ops-scale";
 import {
   PO_SOURCE_BADGE,
   PO_SOURCE_LABELS,
@@ -76,12 +77,24 @@ export default async function PurchaseOrdersPage({
   const q = sp.q?.trim() ?? "";
   const source = sp.source ?? "all";
   const status = parsePoQueue(sp.view ?? sp.status);
-  const queue = await listPurchaseOrdersQueue({
-    view: status,
-    source,
-    search: q,
-    page: parseListPage(sp.page),
-  });
+  let listError: string | null = null;
+  let queue: Awaited<ReturnType<typeof listPurchaseOrdersQueue>> = {
+    rows: [],
+    total: 0,
+    page: 1,
+    pageSize: 40,
+    capped: false,
+  };
+  try {
+    queue = await listPurchaseOrdersQueue({
+      view: status,
+      source,
+      search: q,
+      page: parseListPage(sp.page),
+    });
+  } catch (error) {
+    listError = queueFailureMessage(error);
+  }
   const pos = queue.rows;
 
   const chip = (active: boolean) =>
@@ -125,9 +138,7 @@ export default async function PurchaseOrdersPage({
         </button>
       </form>
       <p className="mb-3 text-sm text-muted-foreground">
-        {queue.capped
-          ? `${resultCountLabel(pos.length, queue.total, "purchase order")} — more matches exist. Add more of the name.`
-          : resultCountLabel(pos.length, queue.total, "purchase order")}
+        {listError ?? resultCountLabel(pos.length, queue.total, "purchase order")}
       </p>
 
       {queue.total > 0 || q || status !== "open" || source !== "all" ? (
@@ -157,7 +168,9 @@ export default async function PurchaseOrdersPage({
         </div>
       ) : null}
 
-      {pos.length === 0 ? (
+      {listError ? (
+        <EmptyState icon={ShoppingCart} title={QUEUE_LIST_UNAVAILABLE} />
+      ) : pos.length === 0 ? (
         <EmptyState
           icon={ShoppingCart}
           title={poQueueEmpty(status, !!q)}

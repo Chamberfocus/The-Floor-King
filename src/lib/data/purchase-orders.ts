@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAll } from "@/lib/supabase/paginate";
+import { orderByIds, readQueueWindow } from "@/lib/data/queue-rpc";
+import { QUEUE_LIST_UNAVAILABLE, logQueueFailure } from "@/lib/ops-scale";
 import { sanitizeIlikeQuery, parsePoNumberQuery } from "@/lib/ops-followup";
 import {
   WORK_QUEUE_PAGE_SIZE,
@@ -292,42 +294,31 @@ export async function listPurchaseOrdersQueue(args: {
   let page = 1;
 
   if (safe.length >= 2 || poNumber != null) {
-    const like = `%${safe}%`;
-    const cap = 200;
-    const [byVendor, byCustomer, byNumber] = await Promise.all([
-      safe.length >= 2
-        ? apply(supabase.from("purchase_orders").select(PO_LIST_COLUMNS).order("created_at", { ascending: false }))
-            .or(`supplier.ilike.${like},notes.ilike.${like}`)
-            .limit(cap)
-        : Promise.resolve({ data: [] as unknown[] }),
-      safe.length >= 2
-        ? apply(
-            supabase
-              .from("purchase_orders")
-              .select(PO_LIST_COLUMNS.replace("customer:customers(", "customer:customers!inner("))
-              .order("created_at", { ascending: false }),
-          )
-            .ilike("customer.full_name", like)
-            .limit(cap)
-        : Promise.resolve({ data: [] as unknown[] }),
-      poNumber != null
-        ? apply(supabase.from("purchase_orders").select(PO_LIST_COLUMNS).order("created_at", { ascending: false }))
-            .eq("po_number", poNumber)
-            .limit(cap)
-        : Promise.resolve({ data: [] as unknown[] }),
-    ]);
-    const seen = new Map<string, PoListRow>();
-    for (const row of [...shape(byVendor.data), ...shape(byCustomer.data), ...shape(byNumber.data)]) {
-      seen.set(row.id, row);
+    const found = await readQueueWindow(
+      supabase,
+      "po_queue_page",
+      {
+        p_statuses: statuses,
+        p_source: args.source && args.source !== "all" ? args.source : null,
+        p_search: safe.length >= 2 ? safe : null,
+        p_po_number: poNumber,
+      },
+      args.page ?? 1,
+      pageSize,
+    );
+    page = found.page;
+    total = found.total;
+    if (found.ids.length) {
+      const { data, error } = await supabase
+        .from("purchase_orders")
+        .select(PO_LIST_COLUMNS)
+        .in("id", found.ids);
+      if (error) {
+        logQueueFailure("po_queue_page", error);
+        throw new Error(QUEUE_LIST_UNAVAILABLE);
+      }
+      rows = orderByIds(shape(data), found.ids);
     }
-    const merged = Array.from(seen.values());
-    capped =
-      (byVendor.data?.length ?? 0) >= cap ||
-      (byCustomer.data?.length ?? 0) >= cap;
-    total = merged.length;
-    const window = listPageWindow(args.page ?? 1, pageSize, total);
-    page = window.page;
-    rows = merged.slice(window.from, window.to);
   } else {
     const counted = await apply(
       supabase.from("purchase_orders").select("id", { count: "exact", head: true }),

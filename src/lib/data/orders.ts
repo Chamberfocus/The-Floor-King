@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sanitizeIlikeQuery } from "@/lib/ops-followup";
-import { phoneSearchPattern } from "@/lib/search-query";
+import { orderByIds, queueSearchArgs, readQueueWindow } from "@/lib/data/queue-rpc";
+import { QUEUE_LIST_UNAVAILABLE, logQueueFailure } from "@/lib/ops-scale";
 import {
   WORK_QUEUE_PAGE_SIZE,
   listPageWindow,
@@ -109,10 +109,7 @@ function asOrderRows(
   }));
 }
 
-/**
- * One page of customer orders. The default queue is orders waiting for review.
- * Search is capped at 200 matches and says so when that cap is hit.
- */
+/** One page of customer orders. Search is paged in the database. */
 export async function listOrdersQueue(args: {
   view: OrderQueueView;
   search?: string;
@@ -128,75 +125,34 @@ export async function listOrdersQueue(args: {
   const pageSize = WORK_QUEUE_PAGE_SIZE;
   const supabase = await createClient();
   const statuses = orderStatusesForView(args.view);
-  const safe = sanitizeIlikeQuery(args.search ?? "");
-  const phone = phoneSearchPattern(args.search ?? "");
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const applyView = (query: any) => (statuses ? query.in("status", statuses) : query);
+  const search = queueSearchArgs(args.search);
 
   let rows: OrderListRow[] = [];
   let total = 0;
   let capped = false;
   let page = 1;
 
-  if (safe.length >= 2 || phone) {
-    const like = `%${safe}%`;
-    const ors = [
-      safe.length >= 2 ? `contact_name.ilike.${like}` : null,
-      safe.length >= 2 ? `contact_email.ilike.${like}` : null,
-      safe.length >= 2 ? `contact_phone.ilike.${like}` : null,
-      safe.length >= 2 ? `notes.ilike.${like}` : null,
-      phone ? `contact_phone.ilike.${phone}` : null,
-    ].filter(Boolean);
-    const cap = 200;
-    const jobIds = safe.length >= 2
-      ? (
-          await supabase.from("jobs").select("id").ilike("title", like).limit(40)
-        ).data?.map((row) => row.id as string) ?? []
-      : [];
-    const [own, byName, byJob] = await Promise.all([
-      applyView(
-        supabase.from("orders").select(ORDER_LIST_COLUMNS).order("created_at", { ascending: false }),
-      )
-        .or(ors.join(","))
-        .limit(cap),
-      safe.length >= 2
-        ? applyView(
-            supabase
-              .from("orders")
-              .select(ORDER_LIST_COLUMNS.replace("customer:customers(full_name)", "customer:customers!inner(full_name)"))
-              .order("created_at", { ascending: false }),
-          )
-            .ilike("customer.full_name", like)
-            .limit(cap)
-        : Promise.resolve({ data: [] as never[] }),
-      jobIds.length
-        ? applyView(
-            supabase.from("orders").select(ORDER_LIST_COLUMNS).order("created_at", { ascending: false }),
-          )
-            .in("job_id", jobIds)
-            .limit(cap)
-        : Promise.resolve({ data: [] as never[] }),
-    ]);
-    const seen = new Map<string, OrderListRow>();
-    for (const row of [
-      ...asOrderRows(own.data as never),
-      ...asOrderRows((byName.data ?? []) as never),
-      ...asOrderRows((byJob.data ?? []) as never),
-    ]) {
-      seen.set(row.id, row);
-    }
-    const merged = Array.from(seen.values()).sort((a, b) =>
-      (b.created_at || "").localeCompare(a.created_at || ""),
+  if (search.p_search || search.p_phone_like || search.p_digits) {
+    const found = await readQueueWindow(
+      supabase,
+      "order_queue_page",
+      { p_statuses: statuses, ...search },
+      args.page ?? 1,
+      pageSize,
     );
-    capped =
-      (own.data?.length ?? 0) >= cap ||
-      (byName.data?.length ?? 0) >= cap ||
-      (byJob.data?.length ?? 0) >= cap;
-    total = merged.length;
-    const window = listPageWindow(args.page ?? 1, pageSize, total);
-    page = window.page;
-    rows = merged.slice(window.from, window.to);
+    page = found.page;
+    total = found.total;
+    if (found.ids.length) {
+      const { data, error } = await supabase
+        .from("orders")
+        .select(ORDER_LIST_COLUMNS)
+        .in("id", found.ids);
+      if (error) {
+        logQueueFailure("order_queue_page", error);
+        throw new Error(QUEUE_LIST_UNAVAILABLE);
+      }
+      rows = orderByIds(asOrderRows(data as never), found.ids);
+    }
   } else {
     let countQuery = supabase.from("orders").select("id", { count: "exact", head: true });
     if (statuses) countQuery = countQuery.in("status", statuses);

@@ -11,6 +11,7 @@ import { getProfileNames } from "@/lib/data/customers";
 import { completeOfficeTask } from "@/app/(app)/ops/actions";
 import { formatDate } from "@/lib/format";
 import { isTaskOverdue } from "@/lib/office-task";
+import { QUEUE_LIST_UNAVAILABLE, queueFailureMessage } from "@/lib/ops-scale";
 import {
   parseListPage,
   parseTaskQueue,
@@ -34,13 +35,25 @@ export default async function TasksPage({
   const q = sp.q?.trim() ?? "";
   const view = parseTaskQueue(sp.view, profile.role);
   const seeAll = profile.role === "admin" || profile.role === "office" || profile.role === "sales_manager";
-  const queue = await listTaskQueue({
-    view,
-    search: q,
-    page: parseListPage(sp.page),
-    userId: profile.id,
-    seeAll,
-  });
+  let listError: string | null = null;
+  let queue: Awaited<ReturnType<typeof listTaskQueue>> = {
+    rows: [],
+    total: 0,
+    page: 1,
+    pageSize: 40,
+    capped: false,
+  };
+  try {
+    queue = await listTaskQueue({
+      view,
+      search: q,
+      page: parseListPage(sp.page),
+      userId: profile.id,
+      seeAll,
+    });
+  } catch (error) {
+    listError = queueFailureMessage(error);
+  }
   const names = seeAll
     ? await getProfileNames(queue.rows.map((row) => row.assigned_to ?? ""))
     : {};
@@ -70,9 +83,7 @@ export default async function TasksPage({
     return qs ? `/tasks?${qs}` : "/tasks";
   };
 
-  const countLabel = queue.capped
-    ? `${resultCountLabel(queue.rows.length, queue.total, "task")} — more matches exist. Add more of the name.`
-    : resultCountLabel(queue.rows.length, queue.total, "task");
+  const countLabel = listError ?? resultCountLabel(queue.rows.length, queue.total, "task");
 
   return (
     <div>
@@ -92,7 +103,9 @@ export default async function TasksPage({
         }))}
         countLabel={countLabel}
       />
-      {queue.rows.length === 0 ? (
+      {listError ? (
+        <EmptyState icon={ListTodo} title={QUEUE_LIST_UNAVAILABLE} />
+      ) : queue.rows.length === 0 ? (
         <EmptyState icon={ListTodo} title={taskQueueEmpty(view, !!q)} />
       ) : (
         <ul className="space-y-2">

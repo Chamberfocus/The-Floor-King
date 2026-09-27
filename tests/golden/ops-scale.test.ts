@@ -272,7 +272,9 @@ describe("warehouse and scheduler do not load every active job", () => {
     const page = src("src/app/(app)/install-scheduler/page.tsx");
     expect(page).toContain("listSchedulerQueue");
     expect(page).not.toContain('.in("status", ["unscheduled", "scheduled", "in_progress"])');
-    expect(page).toContain('.gte("scheduled_date", since)');
+    expect(page).toContain("buildSchedulerInstallProps");
+    expect(page).toContain('.lte("scheduled_date", window.end)');
+    expect(page).not.toContain("buildInstallScheduleProps");
     expect(page).not.toContain("waiting on materials");
   });
 });

@@ -10,6 +10,7 @@ import { requireProfile } from "@/lib/auth";
 import { listServiceQueue } from "@/lib/data/ops-glue";
 import { resolveServiceCallback } from "@/app/(app)/ops/actions";
 import { formatDate } from "@/lib/format";
+import { QUEUE_LIST_UNAVAILABLE, queueFailureMessage } from "@/lib/ops-scale";
 import {
   parseListPage,
   parseServiceQueue,
@@ -41,11 +42,23 @@ export default async function ServicePage({
   const sp = await searchParams;
   const q = sp.q?.trim() ?? "";
   const view = parseServiceQueue(sp.view);
-  const queue = await listServiceQueue({
-    view,
-    search: q,
-    page: parseListPage(sp.page),
-  });
+  let listError: string | null = null;
+  let queue: Awaited<ReturnType<typeof listServiceQueue>> = {
+    rows: [],
+    total: 0,
+    page: 1,
+    pageSize: 40,
+    capped: false,
+  };
+  try {
+    queue = await listServiceQueue({
+      view,
+      search: q,
+      page: parseListPage(sp.page),
+    });
+  } catch (error) {
+    listError = queueFailureMessage(error);
+  }
   const pages = Math.max(1, Math.ceil(queue.total / queue.pageSize));
 
   const href = (next: { view?: ServiceQueueView; page?: number }) => {
@@ -58,9 +71,7 @@ export default async function ServicePage({
     return qs ? `/service?${qs}` : "/service";
   };
 
-  const countLabel = queue.capped
-    ? `${resultCountLabel(queue.rows.length, queue.total, "service call")} — more matches exist. Add more of the name or address.`
-    : resultCountLabel(queue.rows.length, queue.total, "service call");
+  const countLabel = listError ?? resultCountLabel(queue.rows.length, queue.total, "service call");
 
   return (
     <div>
@@ -80,7 +91,9 @@ export default async function ServicePage({
         }))}
         countLabel={countLabel}
       />
-      {queue.rows.length === 0 ? (
+      {listError ? (
+        <EmptyState icon={Wrench} title={QUEUE_LIST_UNAVAILABLE} />
+      ) : queue.rows.length === 0 ? (
         <EmptyState icon={Wrench} title={serviceQueueEmpty(view, !!q)} />
       ) : (
         <ul className="space-y-2">

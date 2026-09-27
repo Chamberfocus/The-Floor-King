@@ -13,7 +13,7 @@ import {
 } from "@/lib/data/credits";
 import { effectiveInvoiceBalance } from "@/lib/credit-ar";
 import { sanitizeIlikeQuery } from "@/lib/ops-followup";
-import { readQueueWindow } from "@/lib/data/queue-rpc";
+import { orderByIds, readQueueWindow } from "@/lib/data/queue-rpc";
 import { QUEUE_LIST_UNAVAILABLE, logQueueFailure } from "@/lib/ops-scale";
 import {
   WORK_QUEUE_PAGE_SIZE,
@@ -431,30 +431,27 @@ export async function listInvoicesQueue(args: {
       await attach(supabase, rows);
     }
   } else if (safe.length >= 2) {
-    const like = `%${safe}%`;
-    const cap = 200;
-    const [byNumber, byName] = await Promise.all([
-      apply(supabase.from("invoices").select(INVOICE_LIST_COLUMNS).order("created_at", { ascending: false }))
-        .ilike("number", like)
-        .limit(cap),
-      apply(
-        supabase
-          .from("invoices")
-          .select(INVOICE_LIST_COLUMNS.replace("customer:customers(", "customer:customers!inner("))
-          .order("created_at", { ascending: false }),
-      )
-        .ilike("customer.full_name", like)
-        .limit(cap),
-    ]);
-    const seen = new Map<string, InvoiceListRow>();
-    for (const row of [...shape(byNumber.data), ...shape(byName.data)]) seen.set(row.id, row);
-    const merged = Array.from(seen.values());
-    capped = (byNumber.data?.length ?? 0) >= cap || (byName.data?.length ?? 0) >= cap;
-    await attach(supabase, merged);
-    total = merged.length;
-    const window = listPageWindow(args.page ?? 1, pageSize, total);
-    page = window.page;
-    rows = merged.slice(window.from, window.to);
+    const found = await readQueueWindow(
+      supabase,
+      "invoice_queue_page",
+      { p_statuses: statuses, p_search: safe },
+      args.page ?? 1,
+      pageSize,
+    );
+    page = found.page;
+    total = found.total;
+    if (found.ids.length) {
+      const { data, error } = await supabase
+        .from("invoices")
+        .select(INVOICE_LIST_COLUMNS)
+        .in("id", found.ids);
+      if (error) {
+        logQueueFailure("invoice_queue_page", error);
+        throw new Error(QUEUE_LIST_UNAVAILABLE);
+      }
+      rows = orderByIds(shape(data), found.ids);
+      await attach(supabase, rows);
+    }
   } else {
     const counted = await apply(
       supabase.from("invoices").select("id", { count: "exact", head: true }),
