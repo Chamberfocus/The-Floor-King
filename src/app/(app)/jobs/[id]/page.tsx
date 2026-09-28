@@ -31,6 +31,7 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { JobStatusBadge } from "@/components/job-status-badge";
+import { jobOperationsStatusLabel } from "@/lib/job-operations-status";
 import { isMaterialLine } from "@/lib/job-scope";
 import { serviceQueueKindLabel, serviceQueueStatusLabel } from "@/lib/work-queues";
 import { FlowPositionBadge } from "@/components/flow-position-badge";
@@ -102,6 +103,7 @@ import { buildChecklistSlots } from "@/components/checklist-slots";
 import { STEP_OVERRIDE_ROLES } from "@/lib/job-checklist";
 import { MarkContacted } from "@/app/(app)/customers/[id]/mark-contacted";
 import { flooringJobSnapshot, shopTodayYmd } from "@/lib/job-snapshot";
+import { employeeScheduleError } from "@/lib/scheduling-conflicts";
 import { customerSeesCustomerMoney } from "@/lib/customer-record-access";
 import { JobAttentionStrip } from "./job-attention-strip";
 import { JobOpsFacts } from "./job-ops-facts";
@@ -500,7 +502,7 @@ export default async function JobPage({
           role="alert"
           className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
         >
-          {scheduleError}
+          {employeeScheduleError(scheduleError)}
         </div>
       ) : null}
       {purchasingMessage ? (
@@ -521,6 +523,7 @@ export default async function JobPage({
 
       {isStaff ? (
         <JobOpsFacts
+          hasMaterialNeed={(job.line_items ?? []).some((line) => isMaterialLine(line))}
           warehouseReadyAt={job.warehouse_ready_at ?? null}
           stagingLocation={job.staging_location ?? null}
           openBalance={staffBalance}
@@ -542,7 +545,9 @@ export default async function JobPage({
             <ul className="mb-2 space-y-1 text-sm">
               {openCallbacks.map((c) => (
                 <li key={c.id}>
-                  {serviceQueueKindLabel(c.category)} · {serviceQueueStatusLabel(c.status)}
+                  <Link href="/service" className="font-medium text-primary hover:underline">
+                    {serviceQueueKindLabel(c.category)} · {serviceQueueStatusLabel(c.status)}
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -574,7 +579,14 @@ export default async function JobPage({
             <h1 className="text-2xl font-bold tracking-tight sm:text-[1.75rem]">
               {jobHeading({ ...job, site_label: siteLabel }, job.customer?.full_name)}
             </h1>
-            <JobStatusBadge status={job.status} />
+            <JobStatusBadge
+              status={job.status}
+              label={
+                job.delivery_type === "cash_carry"
+                  ? undefined
+                  : jobOperationsStatusLabel(job.status)
+              }
+            />
             <FlowPositionBadge stage={flowStage} stages={flowStages} />
             {/* Same scope, next unit — the shape of every property-manager
                 account. Copies the quote and raises the work order in one go. */}
@@ -690,7 +702,7 @@ export default async function JobPage({
                   size="lg"
                   className="w-full sm:w-auto"
                   title={`Mark "${job.title || "this job"}" as complete?`}
-                  description="This finishes the job and moves the customer to Installed — Follow-up. Only do this once the install is actually done."
+                  description="This marks the installation complete. Open service visits stay open. Only do this once the install is actually done."
                   confirmLabel="Mark complete"
                 >
                   <Check className="size-4" /> Mark complete

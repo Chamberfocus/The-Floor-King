@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Wallet, CheckCircle2 } from "lucide-react";
@@ -32,11 +32,14 @@ export function InstallerCollect({
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  const busy = useRef(false);
   const [open, setOpen] = useState(false);
   const [method, setMethod] = useState<Method>("cash");
   const [reference, setReference] = useState("");
 
-  const submit = () =>
+  const submit = () => {
+    if (busy.current || pending) return;
+    busy.current = true;
     start(async () => {
       const fd = new FormData();
       fd.set("job_id", jobId);
@@ -53,11 +56,14 @@ export function InstallerCollect({
         );
         router.refresh();
       } catch (e) {
-        toast.error(
-          e instanceof Error ? e.message : "Could not record payment.",
-        );
+        const raw = e instanceof Error ? e.message : "";
+        const technical = /sqlstate|postgres|pgrst|violates|duplicate key/i.test(raw);
+        toast.error(technical || !raw ? "This payment could not be recorded. Try again." : raw);
+      } finally {
+        busy.current = false;
       }
     });
+  };
 
   return (
     <Card className="mb-6 border-emerald-300 dark:border-emerald-900/60">

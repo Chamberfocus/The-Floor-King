@@ -20,6 +20,7 @@ import { estimatedMaterialCostForOption } from "@/lib/job-costing";
 import { assessJobStatusTransition, jobStatusUpdatePatch } from "@/lib/job-status";
 import {
   findInstallerScheduleConflict,
+  employeeScheduleError,
   isScheduleRpcUnavailable,
   SCHEDULE_UNAVAILABLE_MESSAGE,
 } from "@/lib/scheduling-conflicts";
@@ -513,7 +514,7 @@ export async function bookInstall(formData: FormData): Promise<void> {
         `?schedule_error=${encodeURIComponent(
           isScheduleRpcUnavailable(schedErr)
             ? SCHEDULE_UNAVAILABLE_MESSAGE
-            : schedErr.message,
+            : employeeScheduleError(schedErr.message),
         )}`,
     );
   } else {
@@ -522,7 +523,7 @@ export async function bookInstall(formData: FormData): Promise<void> {
       redirect(
         (afterBookRedirect || `/jobs/${id}`) +
           `?schedule_error=${encodeURIComponent(
-            body.error || "Could not schedule this install.",
+            employeeScheduleError(body.error || "Could not schedule this install."),
           )}`,
       );
     }
@@ -845,13 +846,13 @@ export async function rescheduleInstall(
       });
       return { ok: false, error: SCHEDULE_UNAVAILABLE_MESSAGE };
     }
-    return { ok: false, error: schedErr.message };
+    return { ok: false, error: employeeScheduleError(schedErr.message) };
   } else {
     const body = schedRes as { ok?: boolean; error?: string } | null;
     if (body && body.ok === false) {
       return {
         ok: false,
-        error: body.error || "Could not reschedule this install.",
+        error: employeeScheduleError(body.error || "Could not reschedule this install."),
       };
     }
   }
@@ -1632,11 +1633,11 @@ export async function assignInstaller(formData: FormData): Promise<void> {
         });
         throw new Error(SCHEDULE_UNAVAILABLE_MESSAGE);
       }
-      throw new Error(schedErr.message);
+      throw new Error(employeeScheduleError(schedErr.message));
     }
     const body = schedRes as { ok?: boolean; error?: string } | null;
     if (body && body.ok === false) {
-      throw new Error(body.error || "Could not assign installer (schedule conflict).");
+      throw new Error(employeeScheduleError(body.error || "Could not assign installer (schedule conflict)."));
     }
   } else {
     // Undated board assign — keep unscheduled. Never invent a scheduled

@@ -7,6 +7,7 @@ import { restartFlowForNewWork } from "@/lib/workflow-engine";
 import { enforceMaterialsReadyForSchedule, ensureJobForEstimate } from "@/app/(app)/jobs/actions";
 import {
   isScheduleRpcUnavailable,
+  employeeScheduleError,
   SCHEDULE_UNAVAILABLE_MESSAGE,
 } from "@/lib/scheduling-conflicts";
 import { formatServiceAddress } from "@/lib/types";
@@ -394,11 +395,11 @@ export async function createJobForCustomer(
         });
         return { error: SCHEDULE_UNAVAILABLE_MESSAGE };
       }
-      return { error: schedErr.message };
+      return { error: employeeScheduleError(schedErr.message) };
     }
     const body = schedRes as { ok?: boolean; error?: string } | null;
     if (body && body.ok === false) {
-      return { error: body.error || "Could not schedule the install." };
+      return { error: employeeScheduleError(body.error || "Could not schedule the install.") };
     }
   }
 

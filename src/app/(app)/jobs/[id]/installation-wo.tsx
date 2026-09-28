@@ -4,11 +4,11 @@ import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
 import { formatDate, formatMoney, to12 } from "@/lib/format";
 import { billedQtyToSqft, normalizeUnit } from "@/lib/units";
 import {
-  JOB_STATUS_LABELS,
   JOB_DELIVERY_LABELS,
   type EstimateLineItem,
   type OrgSettings,
 } from "@/lib/types";
+import { jobOperationsStatusLabel } from "@/lib/job-operations-status";
 import {
   buildJobScope,
   jobMaterialType,
@@ -255,7 +255,7 @@ export function InstallationWorkOrderDoc({
               {dates.length ? `Scheduled ${dates.join(" – ")}` : "Not yet scheduled"}
               {windowLabel ? ` · arrives ${windowLabel}` : ""}
             </div>
-            <div className="text-xs">Status: {JOB_STATUS_LABELS[job.status]}</div>
+            <div className="text-xs">Status: {jobOperationsStatusLabel(job.status)}</div>
           </>
         }
       />

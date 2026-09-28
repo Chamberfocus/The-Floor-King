@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { formatDate, formatMoney } from "@/lib/format";
+import { assessMaterialsReadyForSchedule } from "@/lib/materials-ready";
 
 export function JobOpsFacts({
+  hasMaterialNeed,
   warehouseReadyAt,
   stagingLocation,
   openBalance,
@@ -10,6 +12,7 @@ export function JobOpsFacts({
   pos,
   estimateId,
 }: {
+  hasMaterialNeed: boolean;
   warehouseReadyAt: string | null;
   stagingLocation: string | null;
   openBalance: number;
@@ -24,6 +27,15 @@ export function JobOpsFacts({
     status: string | null;
   }[];
 }) {
+  const materials = assessMaterialsReadyForSchedule({
+    warehouseReadyAt,
+    hasMaterialNeed,
+  });
+  const materialFact = !hasMaterialNeed
+    ? "No material is required for scheduling."
+    : materials.ready
+      ? `Materials ready${stagingLocation ? ` · ${stagingLocation}` : ""}`
+      : "Materials are not ready.";
   const nextEta = pos
     .map((p) => p.eta_date)
     .filter((d): d is string => !!d)
@@ -32,11 +44,7 @@ export function JobOpsFacts({
 
   return (
     <div className="mb-4 grid gap-2 rounded-lg border bg-card p-3 sm:grid-cols-2 lg:grid-cols-4">
-      <Fact label="Warehouse">
-        {warehouseReadyAt
-          ? `Ready${stagingLocation ? ` · ${stagingLocation}` : ""}`
-          : "Material isn't ready yet."}
-      </Fact>
+      <Fact label="Materials">{materialFact}</Fact>
       <Fact label="Material ETA">
         {backordered ? (
           <span className="text-amber-700 dark:text-amber-300">Backordered</span>

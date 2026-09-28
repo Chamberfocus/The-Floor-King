@@ -6,6 +6,7 @@ import { finalizeInvoiceSafe } from "@/lib/invoice-issue";
 import { enforceMaterialsReadyForSchedule } from "@/app/(app)/jobs/actions";
 import {
   isScheduleRpcUnavailable,
+  employeeScheduleError,
   SCHEDULE_UNAVAILABLE_MESSAGE,
 } from "@/lib/scheduling-conflicts";
 import { seedJobScopeIfEmpty } from "@/lib/data/job-operational-lines";
@@ -376,11 +377,11 @@ export async function carryOverDeal(
           });
           return { error: SCHEDULE_UNAVAILABLE_MESSAGE };
         }
-        return { error: schedErr.message };
+        return { error: employeeScheduleError(schedErr.message) };
       }
       const body = schedRes as { ok?: boolean; error?: string } | null;
       if (body && body.ok === false) {
-        return { error: body.error || "Could not schedule the carried-over install." };
+        return { error: employeeScheduleError(body.error || "Could not schedule the carried-over install.") };
       }
     } else if (jobStatus === "scheduled") {
       // Status-only: already handled if dated; undated "scheduled" is unusual —

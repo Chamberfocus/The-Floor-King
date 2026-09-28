@@ -21,8 +21,9 @@ describe("flooring job snapshot", () => {
       ...base,
       purchaseOrders: [{ status: "ordered" }],
     });
-    expect(snap.chips).toEqual(["Ready to schedule"]);
-    expect(snap.chips.join(" ")).not.toMatch(/ordered|waiting/i);
+    expect(snap.chips).toEqual(["Ready to schedule", "No material required"]);
+    expect(snap.fact).toBe("No material is required for scheduling.");
+    expect(snap.chips.join(" ")).not.toMatch(/ordered|waiting|purchase order/i);
     expect(snap.fact).not.toMatch(/schedule the install/i);
   });
 
@@ -31,8 +32,8 @@ describe("flooring job snapshot", () => {
       ...base,
       hasMaterialNeed: true,
     });
-    expect(snap.chips).toContain("Waiting for material");
-    expect(snap.fact).toBe("Material isn't ready yet.");
+    expect(snap.chips).toContain("Materials are not ready.");
+    expect(snap.fact).toBe("Materials are not ready.");
     expect(snap.chips).not.toContain("Ready to schedule");
   });
 
@@ -42,7 +43,8 @@ describe("flooring job snapshot", () => {
       hasMaterialNeed: true,
       purchaseOrders: [{ status: "ordered" }],
     });
-    expect(snap.chips).toContain("Material ordered");
+    expect(snap.chips).toContain("Materials are not ready.");
+    expect(snap.chips).not.toContain("Materials ready");
     expect(snap.chips).not.toContain("Material received");
   });
 
@@ -52,7 +54,8 @@ describe("flooring job snapshot", () => {
       hasMaterialNeed: true,
       warehouseReadyAt: "2026-09-24T12:00:00Z",
     });
-    expect(snap.chips).toEqual(["Material received", "Ready to schedule"]);
+    expect(snap.chips).toEqual(["Materials ready", "Ready to schedule"]);
+    expect(snap.fact).toBe("Materials ready.");
   });
 
   it("says the install is today, booked, complete, or needs service", () => {
