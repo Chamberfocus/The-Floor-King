@@ -1,6 +1,7 @@
 /**
  * F2 office task helpers — pure.
  */
+import { INSTALLER_ISSUE_KIND, SERVICE_CALLBACK_KIND } from "@/lib/ops-followup";
 
 export type OfficeTaskStatus =
   | "open"
@@ -51,6 +52,31 @@ export function automationSourceKey(
   entityId: string,
 ): string {
   return `${kind}:${entityId}`;
+}
+
+const SOURCE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Where a task row should open. Service tasks open the callback, not the customer file. */
+export function taskOperationalHref(task: {
+  source_key?: string | null;
+  customer_id?: string | null;
+  job_id?: string | null;
+}): string | null {
+  const key = task.source_key ?? "";
+  const split = key.indexOf(":");
+  if (split > 0) {
+    const kind = key.slice(0, split);
+    const id = key.slice(split + 1);
+    if (
+      (kind === SERVICE_CALLBACK_KIND || kind === INSTALLER_ISSUE_KIND) &&
+      SOURCE_ID.test(id)
+    ) {
+      return `/service/${id}`;
+    }
+  }
+  if (task.customer_id) return `/customers/${task.customer_id}`;
+  if (task.job_id) return `/jobs/${task.job_id}`;
+  return null;
 }
 
 /**

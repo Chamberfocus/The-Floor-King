@@ -770,11 +770,21 @@ export default async function JobPage({
                 {jobDocsFull?.jobTotal != null ? formatMoney(jobDocsFull.jobTotal) : "—"}
               </div>
               <div className="text-sm text-muted-foreground">
-                {jobDocsFull?.hasInvoice
-                  ? (jobDocsFull.balance ?? 0) <= 0.005
-                    ? "Paid in full"
-                    : `${formatMoney(jobDocsFull.balance ?? 0)} due`
-                  : "No invoice yet"}
+                {jobDocsFull?.hasInvoice ? (
+                  staffCollectible?.invoiceId ? (
+                    <Link href={`/invoices/${staffCollectible.invoiceId}`} className="hover:underline">
+                      {(jobDocsFull.balance ?? 0) <= 0.005
+                        ? "Paid in full"
+                        : `${formatMoney(jobDocsFull.balance ?? 0)} remaining`}
+                    </Link>
+                  ) : (jobDocsFull.balance ?? 0) <= 0.005 ? (
+                    "Paid in full"
+                  ) : (
+                    `${formatMoney(jobDocsFull.balance ?? 0)} remaining`
+                  )
+                ) : (
+                  "No invoice yet"
+                )}
               </div>
             </div>
           ) : collectsBalance && woCollectBalance && woCollectBalance > 0 ? (

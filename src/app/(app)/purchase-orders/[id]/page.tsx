@@ -77,8 +77,23 @@ export default async function PurchaseOrderPage({
           </div>
           <p className="text-sm text-muted-foreground">
             {po.po_number == null ? "Draft — number assigned when issued · " : ""}
-            {customer ? `${customer.full_name} · ` : ""}
+            {customer ? (
+              <>
+                <Link href={`/customers/${customer.id}`} className="hover:underline">
+                  {customer.full_name}
+                </Link>
+                {" · "}
+              </>
+            ) : null}
             Created {formatDate(po.created_at)}
+            {po.job_id ? (
+              <>
+                {" · "}
+                <Link href={`/jobs/${po.job_id}`} className="hover:underline">
+                  Open job
+                </Link>
+              </>
+            ) : null}
             {po.estimate_id ? (
               <>
                 {" · "}

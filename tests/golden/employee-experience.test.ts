@@ -102,11 +102,14 @@ describe("search and quick add", () => {
       "customer",
       "estimate",
       "job",
+      "service",
       "order",
       "invoice",
       "po",
       "product",
     ]);
+    expect(searchTypesForRole("scheduler")).toContain("service");
+    expect(searchTypesForRole("scheduler")).not.toContain("po");
     expect(searchTypesForRole("customer")).toEqual([]);
   });
 

@@ -114,6 +114,12 @@ export async function loadHomeCenter(args: {
         p_search: null,
       });
     }
+    if (spec.id === "visits") {
+      return total(userDb, "service_queue_page", {
+        p_statuses: ["scheduled"],
+        p_search: null,
+      });
+    }
     if (spec.id === "tasks") {
       return total(
         userDb,
