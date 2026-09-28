@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChevronRight, FileText, Wrench, Receipt, ExternalLink, Calendar, User, HardHat } from "lucide-react";
 import { EstimateStatusBadge } from "@/components/estimate-status-badge";
 import { JobStatusBadge } from "@/components/job-status-badge";
+import { jobOperationsStatusLabel } from "@/lib/job-operations-status";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { JobScopeView } from "@/components/job-scope-view";
 import { DeleteEstimateButton } from "@/app/(app)/estimates/estimate-list-actions";
@@ -178,7 +179,7 @@ export function WorkOrderRow({ j }: { j: WorkOrderRowData }) {
       openLabel="Open full work order"
       right={
         <>
-          <JobStatusBadge status={j.status} />
+          <JobStatusBadge status={j.status} label={jobOperationsStatusLabel(j.status)} />
           {j.scheduledDate ? (
             <span className="hidden text-xs text-muted-foreground sm:inline">
               {formatDate(j.scheduledDate)}

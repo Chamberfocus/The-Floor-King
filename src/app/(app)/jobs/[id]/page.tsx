@@ -31,6 +31,7 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { JobStatusBadge } from "@/components/job-status-badge";
+import { jobOperationsStatusLabel } from "@/lib/job-operations-status";
 import { isMaterialLine } from "@/lib/job-scope";
 import { serviceQueueKindLabel, serviceQueueStatusLabel } from "@/lib/work-queues";
 import { FlowPositionBadge } from "@/components/flow-position-badge";
@@ -578,7 +579,14 @@ export default async function JobPage({
             <h1 className="text-2xl font-bold tracking-tight sm:text-[1.75rem]">
               {jobHeading({ ...job, site_label: siteLabel }, job.customer?.full_name)}
             </h1>
-            <JobStatusBadge status={job.status} />
+            <JobStatusBadge
+              status={job.status}
+              label={
+                job.delivery_type === "cash_carry"
+                  ? undefined
+                  : jobOperationsStatusLabel(job.status)
+              }
+            />
             <FlowPositionBadge stage={flowStage} stages={flowStages} />
             {/* Same scope, next unit — the shape of every property-manager
                 account. Copies the quote and raises the work order in one go. */}

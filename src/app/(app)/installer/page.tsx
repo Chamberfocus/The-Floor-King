@@ -15,6 +15,7 @@ import { getBusinessSettings } from "@/lib/data/business-settings";
 import { formatMoney, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { JobStatusBadge } from "@/components/job-status-badge";
+import { jobOperationsStatusLabel } from "@/lib/job-operations-status";
 import { InstallerCollect } from "../jobs/[id]/installer-collect";
 import { SatisfactionForm } from "../jobs/[id]/satisfaction-form";
 import { JobPhotos } from "../jobs/[id]/job-photos";
@@ -232,7 +233,10 @@ export default async function InstallerHomePage() {
                           ) : null}
                         </div>
                       </div>
-                      <JobStatusBadge status={job.status} />
+                      <JobStatusBadge
+                        status={job.status}
+                        label={jobOperationsStatusLabel(job.status)}
+                      />
                     </div>
                     <div className="mt-1">
                       <FlowPositionBadge

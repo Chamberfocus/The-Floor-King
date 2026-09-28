@@ -7,6 +7,7 @@ import {
   SCHEDULE_MATERIALS_BLOCKED,
   employeeScheduleError,
 } from "@/lib/scheduling-conflicts";
+import { jobOperationsStatusLabel } from "@/lib/job-operations-status";
 import { JOB_STATUS_LABELS } from "@/lib/types";
 
 const base = {
@@ -68,11 +69,45 @@ describe("schedule and job language", () => {
     ).toBe("That installer is already booked on overlapping dates.");
   });
 
-  it("uses the existing job statuses in plain labels", () => {
-    expect(JOB_STATUS_LABELS.unscheduled).toBe("Not scheduled");
-    expect(JOB_STATUS_LABELS.scheduled).toBe("Scheduled");
-    expect(JOB_STATUS_LABELS.in_progress).toBe("Installing");
-    expect(JOB_STATUS_LABELS.completed).toBe("Installed");
+  it("keeps shared job labels neutral and uses flooring words only on install screens", () => {
+    expect(JOB_STATUS_LABELS).toEqual({
+      unscheduled: "Unscheduled",
+      scheduled: "Scheduled",
+      in_progress: "In Progress",
+      completed: "Completed",
+      cancelled: "Cancelled",
+    });
+    expect(jobOperationsStatusLabel("unscheduled")).toBe("Not scheduled");
+    expect(jobOperationsStatusLabel("scheduled")).toBe("Scheduled");
+    expect(jobOperationsStatusLabel("in_progress")).toBe("Installing");
+    expect(jobOperationsStatusLabel("completed")).toBe("Installed");
+    expect(jobOperationsStatusLabel("cancelled")).toBe("Cancelled");
+  });
+});
+
+describe("job status label consumers", () => {
+  const src = (path: string) => readFileSync(path, "utf8");
+
+  it("uses flooring labels on install surfaces and shared labels everywhere else", () => {
+    for (const path of [
+      "src/app/(app)/jobs/[id]/page.tsx",
+      "src/app/(app)/jobs/[id]/installation-wo.tsx",
+      "src/app/(app)/installer/page.tsx",
+      "src/app/(app)/customers/[id]/customer-record-rows.tsx",
+    ]) {
+      expect(src(path)).toContain("jobOperationsStatusLabel");
+    }
+    for (const path of [
+      "src/app/(app)/customers/[id]/cash-carry-card.tsx",
+      "src/app/(app)/customers/[id]/job-costing-tab.tsx",
+      "src/app/portal/page.tsx",
+      "src/app/(app)/jobs/job-form.tsx",
+    ]) {
+      expect(src(path)).not.toContain("jobOperationsStatusLabel");
+    }
+    expect(src("src/app/(app)/jobs/job-form.tsx")).toContain("JOB_STATUS_LABELS");
+    expect(src("src/components/job-status-badge.tsx")).toContain("JOB_STATUS_LABELS[status]");
+    expect(src("src/app/(app)/jobs/[id]/page.tsx")).toContain('delivery_type === "cash_carry"');
   });
 });
 
