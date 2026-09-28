@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { employeePaymentError } from "@/lib/payment-safety";
 import {
   type SaveInvoiceInput,
 } from "@/lib/invoice-calc";
@@ -218,15 +219,26 @@ async function rpcRecordCustomerDeposit(
     p_idempotency_key: args.idempotencyKey,
   });
   if (error) {
+    console.error("[recordCustomerDeposit]", error.code);
     return {
       error:
         error.message.includes("record_customer_deposit_safe")
           ? "Customer deposit migration (0167) is not applied yet. Apply it in Supabase before recording deposits."
-          : error.message,
+          : employeePaymentError(
+              error.message,
+              "This deposit could not be recorded. Refresh and try again.",
+            ),
     };
   }
   const res = data as RpcDepositResult;
-  if (!res?.ok) return { error: res?.error ?? "Could not record deposit." };
+  if (!res?.ok) {
+    return {
+      error: employeePaymentError(
+        res?.error,
+        "This deposit could not be recorded. Refresh and try again.",
+      ),
+    };
+  }
   return {
     error: null,
     duplicate: Boolean(res.duplicate),
@@ -263,16 +275,16 @@ async function rpcRecordPayment(
     p_allow_deposit_on_zero_total: false,
   });
   if (error) {
-    // Migration not applied yet — fail loudly rather than overpay.
+    console.error("[recordInvoicePayment]", error.code);
     return {
       error:
         error.message.includes("record_invoice_payment_safe")
           ? "Payment safety migration (0158) is not applied yet. Apply it in Supabase before recording payments."
-          : error.message,
+          : employeePaymentError(error.message),
     };
   }
   const res = data as RpcPaymentResult;
-  if (!res?.ok) return { error: res?.error ?? "Could not record payment." };
+  if (!res?.ok) return { error: employeePaymentError(res?.error) };
   return {
     error: null,
     duplicate: Boolean(res.duplicate),
@@ -1370,18 +1382,35 @@ export async function voidPayment(formData: FormData): Promise<void> {
         })
         .eq("id", id);
       if (error) {
+        console.error("[voidInvoicePayment]", error.code);
         fail(
           error.message.includes("status")
             ? "Payment void migration (0158) is not applied yet. Apply it in Supabase before voiding payments."
-            : error.message,
+            : employeePaymentError(
+                error.message,
+                "This payment could not be voided. Refresh and try again.",
+              ),
         );
       }
     } else {
-      fail(voidRpcErr.message);
+      console.error("[voidInvoicePayment]", voidRpcErr.code);
+      fail(
+        employeePaymentError(
+          voidRpcErr.message,
+          "This payment could not be voided. Refresh and try again.",
+        ),
+      );
     }
   } else {
     const res = voidRes as { ok?: boolean; error?: string };
-    if (!res?.ok) fail(res?.error ?? "Could not void payment.");
+    if (!res?.ok) {
+      fail(
+        employeePaymentError(
+          res?.error,
+          "This payment could not be voided. Refresh and try again.",
+        ),
+      );
+    }
   }
 
   await recomputeStatus(supabase, invoiceId);

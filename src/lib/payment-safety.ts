@@ -19,6 +19,26 @@ export const PAYMENT_NONPOSITIVE_MESSAGE =
 export const PAYMENT_VOID_REQUIRED_MESSAGE =
   "Payments can’t be deleted. Void the payment to preserve history.";
 
+export const PAYMENT_SAVE_FAILED_MESSAGE =
+  "This payment could not be recorded. Refresh and verify the balance before retrying.";
+
+const INTERNAL_MONEY_ERROR =
+  /sqlstate|postgres|pgrst|syntax error|violates|duplicate key|permission denied|schema cache|could not find the function|jwt_role|accounting_forbidden|record_invoice_payment_safe|void_invoice_payment_safe|record_customer_deposit_safe|42501|23505|23514|stack|supabase/i;
+
+/**
+ * Employee-facing payment/deposit failure.
+ * Known business sentences from the payment RPC stay visible.
+ * Transport, constraint, and role-exception text does not.
+ */
+export function employeePaymentError(
+  raw: string | null | undefined,
+  fallback: string = PAYMENT_SAVE_FAILED_MESSAGE,
+): string {
+  const msg = (raw ?? "").replace(/\s+/g, " ").trim();
+  if (!msg || msg.length > 240 || INTERNAL_MONEY_ERROR.test(msg)) return fallback;
+  return msg;
+}
+
 export interface PaymentLike {
   amount?: number | string | null;
   status?: string | null;

@@ -4,6 +4,11 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authorizeJobMeasurementUpload } from "@/lib/job-warehouse";
+import {
+  employeeFileSaveError,
+  safeDisplayFileName,
+  safeStorageFileName,
+} from "@/lib/upload-name";
 
 export interface UploadState {
   error: string | null;
@@ -74,23 +79,29 @@ export async function uploadJobMeasurement(
   if (!customerId) return { error: "This job has no customer linked." };
 
   const bytes = Buffer.from(await file.arrayBuffer());
-  const path = `customer/${customerId}/${crypto.randomUUID()}-${file.name}`;
+  const path = `customer/${customerId}/${safeStorageFileName(file.name)}`;
   const { error: upErr } = await db.storage
     .from("documents")
     .upload(path, bytes, {
       contentType: file.type || "application/octet-stream",
     });
-  if (upErr) return { error: upErr.message };
+  if (upErr) {
+    console.error("[uploadJobMeasurement]", upErr.name);
+    return { error: employeeFileSaveError("photo") };
+  }
 
   const { error } = await db.from("documents").insert({
     customer_id: customerId,
     uploaded_by: user.id,
-    name: file.name,
+    name: safeDisplayFileName(file.name),
     path,
     mime: file.type || null,
     kind: "measurement",
   });
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("[uploadJobMeasurement]", error.code);
+    return { error: employeeFileSaveError("photo") };
+  }
 
   revalidatePath(`/jobs/${jobId}`);
   revalidatePath(`/customers/${customerId}`);

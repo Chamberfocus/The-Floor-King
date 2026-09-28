@@ -17,6 +17,20 @@ export function isAllowedJobStatusTransition(
   return (ALLOWED[from] ?? []).includes(to);
 }
 
+export const JOB_CHANGED_MESSAGE =
+  "This record changed while you were working. Refresh and try again.";
+
+/**
+ * Who may drive a job status write.
+ * Crew may only start or finish an assigned install (RLS still limits the row).
+ * Warehouse and customers do not change installation status here.
+ */
+export function fieldStatusChangeAllowed(role: string, to: JobStatus): boolean {
+  if (role === "customer" || role === "warehouse") return false;
+  if (role === "crew") return to === "in_progress" || to === "completed";
+  return true;
+}
+
 export function assessJobStatusTransition(
   from: JobStatus | null | undefined,
   to: JobStatus,

@@ -5,7 +5,7 @@ import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { assertRole } from "@/lib/auth";
+import { assertRole, getProfile } from "@/lib/auth";
 import { sendEmail, emailLayout, emailInfoCard, siteUrl, ownerEmail } from "@/lib/notify";
 import { sendSms } from "@/lib/sms";
 import { addDaysYmd } from "@/lib/scheduling";
@@ -17,7 +17,12 @@ import {
 } from "@/lib/workflow-engine";
 import { estimatedLaborCostForOption } from "@/lib/installer-bill";
 import { estimatedMaterialCostForOption } from "@/lib/job-costing";
-import { assessJobStatusTransition, jobStatusUpdatePatch } from "@/lib/job-status";
+import {
+  assessJobStatusTransition,
+  fieldStatusChangeAllowed,
+  jobStatusUpdatePatch,
+  JOB_CHANGED_MESSAGE,
+} from "@/lib/job-status";
 import { jobStatusEmployeeMessage } from "@/lib/install-closeout";
 import {
   findInstallerScheduleConflict,
@@ -27,6 +32,7 @@ import {
 } from "@/lib/scheduling-conflicts";
 import { warehouseJobIdFromForm } from "@/lib/job-warehouse";
 import { applyEligibleDepositsToInvoice } from "@/lib/data/apply-customer-deposits";
+import { employeePaymentError } from "@/lib/payment-safety";
 import { customerOrderStagingBlockMessage } from "@/lib/order-warehouse-gates";
 
 // Back-half pipeline stages carry no auto_action marker, so job-lifecycle events
@@ -1191,6 +1197,13 @@ export async function updateJob(
   // INSTALLER are owned solely by the "Schedule install" flow (bookInstall), so
   // this form can't produce a half-booked state (dated but still "unscheduled",
   // still on the claim board, no arrival window). See job-form.tsx.
+  const profile = await getProfile();
+  if (
+    !profile ||
+    !["admin", "office", "sales_manager", "scheduler"].includes(profile.role)
+  ) {
+    return { error: "Not authorized." };
+  }
   const supabase = await createClient();
   const newStatus = (str(formData.get("status")) || "unscheduled") as JobStatus;
   const { data: prior } = await supabase
@@ -1199,10 +1212,8 @@ export async function updateJob(
     .eq("id", id)
     .maybeSingle();
   if (!prior) return { error: "Job not found." };
-  const gate = assessJobStatusTransition(
-    (prior.status as JobStatus) ?? "unscheduled",
-    newStatus,
-  );
+  const from = (prior.status as JobStatus) ?? "unscheduled";
+  const gate = assessJobStatusTransition(from, newStatus);
   if (!gate.ok) return { error: gate.error };
 
   const patch = {
@@ -1219,8 +1230,16 @@ export async function updateJob(
     delivery_type: (str(formData.get("delivery_type")) ||
       "deliver") as JobDeliveryType,
   };
-  const { error } = await supabase.from("jobs").update(patch).eq("id", id);
-  if (error) return { error: error.message };
+  const update = supabase.from("jobs").update(patch).eq("id", id).eq("status", from);
+  const guarded = prior.completed_at
+    ? update.eq("completed_at", prior.completed_at as string)
+    : update.is("completed_at", null);
+  const { data: saved, error } = await guarded.select("id").maybeSingle();
+  if (error) {
+    console.error("[updateJob]", error.code);
+    return { error: "This job could not be saved. Refresh and try again." };
+  }
+  if (!saved) return { error: JOB_CHANGED_MESSAGE };
 
   const customerId = (prior.customer_id as string | null) ?? null;
   // Completing / starting a job here advances the pipeline stage too, matching
@@ -1247,7 +1266,8 @@ export async function updateJob(
 
 /** Quick status change (also usable by assigned crew from the field). */
 export async function setJobStatus(formData: FormData): Promise<void> {
-  await commitJobStatus(formData);
+  const result = await commitJobStatus(formData);
+  if (result.error) throw new Error(result.error);
 }
 
 /** Same write as setJobStatus, with an employee-safe error for the field UI. */
@@ -1268,6 +1288,10 @@ async function commitJobStatus(
     return { error: jobStatusEmployeeMessage(intent, "missing") };
   }
 
+  const profile = await getProfile();
+  if (!profile || !fieldStatusChangeAllowed(profile.role, status)) {
+    return { error: jobStatusEmployeeMessage(intent, "forbidden") };
+  }
   const supabase = await createClient();
   const { data: prior } = await supabase
     .from("jobs")
@@ -1284,11 +1308,16 @@ async function commitJobStatus(
     status,
     (prior?.completed_at as string | null) ?? null,
   );
-  const { error: updateError } = await supabase
-    .from("jobs")
-    .update(patch)
-    .eq("id", id);
-  if (updateError) return { error: jobStatusEmployeeMessage(intent, "save") };
+  const update = supabase.from("jobs").update(patch).eq("id", id).eq("status", from);
+  const guarded = prior.completed_at
+    ? update.eq("completed_at", prior.completed_at as string)
+    : update.is("completed_at", null);
+  const { data: saved, error: updateError } = await guarded.select("id").maybeSingle();
+  if (updateError) {
+    console.error("[commitJobStatus]", updateError.code);
+    return { error: jobStatusEmployeeMessage(intent, "save") };
+  }
+  if (!saved) return { error: jobStatusEmployeeMessage(intent, "stale") };
 
   const { data: job } = await supabase
     .from("jobs")
@@ -2217,10 +2246,11 @@ export async function collectJobBalance(formData: FormData): Promise<void> {
     });
     const result = data as { ok?: boolean; error?: string; duplicate?: boolean } | null;
     if (error) {
-      throw new Error(error.message || "Payment could not be saved.");
+      console.error("[collectJobBalance]", error.code, jobId, open.invoiceId);
+      throw new Error(employeePaymentError(error.message));
     }
     if (!result?.ok) {
-      throw new Error(result?.error || "Payment could not be saved.");
+      throw new Error(employeePaymentError(result?.error));
     }
     await recomputeInvoiceStatus(admin, open.invoiceId, user.id);
   }

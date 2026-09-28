@@ -3,6 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { assertRole } from "@/lib/auth";
+import {
+  employeeFileSaveError,
+  safeDisplayFileName,
+  safeStorageFileName,
+} from "@/lib/upload-name";
 
 export interface WOState {
   error: string | null;
@@ -65,6 +71,7 @@ async function jobWriter(jobId: string) {
 
 /** Staff-only: toggle whether prices show on this work order. */
 export async function setJobShowPrices(formData: FormData): Promise<void> {
+  await assertRole(["admin", "office"]);
   const jobId = str(formData.get("job_id"));
   const show = str(formData.get("show")) === "1";
   if (!jobId) return;
@@ -76,6 +83,7 @@ export async function setJobShowPrices(formData: FormData): Promise<void> {
 /** Staff-only: per-job override of whether the installer collects the balance.
  *  "" clears the override (inherit the global setting). */
 export async function setJobCollectsBalance(formData: FormData): Promise<void> {
+  await assertRole(["admin", "office"]);
   const jobId = str(formData.get("job_id"));
   const val = str(formData.get("value")); // "yes" | "no" | ""
   if (!jobId) return;
@@ -101,22 +109,28 @@ export async function uploadJobPhoto(_prev: WOState, formData: FormData): Promis
   const customerId = (job?.customer_id as string | null) ?? null;
 
   const bytes = Buffer.from(await file.arrayBuffer());
-  const path = `jobs/${jobId}/${crypto.randomUUID()}-${file.name}`;
+  const path = `jobs/${jobId}/${safeStorageFileName(file.name, "jpg")}`;
   const { error: upErr } = await db.storage
     .from("documents")
     .upload(path, bytes, { contentType: file.type || "image/jpeg" });
-  if (upErr) return { error: upErr.message };
+  if (upErr) {
+    console.error("[uploadJobPhoto]", upErr.name);
+    return { error: employeeFileSaveError("photo") };
+  }
 
   const { error } = await db.from("documents").insert({
     customer_id: customerId,
     job_id: jobId,
     uploaded_by: userId,
-    name: file.name,
+    name: safeDisplayFileName(file.name),
     path,
     mime: file.type || null,
     kind: "completed",
   });
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("[uploadJobPhoto]", error.code);
+    return { error: employeeFileSaveError("photo") };
+  }
   revalidatePath(`/jobs/${jobId}`);
   return { error: null, ok: true };
 }
@@ -143,7 +157,10 @@ export async function saveJobSatisfaction(_prev: WOState, formData: FormData): P
     signed_name: signedName || null,
     created_by: userId,
   });
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("[saveJobSatisfaction]", error.code);
+    return { error: employeeFileSaveError("signature") };
+  }
   revalidatePath(`/jobs/${jobId}`);
   return { error: null, ok: true };
 }

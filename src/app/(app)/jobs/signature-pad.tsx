@@ -77,7 +77,7 @@ export function SignaturePad({ jobId }: { jobId: string }) {
         .from("job-files")
         .upload(path, blob, { contentType: "image/png", upsert: false });
       if (error) {
-        toast.error(error.message);
+        toast.error("This signature could not be saved. Try again.");
         setBusy(false);
         return;
       }
