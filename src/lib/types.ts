@@ -1166,7 +1166,7 @@ export const JOB_STATUS_BADGE: Record<JobStatus, string> = {
 
 // --- Purchase Orders --------------------------------------------------------
 
-// Accounting lifecycle: Draft (no number yet) → Open (issued, number stamped) →
+// Lifecycle: Draft (no number yet) → Ordered (issued, number stamped) →
 // Received → Closed. Void is terminal and keeps its number. "cancelled" is the
 // legacy value kept for old rows; new voids use "void".
 export type PoStatus =
@@ -1249,7 +1249,7 @@ export interface PurchaseOrder {
 
 export const PO_STATUS_LABELS: Record<PoStatus, string> = {
   draft: "Draft",
-  ordered: "Open",
+  ordered: "Ordered",
   received: "Received",
   closed: "Closed",
   void: "Void",

@@ -281,6 +281,12 @@ export async function listJobPurchasingFacts(jobId: string): Promise<
     eta_date: string | null;
     backordered: boolean | null;
     status: string | null;
+    items: {
+      quantity: number | null;
+      unit: string | null;
+      received_qty: number | null;
+      received_at: string | null;
+    }[];
   }[]
 > {
   const supabase = await createClient();
@@ -291,7 +297,7 @@ export async function listJobPurchasingFacts(jobId: string): Promise<
     .not("status", "in", "(void,cancelled)")
     .order("created_at", { ascending: false })
     .limit(8);
-  return (data ?? []) as {
+  const pos = (data ?? []) as {
     id: string;
     po_number: string | number | null;
     supplier: string | null;
@@ -299,4 +305,33 @@ export async function listJobPurchasingFacts(jobId: string): Promise<
     backordered: boolean | null;
     status: string | null;
   }[];
+  if (!pos.length) return [];
+  const { data: itemRows } = await supabase
+    .from("po_items")
+    .select("po_id, quantity, unit, received_qty, received_at")
+    .in(
+      "po_id",
+      pos.map((p) => p.id),
+    );
+  const byPo = new Map<
+    string,
+    {
+      quantity: number | null;
+      unit: string | null;
+      received_qty: number | null;
+      received_at: string | null;
+    }[]
+  >();
+  for (const row of itemRows ?? []) {
+    const poId = row.po_id as string;
+    const arr = byPo.get(poId) ?? [];
+    arr.push({
+      quantity: row.quantity == null ? null : Number(row.quantity),
+      unit: (row.unit as string | null) ?? null,
+      received_qty: row.received_qty == null ? null : Number(row.received_qty),
+      received_at: (row.received_at as string | null) ?? null,
+    });
+    byPo.set(poId, arr);
+  }
+  return pos.map((p) => ({ ...p, items: byPo.get(p.id) ?? [] }));
 }

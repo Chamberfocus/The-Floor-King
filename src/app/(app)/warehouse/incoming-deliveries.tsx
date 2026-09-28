@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Truck, PackageCheck, AlertTriangle, ChevronDown, Undo2 } from "lucide-react";
@@ -54,6 +54,7 @@ function PoCard({ po }: { po: IncomingPo }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [saving, start] = useTransition();
+  const receiveLock = useRef(false);
   // Pre-filled with what was ordered — the common case is that it all arrived,
   // and typing the same number 12 times is how checking stops happening.
   const [counts, setCounts] = useState<Record<string, string>>(() =>
@@ -81,8 +82,11 @@ function PoCard({ po }: { po: IncomingPo }) {
   const shortUnits = po.items.map((i) => (i.unit || "").trim());
   const mixedShort = new Set(shortUnits).size > 1;
 
-  const submit = () =>
+  const submit = () => {
+    if (receiveLock.current) return;
+    receiveLock.current = true;
     start(async () => {
+      try {
       const res = await receivePoLines({
         poId: po.id,
         lines: po.items.map((i) => ({
@@ -100,11 +104,15 @@ function PoCard({ po }: { po: IncomingPo }) {
       // Hard-surface warehouse incoming Short leftover planted toast mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
       toast.success(
         res.fullyReceived
-          ? "All received — the job's materials are marked arrived"
+          ? "Purchase order received. The job is not warehouse-ready until the warehouse confirms it."
           : mixedShort ? "Checked in. Still outstanding." : `Checked in. ${(res.short ?? 0).toFixed(2)} still outstanding.`,
       );
       router.refresh();
+      } finally {
+        receiveLock.current = false;
+      }
     });
+  };
 
   const undo = (itemId: string) =>
     start(async () => {
@@ -267,6 +275,12 @@ function PoCard({ po }: { po: IncomingPo }) {
                         <label className="mb-1 block text-xs text-muted-foreground">
                           Arrived
                         </label>
+                        <p className="mb-1 max-w-40 text-xs text-muted-foreground">
+                          Ordered: {ordered} {i.unit || "units"}
+                          {i.received_at
+                            ? ` · Previously received: ${Number(i.received_qty ?? 0)} ${i.unit || "units"} · Remaining: ${Math.max(ordered - Number(i.received_qty ?? 0), 0)} ${i.unit || "units"}`
+                            : " · Not checked in yet"}
+                        </p>
                         <Input
                           inputMode="decimal"
                           value={counts[i.id] ?? ""}
@@ -375,8 +389,8 @@ function PoCard({ po }: { po: IncomingPo }) {
               {po.items.every(
                 (i) => Math.abs(num(counts[i.id] ?? "0") - Number(i.quantity ?? 0)) <= 0.005,
               )
-                ? "Everything matches — this marks the PO received and the job's materials arrived."
-                : "Something doesn't match — the PO stays open and flags as backordered."}
+                ? "A full count marks this purchase order received. It does not email the supplier, and it does not mark the job warehouse-ready."
+                : "A short count stays partial. The purchase order is not marked fully received."}
             </span>
           </div>
         </div>
@@ -410,9 +424,8 @@ export function IncomingDeliveries({ pos }: { pos: IncomingPo[] }) {
           <AlertTriangle className="size-4 text-amber-600" />
           <span>
             <strong>{problems.length}</strong>{" "}
-            {problems.length === 1 ? "delivery came" : "deliveries came"} in short
-            or wrong — the office needs to chase{" "}
-            {problems.length === 1 ? "it" : "them"}.
+            {problems.length === 1 ? "purchase order is" : "purchase orders are"} marked
+            backordered.
           </span>
         </div>
       ) : null}

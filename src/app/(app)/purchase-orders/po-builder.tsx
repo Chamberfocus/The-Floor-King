@@ -85,6 +85,7 @@ export function PoBuilder({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const saveLock = useRef(false);
   const keyCounter = useRef(0);
   const newKey = () => `i${keyCounter.current++}`;
 
@@ -378,6 +379,11 @@ export function PoBuilder({
 
   const save = (opts: { stash?: boolean } = {}) =>
     new Promise<void>((resolve) => {
+      if (saveLock.current) {
+        resolve();
+        return;
+      }
+      saveLock.current = true;
       startTransition(async () => {
         try {
           const input: SavePoInput = {
@@ -415,6 +421,7 @@ export function PoBuilder({
           if (opts.stash) router.push("/saved");
           else router.refresh();
         } finally {
+          saveLock.current = false;
           resolve();
         }
       });
@@ -578,6 +585,9 @@ export function PoBuilder({
               value={etaDate}
               onChange={(e) => setEtaDate(e.target.value)}
             />
+            {!etaDate && (status === "draft" || status === "ordered") ? (
+              <p className="text-xs text-muted-foreground">ETA not entered</p>
+            ) : null}
           </div>
         </CardContent>
       </Card>
@@ -923,9 +933,9 @@ export function PoBuilder({
               }
               description={
                 status === "received"
-                  ? "Receiving adds the ordered quantities into on-hand inventory and moves the customer to Materials Received. Only do this once the material is physically in."
+                  ? "This records the purchase order as received in Floor King and updates on-hand inventory. It does not mark the job warehouse-ready. The warehouse still confirms that separately."
                   : status === "ordered"
-                    ? "This emails the customer that their materials are on order and posts an update to their portal."
+                    ? "This records the purchase order as ordered in Floor King. It does not email or send the order to the supplier. If this PO has a customer, that customer is notified in the portal."
                     : "Cancelling stops this order. Any stock it had received will be reversed."
               }
               confirmLabel={

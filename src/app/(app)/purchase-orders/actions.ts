@@ -9,6 +9,7 @@ import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import { extractOrderDocument, type ExtractedDoc } from "@/lib/extract";
 import { reconcilePoStock } from "@/lib/po-stock";
 import { poVoidIdempotencyKey } from "@/lib/po-void";
+import { employeePoError } from "@/lib/po-facts";
 import { assertRole } from "@/lib/auth";
 import { advanceToNamedStage } from "@/lib/workflow-engine";
 
@@ -845,7 +846,7 @@ export async function savePurchaseOrder(
       backordered: input.backordered,
     })
     .eq("id", poId);
-  if (updateError) return { error: updateError.message };
+  if (updateError) return { error: employeePoError(updateError.message) };
 
   // Newly backordered → alert the whole team + warehouse + the customer.
   if (input.backordered && !before?.backordered) {
@@ -910,7 +911,7 @@ export async function savePurchaseOrder(
         );
         ({ error: insertError } = await supabase.from("po_items").insert(legacy));
       }
-      if (insertError) return { error: insertError.message };
+      if (insertError) return { error: employeePoError(insertError.message) };
     }
     if (oldIds.length) {
       await supabase.from("po_items").delete().in("id", oldIds);

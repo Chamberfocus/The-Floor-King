@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { assertRole } from "@/lib/auth";
 import { applyPoStatus, notifyBackordered } from "@/app/(app)/purchase-orders/actions";
 import { applyPoLineReceiptDelta } from "@/lib/po-stock";
+import { employeeReceiptError } from "@/lib/po-facts";
 
 const RECEIVERS = ["admin", "office", "warehouse"] as const;
 
@@ -98,10 +99,9 @@ export async function receivePoLines(input: {
         });
       } catch (e) {
         return {
-          error:
-            e instanceof Error
-              ? e.message
-              : "Could not post inventory for this receipt.",
+          error: employeeReceiptError(
+            e instanceof Error ? e.message : "This receipt could not be recorded. Try again.",
+          ),
         };
       }
     }
@@ -163,10 +163,9 @@ export async function receivePoLines(input: {
       await applyPoStatus(db, input.poId, "received");
     } catch (e) {
       return {
-        error:
-          e instanceof Error
-            ? e.message.replace(/^PO_SUPPLIER_REQUIRED:\s*/, "")
-            : "Could not mark this PO received.",
+        error: employeeReceiptError(
+          e instanceof Error ? e.message : "This receipt could not be recorded. Try again.",
+        ),
       };
     }
   }

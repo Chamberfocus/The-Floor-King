@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { WorkQueueBar, WorkQueuePager } from "@/components/work-queue-bar";
 import { listJobsQueue, listJobsOnDate, countInstallJobs, listAssignableUsers, claimRequestCounts } from "@/lib/data/jobs";
+import { listJobProcurementFacts, type JobProcurementCard } from "@/lib/data/job-material-queue";
 import { requireProfile } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { shopTodayYmd } from "@/lib/job-snapshot";
@@ -93,6 +94,13 @@ export default async function JobsPage({
   ]);
 
   const jobs = queue.rows;
+  const procurement =
+    !todayOnly && view === "material" && jobs.length
+      ? await listJobProcurementFacts(
+          jobs.map((job) => job.id),
+          { includeSupplier: !isCrew },
+        ).catch(() => new Map<string, JobProcurementCard>())
+      : new Map<string, JobProcurementCard>();
   const nameById = new Map(users.map((u) => [u.id, u.name]));
   const pages = Math.max(1, Math.ceil(queue.total / queue.pageSize));
 
@@ -251,6 +259,12 @@ export default async function JobsPage({
           }
         />
       ) : (
+        <>
+        {view === "material" && !todayOnly ? (
+          <p className="mb-2 text-sm text-muted-foreground">
+            These jobs have material and are not warehouse-ready. A purchase order, including a received one, does not make the job ready.
+          </p>
+        ) : null}
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
           {jobs.map((j) => {
             const fact = jobQueueFact({
@@ -298,10 +312,23 @@ export default async function JobsPage({
                   ) : null}
                 </div>
                 <p className="mt-2 text-xs font-medium text-muted-foreground">{fact}</p>
+                {view === "material" && procurement.get(j.id) ? (
+                  <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                    {procurement.get(j.id)!.lines.map((line, index) => (
+                      <p key={`${j.id}-line-${index}`}>{line.text}</p>
+                    ))}
+                    {procurement.get(j.id)!.pos.map((po, index) => (
+                      <p key={`${j.id}-po-${index}`} className="font-medium text-foreground">
+                        {po.text}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
               </Link>
             );
           })}
         </div>
+        </>
       )}
 
       <WorkQueuePager page={queue.page} pages={pages} hrefFor={(page) => jobHref({ page })} />

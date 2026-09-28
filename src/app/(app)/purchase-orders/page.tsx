@@ -27,6 +27,7 @@ import {
 } from "@/lib/work-queues";
 import { deletePurchaseOrder } from "./actions";
 import { poTotal } from "@/lib/po-calc";
+import { poAttentionFact, poEtaMissing, poItemScan } from "@/lib/po-facts";
 import { QUEUE_LIST_UNAVAILABLE, queueFailureMessage } from "@/lib/ops-scale";
 import {
   PO_SOURCE_BADGE,
@@ -55,6 +56,7 @@ function SourceBadge({ source }: { source: PoSourceType | null }) {
 
 const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "open", label: "Open" },
+  { value: "draft", label: "Not ordered" },
   { value: "ordered", label: "Ordered" },
   { value: "received", label: "Received" },
   { value: "all", label: "All" },
@@ -120,7 +122,7 @@ export default async function PurchaseOrdersPage({
     <div>
       <PageHeader
         title="Purchase Orders"
-        description="Material orders for your jobs — grouped by where they come from. Generate one from an approved estimate or a customer's file."
+        description="Drafts still to place, orders out with a vendor, and what has been received. Stock replenishment stays on Inventory. Marking a PO ordered records it here — it does not email the supplier."
       />
 
       <form action="/purchase-orders" method="get" className="mb-3 flex flex-col gap-2 sm:flex-row">
@@ -129,7 +131,7 @@ export default async function PurchaseOrdersPage({
         <input
           name="q"
           defaultValue={q}
-          placeholder="Search PO number, vendor, or customer"
+          placeholder="PO number, vendor, or customer"
           aria-label="Search purchase orders"
           className="h-11 min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 text-sm"
         />
@@ -139,6 +141,8 @@ export default async function PurchaseOrdersPage({
       </form>
       <p className="mb-3 text-sm text-muted-foreground">
         {listError ?? resultCountLabel(pos.length, queue.total, "purchase order")}
+        {" "}
+        Search matches PO number, vendor, and customer. Partial receipt and backorder show on each order. They are not separate paged filters.
       </p>
 
       {queue.total > 0 || q || status !== "open" || source !== "all" ? (
@@ -193,10 +197,21 @@ export default async function PurchaseOrdersPage({
                       </span>
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      {(po.items ?? []).length} item
-                      {(po.items ?? []).length === 1 ? "" : "s"}
-                      {po.customer_name ? ` · ${po.customer_name}` : ""}
+                      {po.customer_name || "No customer"}
+                      {po.job_title || po.job_city
+                        ? ` · ${[po.job_title, po.job_city].filter(Boolean).join(", ")}`
+                        : ""}
                     </div>
+                    <div className="mt-1 text-xs text-foreground">
+                      {poAttentionFact(po)}
+                      {po.eta_date ? ` · ETA ${formatDate(po.eta_date)}` : ""}
+                      {poEtaMissing(po) ? " · ETA not entered" : ""}
+                    </div>
+                    {(po.items ?? []).slice(0, 2).map((item) => (
+                      <div key={item.id} className="truncate text-xs text-muted-foreground">
+                        {poItemScan(item)}
+                      </div>
+                    ))}
                   </Link>
                   <div className="flex shrink-0 flex-col items-end gap-1">
                     <PoStatusBadge status={po.status} />
@@ -242,8 +257,10 @@ export default async function PurchaseOrdersPage({
                   <TableHead>PO #</TableHead>
                   <TableHead>Vendor</TableHead>
                   <TableHead>Source</TableHead>
-                  <TableHead>Customer</TableHead>
+                  <TableHead>Job</TableHead>
+                  <TableHead>Material</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>ETA</TableHead>
                   <TableHead className="text-right">Total cost</TableHead>
                   <TableHead className="text-right">Created</TableHead>
                   <TableHead className="w-10"></TableHead>
@@ -273,10 +290,35 @@ export default async function PurchaseOrdersPage({
                       <SourceBadge source={po.source_type} />
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {po.customer_name ?? "—"}
+                      <div>{po.customer_name ?? "—"}</div>
+                      {po.job_id ? (
+                        <Link href={`/jobs/${po.job_id}`} className="text-xs hover:underline">
+                          {[po.job_title, po.job_city].filter(Boolean).join(" · ") || "Job"}
+                        </Link>
+                      ) : (
+                        <div className="text-xs">No job</div>
+                      )}
+                    </TableCell>
+                    <TableCell className="max-w-56 text-xs text-muted-foreground">
+                      {(po.items ?? []).slice(0, 2).map((item) => (
+                        <div key={item.id} className="truncate">
+                          {poItemScan(item)}
+                        </div>
+                      ))}
+                      {(po.items ?? []).length > 2 ? (
+                        <div>+{(po.items ?? []).length - 2} more</div>
+                      ) : null}
                     </TableCell>
                     <TableCell>
+                      <div className="mb-1 text-xs font-medium">{poAttentionFact(po)}</div>
                       <PoStatusBadge status={po.status} />
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {po.eta_date
+                        ? formatDate(po.eta_date)
+                        : poEtaMissing(po)
+                          ? "ETA not entered"
+                          : "—"}
                     </TableCell>
                     <TableCell className="text-right font-medium">
                       {formatMoney(poTotal(po.items ?? []))}
