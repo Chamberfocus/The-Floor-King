@@ -27,9 +27,6 @@ export interface JobSnapshot {
   fact: string;
 }
 
-const RECEIVED = new Set(["received", "closed"]);
-const ORDERED = new Set(["ordered", "draft"]);
-
 function push(chips: string[], label: string) {
   if (!chips.includes(label)) chips.push(label);
 }
@@ -46,19 +43,9 @@ export function flooringJobSnapshot(input: JobSnapshotInput): JobSnapshot {
   const chips: string[] = [];
   if (input.onHold) push(chips, "On hold");
 
-  const orders = (input.purchaseOrders ?? []).filter(
-    (row) => row.status !== "void" && row.status !== "cancelled",
-  );
+  // A missing warehouse-ready mark blocks scheduling. A purchase order does not.
   if (input.hasMaterialNeed) {
-    if (materials.ready) {
-      push(chips, "Material received");
-    } else if (orders.some((row) => row.status && RECEIVED.has(row.status))) {
-      push(chips, "Material received");
-    } else if (orders.some((row) => row.status && ORDERED.has(row.status))) {
-      push(chips, "Material ordered");
-    } else {
-      push(chips, "Waiting for material");
-    }
+    push(chips, materials.ready ? "Materials ready" : "Materials are not ready.");
   }
 
   const day = input.scheduledDate ? input.scheduledDate.slice(0, 10) : "";
@@ -77,6 +64,10 @@ export function flooringJobSnapshot(input: JobSnapshotInput): JobSnapshot {
   const balance = input.openBalance;
   if (balance != null && balance > 0.005) push(chips, "Balance due");
 
+  if (!input.hasMaterialNeed && input.status !== "completed" && input.status !== "cancelled") {
+    push(chips, "No material required");
+  }
+
   return { chips, fact: snapshotFact(input, materials.ready) };
 }
 
@@ -90,8 +81,9 @@ function snapshotFact(input: JobSnapshotInput, materialsReady: boolean): string 
   const day = input.scheduledDate ? input.scheduledDate.slice(0, 10) : "";
   if (day && day === input.todayYmd) return "This install is on today's schedule.";
   if (input.status === "scheduled" || !!day) return "The install is booked.";
-  if (input.hasMaterialNeed && !materialsReady) return "Material isn't ready yet.";
-  if (materialsReady) return "The install is not booked yet.";
+  if (input.hasMaterialNeed && !materialsReady) return "Materials are not ready.";
+  if (!input.hasMaterialNeed) return "No material is required for scheduling.";
+  if (materialsReady) return "Materials ready.";
   return "This job is open.";
 }
 

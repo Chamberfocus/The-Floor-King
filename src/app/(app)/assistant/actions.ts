@@ -10,6 +10,7 @@ import { ROLE_LABELS } from "@/lib/types";
 import { setJobStatus, enforceMaterialsReadyForSchedule } from "@/app/(app)/jobs/actions";
 import {
   isScheduleRpcUnavailable,
+  employeeScheduleError,
   SCHEDULE_UNAVAILABLE_MESSAGE,
 } from "@/lib/scheduling-conflicts";
 import { addActivity } from "@/app/(app)/customers/actions";
@@ -346,7 +347,7 @@ export async function runAssistantAction(
           message:
             body.code === "SCHEDULE_CONFLICT"
               ? "That installer or crew is already booked on overlapping dates."
-              : body.error || "That date could not be booked.",
+              : employeeScheduleError(body.error || "That date could not be booked."),
         };
       }
       revalidatePath(`/jobs/${safe.jobId}`);

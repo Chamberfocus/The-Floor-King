@@ -162,6 +162,7 @@ import {
   depositOnFileFromSummary,
 } from "@/lib/record-action-center";
 import { assessMaterialsReadyForSchedule } from "@/lib/materials-ready";
+import { employeeScheduleError } from "@/lib/scheduling-conflicts";
 
 export async function generateMetadata({
   params,
@@ -767,7 +768,7 @@ export default async function CustomerPage({
           role="alert"
           className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
         >
-          {scheduleError}
+          {employeeScheduleError(scheduleError)}
         </div>
       ) : null}
       {invoiceError ? (

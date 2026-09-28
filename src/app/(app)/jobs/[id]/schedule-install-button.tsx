@@ -29,7 +29,7 @@ export function ScheduleInstallButton({
       <Button
         type="button"
         variant={scheduled ? "outline" : "default"}
-        className="w-full sm:w-auto"
+        className="min-h-11 w-full sm:w-auto"
         onClick={() => setOpen(true)}
       >
         <CalendarClock className="size-4" />

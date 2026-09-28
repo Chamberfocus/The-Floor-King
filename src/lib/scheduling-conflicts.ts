@@ -9,6 +9,33 @@
 export const SCHEDULE_UNAVAILABLE_MESSAGE =
   "Scheduling is temporarily unavailable. Please try again or contact an administrator.";
 
+export const SCHEDULE_MATERIALS_BLOCKED =
+  "This job cannot be scheduled until its materials are ready.";
+
+export const SCHEDULE_FAILED_MESSAGE =
+  "This installation could not be scheduled. Try again.";
+
+/** Employee-facing schedule failure. Database and RPC text stays off the screen. */
+export function employeeScheduleError(raw: string | null | undefined): string {
+  const msg = (raw ?? "").trim();
+  if (!msg) return SCHEDULE_FAILED_MESSAGE;
+  if (
+    /warehouse-ready/i.test(msg) ||
+    /materials are not ready/i.test(msg) ||
+    /required material has not been received/i.test(msg)
+  ) {
+    return SCHEDULE_MATERIALS_BLOCKED;
+  }
+  if (
+    isScheduleRpcUnavailable({ message: msg }) ||
+    /sqlstate|postgres|pgrst|syntax error|violates|duplicate key/i.test(msg)
+  ) {
+    return SCHEDULE_FAILED_MESSAGE;
+  }
+  if (msg.length > 240) return SCHEDULE_FAILED_MESSAGE;
+  return msg;
+}
+
 /** PostgREST / Postgres signals that schedule_job_install_safe is not callable. */
 export function isScheduleRpcUnavailable(error: {
   message?: string | null;

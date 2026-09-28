@@ -1140,10 +1140,10 @@ export const WAREHOUSE_STATUS_BADGE: Record<WarehouseStatus, string> = {
 };
 
 export const JOB_STATUS_LABELS: Record<JobStatus, string> = {
-  unscheduled: "Unscheduled",
+  unscheduled: "Not scheduled",
   scheduled: "Scheduled",
-  in_progress: "In Progress",
-  completed: "Completed",
+  in_progress: "Installing",
+  completed: "Installed",
   cancelled: "Cancelled",
 };
 

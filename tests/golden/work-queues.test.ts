@@ -118,7 +118,7 @@ describe("job list facts are not instructions and do not leak money", () => {
       hasMaterialNeed: true,
       purchaseOrders: [],
     });
-    expect(fact).toContain("Waiting for material");
+    expect(fact).toContain("Materials are not ready.");
     expect(fact).not.toContain("Ready to schedule");
   });
 

@@ -19,7 +19,7 @@ export function JobAttentionStrip({
   canManageHold: boolean;
 }) {
   const waiting = snapshot.chips.some((chip) =>
-    chip === "Waiting for material" || chip === "Material ordered" || chip === "On hold" || chip === "Service needed",
+    chip === "Materials are not ready." || chip === "On hold" || chip === "Service needed",
   );
 
   return (

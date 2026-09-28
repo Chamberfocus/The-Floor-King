@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { CheckCircle2, PackageCheck, ClipboardCheck } from "lucide-react";
@@ -31,6 +31,7 @@ export function WarehouseJobActions({
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  const busy = useRef(false);
   const [acceptOpen, setAcceptOpen] = useState(false);
   const [completeOpen, setCompleteOpen] = useState(false);
   const [ack, setAck] = useState(false);
@@ -41,38 +42,57 @@ export function WarehouseJobActions({
   const accepted = !!job.warehouse_accepted_at;
   const ready = !!job.warehouse_ready_at;
 
-  const doAccept = () =>
+  const doAccept = () => {
+    if (busy.current || pending) return;
+    busy.current = true;
     start(async () => {
-      const fd = new FormData();
-      fd.set("job_id", job.id);
-      fd.set("ack", ack ? "on" : "");
-      await acceptWarehouseJob(fd);
-      setAcceptOpen(false);
-      setAck(false);
-      toast.success("Job accepted — get it staged");
-      router.refresh();
+      try {
+        const fd = new FormData();
+        fd.set("job_id", job.id);
+        fd.set("ack", ack ? "on" : "");
+        await acceptWarehouseJob(fd);
+        setAcceptOpen(false);
+        setAck(false);
+        toast.success("Job accepted — get it staged");
+        router.refresh();
+      } finally {
+        busy.current = false;
+      }
     });
+  };
 
-  const doComplete = () =>
+  const doComplete = () => {
+    if (busy.current || pending) return;
+    if (!location.trim()) {
+      toast.error("Enter where it's staged.");
+      return;
+    }
+    busy.current = true;
     start(async () => {
-      if (!location.trim()) {
-        toast.error("Enter where it's staged.");
-        return;
+      try {
+        const fd = new FormData();
+        fd.set("id", job.id);
+        fd.set("staging_location", location.trim());
+        if (overrideReason.trim()) fd.set("override_reason", overrideReason.trim());
+        const res = await completeWarehouseJob(fd);
+        if (res?.error) {
+          const technical = /sqlstate|postgres|pgrst|violates|duplicate key/i.test(res.error);
+          toast.error(
+            technical
+              ? "This job's material could not be marked ready. Try again."
+              : res.error,
+          );
+          return;
+        }
+        setCompleteOpen(false);
+        setOverrideReason("");
+        toast.success("Materials are ready for installation");
+        router.refresh();
+      } finally {
+        busy.current = false;
       }
-      const fd = new FormData();
-      fd.set("id", job.id);
-      fd.set("staging_location", location.trim());
-      if (overrideReason.trim()) fd.set("override_reason", overrideReason.trim());
-      const res = await completeWarehouseJob(fd);
-      if (res?.error) {
-        toast.error(res.error);
-        return;
-      }
-      setCompleteOpen(false);
-      setOverrideReason("");
-      toast.success("Staged and marked ready");
-      router.refresh();
     });
+  };
 
   // ---- Ready ----------------------------------------------------------------
   if (ready) {
@@ -80,7 +100,7 @@ export function WarehouseJobActions({
       <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-sm dark:border-emerald-900/50 dark:bg-emerald-950/20">
         <CheckCircle2 className="size-4 text-emerald-600" />
         <span className="font-medium text-emerald-800 dark:text-emerald-300">
-          Staged &amp; ready
+          Materials ready for installation
         </span>
         {job.staging_location ? (
           <span className="text-muted-foreground">· at {job.staging_location}</span>
@@ -107,19 +127,18 @@ export function WarehouseJobActions({
           <ClipboardCheck className="size-4 text-sky-600" />
           Accepted{job.warehouse_assignee_name ? ` by ${job.warehouse_assignee_name}` : ""} — prep in progress
         </div>
-        <Button size="sm" className="min-h-11" onClick={() => setCompleteOpen(true)}>
-          <PackageCheck className="size-3.5" /> Mark staged &amp; notify
+        <Button size="sm" className="min-h-11 h-auto whitespace-normal text-left" disabled={pending} onClick={() => setCompleteOpen(true)}>
+          <PackageCheck className="size-3.5" /> Materials are ready for installation
         </Button>
 
         <Dialog open={completeOpen} onOpenChange={setCompleteOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Staged &amp; ready</DialogTitle>
+              <DialogTitle>Materials are ready for installation</DialogTitle>
               <DialogDescription>
-                Where is it staged? The installer, salesperson and admin get
-                notified it&apos;s ready (and where), and the customer gets a
-                brief heads-up. If a required PO has not been received yet, add
-                an override reason (e.g. staged from existing stock).
+                This marks the job&apos;s material ready to schedule. Say where it
+                is staged. If a required order has not been received yet, add an
+                override reason, such as stock already in the warehouse.
               </DialogDescription>
             </DialogHeader>
             <div>
@@ -152,8 +171,8 @@ export function WarehouseJobActions({
               >
                 Cancel
               </Button>
-              <Button type="button" disabled={pending} onClick={doComplete}>
-                {pending ? "Saving…" : "Mark ready & notify"}
+              <Button type="button" className="min-h-11 h-auto whitespace-normal" disabled={pending} onClick={doComplete}>
+                {pending ? "Saving…" : "Materials are ready for installation"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -165,7 +184,7 @@ export function WarehouseJobActions({
   // ---- Submitted, needs acceptance -----------------------------------------
   return (
     <div>
-      <Button size="sm" className="min-h-11" onClick={() => setAcceptOpen(true)}>
+      <Button size="sm" className="min-h-11" disabled={pending} onClick={() => setAcceptOpen(true)}>
         <ClipboardCheck className="size-3.5" /> Accept &amp; prep
       </Button>
 
