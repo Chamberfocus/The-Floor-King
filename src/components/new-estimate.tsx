@@ -176,8 +176,8 @@ export function NewEstimate({
           <DialogHeader>
             <DialogTitle>New estimate</DialogTitle>
             <DialogDescription>
-              All three build the same estimate underneath — pick whichever suits
-              the job in front of you.
+              This estimate stays on this customer. Pick how you want to build it.
+              You will not search for the customer again.
             </DialogDescription>
           </DialogHeader>
 

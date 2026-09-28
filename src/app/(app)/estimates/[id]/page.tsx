@@ -35,6 +35,11 @@ import {
   LEGACY_APPROVAL_UNAVAILABLE_MESSAGE,
   legacyApprovalSnapshotUnavailable,
 } from "@/lib/estimate-approval";
+import {
+  EMAIL_FAILED_NOT_SENT,
+  STALE_APPROVAL_CHARGES,
+  approvedJobHandoff,
+} from "@/lib/estimate-workflow";
 import { getCustomer } from "@/lib/data/customers";
 import { getOrgSettings } from "@/lib/data/org";
 import { getBusinessSettings } from "@/lib/data/business-settings";
@@ -354,7 +359,8 @@ export default async function EstimatePage({
         ) : null}
         {notify === "failed" ? (
           <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-            Estimate was updated, but the email failed: {notifyDetail || "send failed."}
+            {EMAIL_FAILED_NOT_SENT}
+            {notifyDetail ? ` ${notifyDetail}` : ""}
           </p>
         ) : null}
         {notify === "not_attempted" ? (
@@ -381,7 +387,7 @@ export default async function EstimatePage({
         {estimate.approval_stale ||
         (estimate.status === "sent" && approvalSnap) ? (
           <p className="rounded-md border border-sky-300 bg-sky-50 p-3 text-sm text-sky-950 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
-            {ESTIMATE_CHANGED_AFTER_APPROVAL_MESSAGE}
+            {ESTIMATE_CHANGED_AFTER_APPROVAL_MESSAGE} {STALE_APPROVAL_CHARGES}
             {approvalSnap
               ? ` The approved total was ${formatMoney(approvalSnap.payload.total)}.`
               : ""}
@@ -393,36 +399,45 @@ export default async function EstimatePage({
         <RecordActionCenter model={estimateAction} />
       </div>
 
-      {/* Next steps — the obvious "what now", tuned to where the estimate is */}
+      {/* Factual status and the existing job, send, and invoice buttons. */}
       <Card id="estimate-next" className="mb-6 border-primary/40 print:hidden">
         <CardContent className="pt-6">
           {estimate.status === "approved" && estimate.approval_stale ? (
             <p className="text-sm text-muted-foreground">
-              This approval is out of date. Follow the action above. A new job
-              or invoice is not created from a stale approval.
+              This estimate changed after approval. {STALE_APPROVAL_CHARGES} A new
+              job or invoice is not created from a stale approval.
             </p>
           ) : estimate.status === "approved" ? (
             <>
-              <div className="mb-1 font-semibold">Next steps</div>
+              <div className="mb-1 font-semibold">Approved</div>
               <p className="mb-4 text-sm text-muted-foreground">
-                Job materials and work order use the job&apos;s operational scope
-                after the job exists — editing this estimate later does not
-                rewrite them. Create a job, order materials, or raise an invoice
-                from the current commercial record when ready.
+                {linked
+                  ? "A job is already on this estimate. Open that job. Editing this estimate later does not rewrite the job, purchase orders, or invoices."
+                  : "No job is on this estimate yet. Creating one uses this approved estimate. Editing the estimate later does not rewrite the job, purchase orders, or invoices."}
               </p>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                {approvedJobHandoff(!!linked).mode === "open" && linked ? (
+                  <Button
+                    size="lg"
+                    className="w-full"
+                    render={<Link href={`/jobs/${linked.id}`} />}
+                  >
+                    <Wrench className="size-4" /> {approvedJobHandoff(!!linked).label}
+                  </Button>
+                ) : (
                 <form action={createJobFromEstimate}>
                   <input type="hidden" name="estimate_id" value={estimate.id} />
                   <ConfirmButton
                     size="lg"
                     className="w-full"
                     title="Create a job from this estimate?"
-                    description="Builds a work order from this estimate's scope, labor, and materials."
+                    description="Builds one work order from this approved estimate. If a job already exists, that job is opened."
                     confirmLabel="Create job"
                   >
-                    <Wrench className="size-4" /> Create job
+                    <Wrench className="size-4" /> {approvedJobHandoff(false).label}
                   </ConfirmButton>
                 </form>
+                )}
                 <Button
                   variant="outline"
                   size="lg"
