@@ -239,7 +239,7 @@ describe("Phase A active navigation", () => {
       ["/estimates", "sales"],
       ["/estimates/1/edit", "sales"],
       ["/client-status", "sales"],
-      ["/orders", "sales"],
+      ["/orders", "inventory"],
       ["/samples", "sales"],
       ["/jobs", "jobs"],
       ["/jobs/new", "jobs"],

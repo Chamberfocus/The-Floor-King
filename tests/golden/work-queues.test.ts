@@ -81,7 +81,7 @@ describe("work queue filters follow canonical facts", () => {
     expect(serviceStatusesForView("all")).toBeNull();
     expect(serviceQueueStatusLabel("open")).toBe("Service open");
     expect(serviceQueueStatusLabel("resolved")).toBe("Completed");
-    expect(serviceQueueEmpty("open", false)).toBe("No open service calls.");
+    expect(serviceQueueEmpty("open", false)).toBe("No service calls are open.");
   });
 
   it("keeps a salesperson on their own tasks", () => {

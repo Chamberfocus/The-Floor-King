@@ -1,89 +1,42 @@
 import Link from "next/link";
-import { homeSectionCount, type HomeCenter, type HomeItem, type HomeSection } from "@/lib/home-actions";
+import type { HomeCommandBoard } from "@/lib/data/home-center";
 
-const PRIORITY_LABEL = {
-  urgent: "Urgent",
-  today: "Today",
-  upcoming: "Upcoming",
-} as const;
-
-export function HomeCenterView({ center }: { center: HomeCenter }) {
+export function HomeCenterView({ board }: { board: HomeCommandBoard }) {
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
+    <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">{center.greeting}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          What needs you, what is happening today, and where to go next.
-        </p>
+        <h1 className="text-2xl font-semibold tracking-tight">{board.greeting}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">What needs attention.</p>
       </header>
 
-      {center.caughtUp ? (
-        <p className="rounded-lg border bg-card px-4 py-3 text-sm" role="status">
-          You&apos;re caught up. No urgent items and nothing due today.
+      {board.unavailable ? (
+        <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
+          This list is temporarily unavailable. Please try again.
         </p>
       ) : null}
 
-      {center.sections.map((section) => (
-        <HomeSectionBlock key={section.id} section={section} count={homeSectionCount(center, section.id)} />
-      ))}
-    </div>
-  );
-}
-
-function HomeSectionBlock({ section, count }: { section: HomeSection; count: number }) {
-  return (
-    <section aria-labelledby={`home-${section.id}`}>
-      <div className="mb-3 flex items-baseline justify-between gap-3">
-        <h2 id={`home-${section.id}`} className="text-lg font-semibold">
-          {section.label}
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          {section.label} {count}
-          {count > section.items.length ? ` · Showing ${section.items.length} of ${count}` : ""}
+      {board.items.length === 0 && !board.unavailable ? (
+        <p role="status" className="rounded-lg border bg-card px-4 py-3 text-sm">
+          Nothing is waiting right now.
         </p>
-      </div>
-      <ul className="flex flex-col gap-3">
-        {section.items.map((item) => (
-          <li key={item.id}>
-            <HomeCard item={item} />
+      ) : (
+        <ul className="flex flex-col gap-2" aria-labelledby="home-work-heading">
+          <li className="sr-only">
+            <h2 id="home-work-heading">Work that needs attention</h2>
           </li>
-        ))}
-      </ul>
-      {section.viewAllHref ? (
-        <p className="mt-3">
-          <Link href={section.viewAllHref} className="text-sm font-medium underline-offset-4 hover:underline">
-            View all {count}
-          </Link>
-        </p>
-      ) : null}
-    </section>
-  );
-}
-
-function HomeCard({ item }: { item: HomeItem }) {
-  return (
-    <article className="rounded-xl border bg-card p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            {PRIORITY_LABEL[item.priority]}
-          </p>
-          <h3 className="mt-1 text-base font-semibold">{item.title}</h3>
-          <p className="mt-1 text-sm">{item.why}</p>
-          {item.subject ? <p className="mt-2 text-sm font-medium">{item.subject}</p> : null}
-          {item.meta ? <p className="text-sm text-muted-foreground">{item.meta}</p> : null}
-          {item.owner ? <p className="text-sm text-muted-foreground">{item.owner}</p> : null}
-          {item.next ? <p className="mt-2 text-sm text-muted-foreground">Next: {item.next}</p> : null}
-        </div>
-        {item.action && item.href ? (
-          <Link
-            href={item.href}
-            className="inline-flex min-h-11 shrink-0 items-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {item.action}
-          </Link>
-        ) : null}
-      </div>
-    </article>
+          {board.items.map((item) => (
+            <li key={item.id}>
+              <Link
+                href={item.href}
+                className="flex min-h-11 items-center justify-between gap-3 rounded-lg border bg-card px-4 py-3 text-base font-medium hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <span className="min-w-0">{item.text}</span>
+                <span className="shrink-0 tabular-nums text-muted-foreground">{item.count}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

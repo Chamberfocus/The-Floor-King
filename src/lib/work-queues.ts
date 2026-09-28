@@ -209,7 +209,7 @@ export function poQueueEmpty(view: PoQueueView, searching: boolean): string {
 
 export function serviceQueueEmpty(view: ServiceQueueView, searching: boolean): string {
   if (searching) return "No service calls match that search.";
-  if (view === "open") return "No open service calls.";
+  if (view === "open") return "No service calls are open.";
   if (view === "scheduled") return "No service calls are scheduled.";
   if (view === "completed") return "No completed service calls in this list.";
   return "No service calls yet.";

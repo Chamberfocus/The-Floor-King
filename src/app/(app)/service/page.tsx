@@ -22,7 +22,7 @@ import {
   type ServiceQueueView,
 } from "@/lib/work-queues";
 
-export const metadata: Metadata = { title: "Service / callbacks" };
+export const metadata: Metadata = { title: "Service" };
 export const dynamic = "force-dynamic";
 
 const CHIPS: { view: ServiceQueueView; label: string }[] = [
@@ -76,8 +76,8 @@ export default async function ServicePage({
   return (
     <div>
       <PageHeader
-        title="Service / callbacks"
-        description="Punch-list, warranty, and return-trip issues."
+        title="Service"
+        description="Open issues, return visits, and warranty calls."
       />
       <WorkQueueBar
         action="/service"
@@ -106,6 +106,9 @@ export default async function ServicePage({
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="truncate font-semibold">{r.customer_name || "Customer"}</div>
+                      {r.job_title ? (
+                        <div className="truncate text-sm">{r.job_title}</div>
+                      ) : null}
                       {r.place ? (
                         <div className="truncate text-sm text-muted-foreground">{r.place}</div>
                       ) : null}
@@ -116,7 +119,7 @@ export default async function ServicePage({
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     {serviceQueueKindLabel(r.category)}
-                    {r.follow_up_at ? ` · ${formatDate(r.follow_up_at)}` : ""}
+                    {r.follow_up_at ? ` · Follow-up ${formatDate(r.follow_up_at)}` : " · No follow-up date"}
                   </div>
                   {r.description ? <p className="mt-1 line-clamp-2 text-sm">{r.description}</p> : null}
                 </Link>

@@ -198,6 +198,7 @@ export interface ServiceQueueRow {
   customer_id: string;
   job_id: string | null;
   customer_name: string | null;
+  job_title: string | null;
   place: string | null;
 }
 
@@ -236,7 +237,8 @@ function shapeServiceRows(data: unknown): ServiceQueueRow[] {
       follow_up_at: row.follow_up_at,
       customer_id: row.customer_id,
       job_id: row.job_id,
-      customer_name: customer?.full_name ?? job?.title ?? null,
+      customer_name: customer?.full_name ?? null,
+      job_title: job?.title ?? null,
       place: place || null,
     };
   });

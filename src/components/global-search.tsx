@@ -123,7 +123,7 @@ export function GlobalSearch({
           onKeyDown={onKey}
           id={inputId}
           placeholder="Search name, phone, address, estimate, job…  (/)"
-          aria-label="Search the CRM"
+          aria-label="Search customers, phones, addresses, and jobs"
           autoFocus={autoFocus}
           className="h-11 pl-9"
         />
@@ -179,6 +179,9 @@ export function GlobalSearch({
                             <span className="block truncate font-medium">{hit.title}</span>
                             {hit.subtitle ? (
                               <span className="block truncate text-xs text-muted-foreground">{hit.subtitle}</span>
+                            ) : null}
+                            {hit.detail ? (
+                              <span className="block truncate text-xs text-muted-foreground">{hit.detail}</span>
                             ) : null}
                           </span>
                         </button>

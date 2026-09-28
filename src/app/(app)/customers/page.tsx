@@ -275,7 +275,7 @@ export default async function CustomersPage({
               : "border-destructive/40 text-destructive hover:bg-destructive/10",
           })}
         >
-          <AlertTriangle className="size-4" /> Stuck{stuck ? " ✓" : ""}
+          <AlertTriangle className="size-4" /> Follow-ups due{stuck ? " ✓" : ""}
         </Link>
         {(q || stage || owner || stuck) && (
           <Link
@@ -295,8 +295,10 @@ export default async function CustomersPage({
           title={
             q || stage || owner || stuck
               ? stuck
-                ? "No stuck customers — everyone's on track 🎉"
-                : "No customers match your search"
+                ? "No follow-ups are due."
+                : q
+                  ? "No customers match this search."
+                  : "No customers match these filters."
               : "No customers yet"
           }
           description={

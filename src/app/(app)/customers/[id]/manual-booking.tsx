@@ -126,7 +126,7 @@ export function ManualBooking({
         {!materialsReady ? (
           <div className="w-full sm:w-72">
             <label className="mb-1 block text-xs text-muted-foreground">
-              Materials override reason
+              Why schedule before material is ready?
             </label>
             <input
               name="materials_override_reason"

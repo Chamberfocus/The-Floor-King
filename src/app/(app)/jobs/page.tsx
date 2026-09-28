@@ -6,7 +6,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { WorkQueueBar, WorkQueuePager } from "@/components/work-queue-bar";
-import { listJobsQueue, countInstallJobs, listAssignableUsers, claimRequestCounts } from "@/lib/data/jobs";
+import { listJobsQueue, listJobsOnDate, countInstallJobs, listAssignableUsers, claimRequestCounts } from "@/lib/data/jobs";
 import { requireProfile } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { shopTodayYmd } from "@/lib/job-snapshot";
@@ -40,7 +40,7 @@ const QUEUE_CHIPS: { view: JobQueueView; label: string }[] = [
 export default async function JobsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ who?: string; q?: string; view?: string; page?: string }>;
+  searchParams: Promise<{ who?: string; q?: string; view?: string; page?: string; day?: string }>;
 }) {
   const profile = await requireProfile();
   const sp = await searchParams;
@@ -51,14 +51,24 @@ export default async function JobsPage({
   const mine = jobQueueMine(sp.who, profile.role);
   const defaultView: JobQueueView = profile.role === "scheduler" ? "ready" : "open";
   const todayYmd = shopTodayYmd();
+  const todayOnly = sp.day === "today";
 
-  const loadedQueue = await listJobsQueue({
-    queue: view,
-    search: q,
-    page: parseListPage(sp.page),
-    assignedTo: isCrew ? profile.id : undefined,
-    mineFor: !isCrew && mine ? profile.id : undefined,
-  }).then(
+  const loadedQueue = await (todayOnly
+    ? listJobsOnDate({
+        date: todayYmd,
+        search: q,
+        page: parseListPage(sp.page),
+        assignedTo: isCrew ? profile.id : undefined,
+        mineFor: !isCrew && mine ? profile.id : undefined,
+      })
+    : listJobsQueue({
+        queue: view,
+        search: q,
+        page: parseListPage(sp.page),
+        assignedTo: isCrew ? profile.id : undefined,
+        mineFor: !isCrew && mine ? profile.id : undefined,
+      })
+  ).then(
     (value) => ({ value, listError: null as string | null }),
     (error: unknown) => ({
       value: {
@@ -86,11 +96,18 @@ export default async function JobsPage({
   const nameById = new Map(users.map((u) => [u.id, u.name]));
   const pages = Math.max(1, Math.ceil(queue.total / queue.pageSize));
 
-  const jobHref = (next: { view?: JobQueueView; who?: "mine" | "all"; page?: number }) => {
+  const jobHref = (next: {
+    view?: JobQueueView;
+    who?: "mine" | "all";
+    page?: number;
+    day?: "today" | null;
+  }) => {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
-    const v = next.view ?? view;
+    const v = next.view ?? (todayOnly ? "scheduled" : view);
     if (v !== defaultView) params.set("view", v);
+    const day = next.day === null ? undefined : (next.day ?? (todayOnly ? "today" : undefined));
+    if (day) params.set("day", "today");
     if (!isCrew) {
       const who = next.who ?? (mine ? "mine" : "all");
       if (who === "mine") params.set("who", "mine");
@@ -127,8 +144,8 @@ export default async function JobsPage({
       );
     }
     return (
-      <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-        Not posted
+        <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+        Not on the job board
       </span>
     );
   };
@@ -195,15 +212,25 @@ export default async function JobsPage({
         query={q}
         placeholder="Search customer, job, or address"
         hidden={[
-          ...(view !== defaultView ? [{ name: "view", value: view }] : []),
+          ...(todayOnly || view !== defaultView
+            ? [{ name: "view", value: todayOnly ? "scheduled" : view }]
+            : []),
+          ...(todayOnly ? [{ name: "day", value: "today" }] : []),
           ...(!isCrew && mine ? [{ name: "who", value: "mine" }] : []),
           ...(!isCrew && !mine && profile.role === "salesman" ? [{ name: "who", value: "all" }] : []),
         ]}
-        chips={QUEUE_CHIPS.map((chip) => ({
-          href: jobHref({ view: chip.view, page: 1 }),
-          label: chip.label,
-          active: view === chip.view,
-        }))}
+        chips={[
+          {
+            href: jobHref({ view: "scheduled", page: 1, day: "today" }),
+            label: "Today",
+            active: todayOnly,
+          },
+          ...QUEUE_CHIPS.map((chip) => ({
+            href: jobHref({ view: chip.view, page: 1, day: null }),
+            label: chip.label,
+            active: !todayOnly && view === chip.view,
+          })),
+        ]}
         countLabel={listError ?? countLabel}
       />
 
@@ -212,7 +239,11 @@ export default async function JobsPage({
       ) : jobs.length === 0 ? (
         <EmptyState
           icon={HardHat}
-          title={jobQueueEmpty(view, !!q)}
+          title={
+            todayOnly && !q
+              ? "No installs are on today's schedule."
+              : jobQueueEmpty(view, !!q)
+          }
           description={
             mine && !isCrew
               ? "All jobs is one click away if this view is only your customers."

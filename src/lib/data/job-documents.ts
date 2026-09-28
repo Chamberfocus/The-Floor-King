@@ -66,17 +66,21 @@ const estTone = (s: string): DocTone =>
  * Every document tied to a job, grouped by type (each group always present so a
  * missing type reads as "None yet"). Reads real records live — no copies.
  */
-export async function listJobDocuments(job: JobDetail): Promise<JobDocsResult> {
+export async function listJobDocuments(
+  job: JobDetail,
+  opts?: { includeFinancials?: boolean },
+): Promise<JobDocsResult> {
+  const includeFinancials = opts?.includeFinancials !== false;
   const [estimate, invoices, pos, satisfaction, measureDocs, balInfo] =
     await Promise.all([
-      job.estimate_id ? getEstimate(job.estimate_id) : Promise.resolve(null),
-      listInvoicesForJob(job.id),
-      listPurchaseOrdersForJob(job.id),
+      includeFinancials && job.estimate_id ? getEstimate(job.estimate_id) : Promise.resolve(null),
+      includeFinancials ? listInvoicesForJob(job.id) : Promise.resolve([]),
+      includeFinancials ? listPurchaseOrdersForJob(job.id) : Promise.resolve([]),
       getJobSatisfaction(job.id),
       job.customer_id
         ? getMeasurementDocuments(job.customer_id, job.id)
         : Promise.resolve([]),
-      getJobOpenBalance(job.id),
+      includeFinancials ? getJobOpenBalance(job.id) : Promise.resolve(null),
     ]);
 
   const scope = buildJobScope(job.line_items, job.notes);
@@ -231,7 +235,7 @@ export async function listJobDocuments(job: JobDetail): Promise<JobDocsResult> {
     tab: "completion",
     fileUrl: null,
   });
-  if (balInfo.hasInvoice) {
+  if (balInfo && balInfo.hasInvoice) {
     completion.push({
       key: "balance",
       type: "completion",
@@ -278,8 +282,8 @@ export async function listJobDocuments(job: JobDetail): Promise<JobDocsResult> {
   return {
     groups,
     jobTotal,
-    balance: balInfo.balance,
-    hasInvoice: balInfo.hasInvoice,
+    balance: balInfo?.balance ?? null,
+    hasInvoice: balInfo?.hasInvoice ?? false,
     estimateDate: estimate?.created_at ?? null,
     estimatorName: nm(estimate?.created_by),
   };
