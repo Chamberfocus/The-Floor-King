@@ -240,7 +240,9 @@ type JobsOnDateArgs = {
 };
 
 async function jobsOnDateBase(args: JobsOnDateArgs) {
-  const supabase = args.assignedTo ? createAdminClient() : await createClient();
+  // Signed-in client. Crew assignment is an extra filter, not a reason to
+  // skip row security. install_crews_self_read returns only this user's crews.
+  const supabase = await createClient();
   let crewIds: string[] = [];
   if (args.assignedTo) {
     const { data: crewRows } = await supabase

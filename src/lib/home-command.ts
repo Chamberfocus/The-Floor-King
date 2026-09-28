@@ -128,3 +128,94 @@ export function homeCommandText(count: number, spec: HomeCommandSpec): string {
   const noun = count === 1 ? spec.singular : spec.plural;
   return `${count} ${noun}`;
 }
+
+const WAREHOUSE_COUNT_ROLES = new Set<UserRole>(["admin", "office", "warehouse"]);
+
+/**
+ * Arguments for job_queue_page. The signed-in client runs this (RLS applies).
+ * Crew is limited to direct assignment plus the active crews linked to that user.
+ * A claim-board job is not included. Warehouse asks only for the prep queue.
+ */
+export function homeJobQueueArgs(input: {
+  role: UserRole;
+  userId: string;
+  queue: "material" | "ready" | "warehouse_active";
+  crewIds?: readonly string[];
+}): Record<string, unknown> {
+  if (input.queue === "warehouse_active") {
+    if (!WAREHOUSE_COUNT_ROLES.has(input.role)) {
+      throw new Error("Warehouse prep is not on this home.");
+    }
+    return {
+      p_queue: "warehouse_active",
+      p_search: null,
+      p_phone_like: null,
+      p_digits: null,
+      p_mine: null,
+      p_assigned: null,
+      p_crew_ids: null,
+      p_keep_pickup: true,
+    };
+  }
+  if (input.role === "crew") {
+    if (!input.userId) throw new Error("Crew home requires the signed-in user.");
+    const crewIds = (input.crewIds ?? []).filter((id) => !!id);
+    return {
+      p_queue: input.queue,
+      p_search: null,
+      p_phone_like: null,
+      p_digits: null,
+      p_mine: null,
+      p_assigned: input.userId,
+      p_crew_ids: crewIds.length ? crewIds : null,
+      p_keep_pickup: false,
+    };
+  }
+  return {
+    p_queue: input.queue,
+    p_search: null,
+    p_phone_like: null,
+    p_digits: null,
+    p_mine: input.role === "salesman" ? input.userId : null,
+    p_assigned: null,
+    p_crew_ids: null,
+    p_keep_pickup: false,
+  };
+}
+
+/** Today's installs. Crew stays on their assignments. A salesman stays on their book. */
+export function homeTodayScope(
+  role: UserRole,
+  userId: string,
+): { assignedTo?: string; mineFor?: string } {
+  if (role === "crew") {
+    if (!userId) throw new Error("Crew home requires the signed-in user.");
+    return { assignedTo: userId };
+  }
+  if (role === "salesman") {
+    if (!userId) throw new Error("Salesman home requires the signed-in user.");
+    return { mineFor: userId };
+  }
+  return {};
+}
+
+export function homeEstimateCountArgs(role: UserRole, userId: string, sentBefore: string) {
+  if (!MONEY_LIST_ROLES.includes(role)) throw new Error("Estimate follow-up is not on this home.");
+  return {
+    p_status: "sent",
+    p_sent_before: sentBefore,
+    p_mine: role === "salesman" ? userId : null,
+    p_search: null,
+  };
+}
+
+export function homeTaskCountArgs(role: UserRole, userId: string, nowIso: string) {
+  if (!TASK_LIST_ROLES.includes(role)) throw new Error("Tasks are not on this home.");
+  return {
+    p_view: "open",
+    p_user: userId,
+    p_see_all: role !== "salesman",
+    p_now: nowIso,
+    p_search: null,
+  };
+}

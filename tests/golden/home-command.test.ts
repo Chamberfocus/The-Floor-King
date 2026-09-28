@@ -1,6 +1,14 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { homeCommandText, homeCommandsForRole } from "@/lib/home-command";
+import {
+  homeCommandText,
+  homeCommandsForRole,
+  homeEstimateCountArgs,
+  homeJobQueueArgs,
+  homeTaskCountArgs,
+  homeTodayScope,
+} from "@/lib/home-command";
+import { installerAssignmentOrFilter } from "@/lib/installer-assignment";
 
 function ids(role: Parameters<typeof homeCommandsForRole>[0]) {
   return homeCommandsForRole(role).map((spec) => spec.id);
@@ -49,13 +57,103 @@ describe("home command board", () => {
     expect(loader).toContain("p_limit: 1");
     expect(loader).toContain("estimate_queue_page");
     expect(loader).toContain("job_queue_page");
+    expect(loader).toContain("createClient");
+    expect(loader).not.toContain("createAdminClient");
     expect(loader).not.toContain("customer_deposits");
     expect(loader).not.toContain("from(\"invoices\")");
     expect(loader).not.toContain("posting_enabled");
     expect(loader).not.toContain("journal");
+    for (const word of ["balance", "margin", "payment", "accounting"]) {
+      expect(loader.toLowerCase()).not.toContain(word);
+    }
     const page = readFileSync("src/app/(app)/jobs/[id]/page.tsx", "utf8");
     expect(page).not.toContain("RecordActionCenter");
     expect(page).toContain("includeFinancials: isStaff");
     expect(page).toContain("isStaff && job.customer_id");
+  });
+
+  it("keeps crew home counts on that user's assignments", () => {
+    const material = homeJobQueueArgs({
+      role: "crew",
+      userId: "user-1",
+      queue: "material",
+      crewIds: ["crew-a", ""],
+    });
+    expect(material).toMatchObject({
+      p_queue: "material",
+      p_mine: null,
+      p_assigned: "user-1",
+      p_crew_ids: ["crew-a"],
+      p_keep_pickup: false,
+    });
+    const directOnly = homeJobQueueArgs({
+      role: "crew",
+      userId: "user-1",
+      queue: "material",
+      crewIds: [],
+    });
+    expect(directOnly.p_assigned).toBe("user-1");
+    expect(directOnly.p_crew_ids).toBeNull();
+    expect(homeTodayScope("crew", "user-1")).toEqual({ assignedTo: "user-1" });
+    expect(installerAssignmentOrFilter("user-1", ["crew-a"])).toBe(
+      "assigned_to.eq.user-1,assigned_crew_id.in.(crew-a)",
+    );
+    expect(installerAssignmentOrFilter("user-1", [])).toBe("assigned_to.eq.user-1");
+    expect(installerAssignmentOrFilter("user-1", ["crew-a"])).not.toContain("open_for_claim");
+    expect(() => homeJobQueueArgs({ role: "crew", userId: "", queue: "material" })).toThrow(
+      /signed-in user/,
+    );
+    expect(() =>
+      homeJobQueueArgs({ role: "crew", userId: "user-1", queue: "warehouse_active" }),
+    ).toThrow(/Warehouse prep/);
+
+    const jobs = readFileSync("src/lib/data/jobs.ts", "utf8");
+    const start = jobs.indexOf("async function jobsOnDateBase");
+    const end = jobs.indexOf("export async function listJobsOnDate");
+    const body = jobs.slice(start, end);
+    expect(body).toContain("await createClient()");
+    expect(body).not.toContain("createAdminClient");
+    expect(body).toContain("installerAssignmentOrFilter");
+    expect(body).toContain('.eq("active", true)');
+
+    const rpc = readFileSync("supabase/migrations/0478_ops_queue_scale.sql", "utf8");
+    expect(rpc).toContain("or j.assigned_to = p_assigned");
+    expect(rpc).toContain("j.assigned_crew_id = any (p_crew_ids)");
+    expect(rpc).toContain("security invoker");
+  });
+
+  it("counts warehouse prep as a total only, and keeps a salesman on their own book", () => {
+    expect(
+      homeJobQueueArgs({ role: "warehouse", userId: "wh-1", queue: "warehouse_active" }),
+    ).toEqual({
+      p_queue: "warehouse_active",
+      p_search: null,
+      p_phone_like: null,
+      p_digits: null,
+      p_mine: null,
+      p_assigned: null,
+      p_crew_ids: null,
+      p_keep_pickup: true,
+    });
+    for (const role of ["scheduler", "crew", "warehouse"] as const) {
+      expect(() => homeEstimateCountArgs(role, "u", "2026-01-01")).toThrow(/Estimate follow-up/);
+    }
+    for (const role of ["scheduler", "crew", "salesman"] as const) {
+      expect(() =>
+        homeJobQueueArgs({ role, userId: "u", queue: "warehouse_active" }),
+      ).toThrow(/Warehouse prep/);
+    }
+    expect(homeJobQueueArgs({ role: "salesman", userId: "rep-1", queue: "ready" })).toMatchObject({
+      p_mine: "rep-1",
+      p_assigned: null,
+    });
+    expect(homeTodayScope("salesman", "rep-1")).toEqual({ mineFor: "rep-1" });
+    expect(homeEstimateCountArgs("salesman", "rep-1", "2026-01-01").p_mine).toBe("rep-1");
+    expect(homeTaskCountArgs("salesman", "rep-1", "2026-01-01").p_see_all).toBe(false);
+    expect(homeTaskCountArgs("office", "off-1", "2026-01-01").p_see_all).toBe(true);
+    expect(homeTodayScope("scheduler", "sch-1")).toEqual({});
+    expect(() => homeTaskCountArgs("warehouse", "wh-1", "2026-01-01")).toThrow(/Tasks/);
+    expect(() => homeTaskCountArgs("crew", "user-1", "2026-01-01")).toThrow(/Tasks/);
+    expect(() => homeTaskCountArgs("scheduler", "sch-1", "2026-01-01")).toThrow(/Tasks/);
   });
 });

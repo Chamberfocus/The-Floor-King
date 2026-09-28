@@ -1,15 +1,19 @@
 /**
  * Home counts. Each number is the total from the same queue the link opens.
- * One row is enough to read total_count. No deposit, invoice, cost, or margin.
+ * Reads use the signed-in client so row security still applies.
+ * One row is enough to read total_count. Financial columns are not selected.
  */
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { readQueuePage } from "@/lib/data/queue-rpc";
 import { countJobsOnDate } from "@/lib/data/jobs";
 import { shopTodayYmd } from "@/lib/job-snapshot";
 import {
   homeCommandText,
   homeCommandsForRole,
+  homeEstimateCountArgs,
+  homeJobQueueArgs,
+  homeTaskCountArgs,
+  homeTodayScope,
   type HomeCommandId,
   type HomeCommandSpec,
 } from "@/lib/home-command";
@@ -57,13 +61,10 @@ export async function loadHomeCenter(args: {
 }): Promise<HomeCommandBoard> {
   const specs = homeCommandsForRole(args.role);
   const userDb = await createClient();
-  let crewPack: Promise<{ db: Db; ids: string[] }> | null = null;
-  const crewScope = () => {
-    crewPack ??= (async () => {
-      const db = createAdminClient();
-      return { db, ids: await crewIdsFor(db, args.userId) };
-    })();
-    return crewPack;
+  let crewIds: Promise<string[]> | null = null;
+  const linkedCrewIds = () => {
+    crewIds ??= crewIdsFor(userDb, args.userId);
+    return crewIds;
   };
   const today = shopTodayYmd();
   const followupBefore = new Date(
@@ -82,31 +83,29 @@ export async function loadHomeCenter(args: {
       return count ?? 0;
     }
     if (spec.id === "estimates") {
-      return total(userDb, "estimate_queue_page", {
-        p_status: "sent",
-        p_sent_before: followupBefore,
-        p_mine: args.role === "salesman" ? args.userId : null,
-        p_search: null,
-      });
+      return total(
+        userDb,
+        "estimate_queue_page",
+        homeEstimateCountArgs(args.role, args.userId, followupBefore),
+      );
     }
     if (spec.id === "material" || spec.id === "ready") {
-      const crew = args.role === "crew" ? await crewScope() : null;
-      return total(crew?.db ?? userDb, "job_queue_page", {
-        p_queue: spec.id === "material" ? "material" : "ready",
-        p_search: null,
-        p_phone_like: null,
-        p_digits: null,
-        p_mine: args.role === "salesman" ? args.userId : null,
-        p_assigned: args.role === "crew" ? args.userId : null,
-        p_crew_ids: crew && crew.ids.length ? crew.ids : null,
-        p_keep_pickup: false,
-      });
+      const linked = args.role === "crew" ? await linkedCrewIds() : [];
+      return total(
+        userDb,
+        "job_queue_page",
+        homeJobQueueArgs({
+          role: args.role,
+          userId: args.userId,
+          queue: spec.id,
+          crewIds: linked,
+        }),
+      );
     }
     if (spec.id === "today") {
       return countJobsOnDate({
         date: today,
-        assignedTo: args.role === "crew" ? args.userId : undefined,
-        mineFor: args.role === "salesman" ? args.userId : undefined,
+        ...homeTodayScope(args.role, args.userId),
       });
     }
     if (spec.id === "service") {
@@ -116,13 +115,11 @@ export async function loadHomeCenter(args: {
       });
     }
     if (spec.id === "tasks") {
-      return total(userDb, "task_queue_page", {
-        p_view: "open",
-        p_user: args.userId,
-        p_see_all: args.role !== "salesman",
-        p_now: new Date().toISOString(),
-        p_search: null,
-      });
+      return total(
+        userDb,
+        "task_queue_page",
+        homeTaskCountArgs(args.role, args.userId, new Date().toISOString()),
+      );
     }
     if (spec.id === "orders") {
       return total(userDb, "order_queue_page", {
@@ -132,16 +129,15 @@ export async function loadHomeCenter(args: {
         p_digits: null,
       });
     }
-    return total(createAdminClient(), "job_queue_page", {
-      p_queue: "warehouse_active",
-      p_search: null,
-      p_phone_like: null,
-      p_digits: null,
-      p_mine: null,
-      p_assigned: null,
-      p_crew_ids: null,
-      p_keep_pickup: true,
-    });
+    return total(
+      userDb,
+      "job_queue_page",
+      homeJobQueueArgs({
+        role: args.role,
+        userId: args.userId,
+        queue: "warehouse_active",
+      }),
+    );
   };
 
   const settled = await Promise.all(
