@@ -28,6 +28,11 @@ import { JobStepPopup } from "@/components/job-step-popup";
 import { listMyAvailability } from "@/lib/data/crew-availability";
 import { MyAvailability } from "./my-availability";
 import { InstallerIssueForm } from "./installer-issue-form";
+import { JobInstallActions } from "../jobs/[id]/job-install-actions";
+import {
+  customerSignOffRecorded,
+  installationStatusFact,
+} from "@/lib/install-closeout";
 
 export const metadata: Metadata = { title: "My work" };
 export const dynamic = "force-dynamic";
@@ -249,6 +254,42 @@ export default async function InstallerHomePage() {
                     </Link>
                   </CardHeader>
                   <CardContent className="space-y-3">
+                    <dl className="grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Installation</dt>
+                        <dd className="font-medium">{installationStatusFact(job.status)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Customer sign-off</dt>
+                        <dd className="font-medium">
+                          {customerSignOffRecorded({
+                            signature: satisfaction?.signature,
+                            signedName: satisfaction?.signed_name,
+                          })
+                            ? "Recorded"
+                            : "Not recorded"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Completion photos</dt>
+                        <dd className="font-medium">
+                          {photos.length ? `${photos.length} uploaded` : "None uploaded"}
+                        </dd>
+                      </div>
+                      {canCollect ? (
+                        <div>
+                          <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Collect on site</dt>
+                          <dd className="font-medium">{formatMoney(balance)}</dd>
+                        </div>
+                      ) : null}
+                    </dl>
+                    {job.assigned_to === profile.id ? (
+                      <JobInstallActions
+                        jobId={job.id}
+                        status={job.status}
+                        title={job.customer_name || job.title || "this job"}
+                      />
+                    ) : null}
                     {/* The INSTALLATION work order — what to do, room by room. */}
                     <details className="group" open>
                       <summary className="flex cursor-pointer items-center gap-2 rounded-lg bg-primary/10 px-3 py-2.5 text-sm font-semibold text-primary hover:bg-primary/15">

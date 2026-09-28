@@ -6,6 +6,8 @@ import { ConfirmButton } from "@/components/ui/confirm-button";
 import { setEstimateStatus } from "@/app/(app)/estimates/actions";
 import { setJobStatus, submitJobToWarehouse } from "@/app/(app)/jobs/actions";
 import { checklistCanOneTapApprove } from "@/lib/estimate-approve-ui";
+import { canCompleteInstallation } from "@/lib/install-closeout";
+import type { JobStatus } from "@/lib/types";
 
 /**
  * The checklist steps that are a DECISION, not a tool.
@@ -112,7 +114,7 @@ export function buildChecklistSlots({
     );
   }
 
-  if (job && job.status !== "completed" && job.status !== "cancelled") {
+  if (job && canCompleteInstallation(job.status as JobStatus | null)) {
     slots.install = (
       <form action={setJobStatus}>
         <input type="hidden" name="id" value={job.id} />

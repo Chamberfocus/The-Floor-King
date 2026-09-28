@@ -146,7 +146,8 @@ describe("0180 authorization semantics (helpers + app gates)", () => {
   it("crew-linked users do not get Start/Complete (jobs UPDATE) or schedule picker", () => {
     expect(jobPage).toContain("canDirectFieldActions");
     expect(jobPage).toContain("isStaff || isDirectAssignee");
-    expect(jobPage).toContain("canDirectFieldActions && job.status !== \"completed\"");
+    expect(jobPage).toContain("<JobInstallActions");
+    expect(jobPage).toContain("{canDirectFieldActions ? (");
   });
 
   it("0180 does not grant jobs UPDATE to crew-linked users", () => {

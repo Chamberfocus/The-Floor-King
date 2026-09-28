@@ -1033,6 +1033,8 @@ export interface Job {
   title: string | null;
   migrated?: boolean; // carried over from prior system at go-live
   status: JobStatus;
+  /** Stamped when status first becomes completed (jobs.completed_at). */
+  completed_at?: string | null;
   scheduled_date: string | null;
   scheduled_end: string | null;
   arrival_window?: string | null; // install arrival window "HH:MM-HH:MM" (migration 0066)

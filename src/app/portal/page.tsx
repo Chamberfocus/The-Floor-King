@@ -29,6 +29,7 @@ import {
   listInstallPreferences,
 } from "@/lib/data/install-availability";
 import { InstallPreferencePicker } from "./install-preference-picker";
+import { portalInstallScheduleCopy } from "@/lib/install-closeout";
 
 export const metadata: Metadata = { title: "My account" };
 
@@ -247,6 +248,14 @@ export default async function PortalHome() {
                       .join("–")
                   : null;
                 const installer = installerNameByJobId.get(j.id) ?? null;
+                const scheduleCopy = j.scheduled_date
+                  ? portalInstallScheduleCopy({
+                      status: j.status,
+                      scheduledDateLabel: formatDate(j.scheduled_date),
+                      windowLabel: window,
+                      installerName: installer,
+                    })
+                  : null;
                 return (
                   <li key={j.id} className="space-y-3 py-4">
                     <div className="flex items-center justify-between gap-3">
@@ -254,16 +263,14 @@ export default async function PortalHome() {
                       <JobStatusBadge status={j.status} />
                     </div>
 
-                    {j.scheduled_date ? (
+                    {scheduleCopy ? (
                       <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-sm dark:border-emerald-900/50 dark:bg-emerald-950/20">
                         <div className="font-semibold text-emerald-800 dark:text-emerald-300">
-                          ✓ Confirmed installation
+                          {scheduleCopy.title}
                         </div>
-                        <div className="mt-0.5">
-                          <span className="font-medium">{formatDate(j.scheduled_date)}</span>
-                          {window ? ` · arriving ${window}` : ""}
-                          {installer ? ` · with ${installer}` : ""}
-                        </div>
+                        {scheduleCopy.detail ? (
+                          <div className="mt-0.5">{scheduleCopy.detail}</div>
+                        ) : null}
                       </div>
                     ) : sched ? (
                       <InstallPreferencePicker

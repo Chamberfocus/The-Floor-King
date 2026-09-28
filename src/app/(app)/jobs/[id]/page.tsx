@@ -10,8 +10,6 @@ import {
   CalendarClock,
   User,
   Trash2,
-  Play,
-  Check,
   Send,
   Megaphone,
   Ruler,
@@ -68,7 +66,6 @@ import { lineTotal } from "@/lib/estimate-calc";
 import { formatDate, formatMoney, to12 } from "@/lib/format";
 import { JobForm } from "../job-form";
 import {
-  setJobStatus,
   deleteJob,
   emailJobSchedule,
   postJobToBoard,
@@ -107,6 +104,9 @@ import { employeeScheduleError } from "@/lib/scheduling-conflicts";
 import { customerSeesCustomerMoney } from "@/lib/customer-record-access";
 import { JobAttentionStrip } from "./job-attention-strip";
 import { JobOpsFacts } from "./job-ops-facts";
+import { InstallCloseoutFacts } from "./install-closeout-facts";
+import { JobInstallActions } from "./job-install-actions";
+import { customerSignOffRecorded } from "@/lib/install-closeout";
 import { getJobOperationalStateForJob } from "@/lib/data/job-ops-state";
 import { createServiceCallback } from "@/app/(app)/ops/actions";
 import { listOpenServiceCallbacksForJob } from "@/lib/data/ops-glue";
@@ -521,6 +521,28 @@ export default async function JobPage({
         canManageHold={canManageHold && isStaff}
       />
 
+      {canInstallerTools ? (
+        <InstallCloseoutFacts
+          status={job.status}
+          completedAt={job.completed_at ?? null}
+          signOffRecorded={customerSignOffRecorded({
+            signature: satisfaction?.signature,
+            signedName: satisfaction?.signed_name,
+            fileSignatureCount: signatures.length,
+          })}
+          photoCount={photos.length}
+          openCallbacks={openCallbacks.length}
+          openBalance={
+            isStaff
+              ? staffBalance
+              : collectsBalance
+                ? (woCollectBalance ?? 0)
+                : null
+          }
+          crewName={assignedName}
+        />
+      ) : null}
+
       {isStaff ? (
         <JobOpsFacts
           hasMaterialNeed={(job.line_items ?? []).some((line) => isMaterialLine(line))}
@@ -683,31 +705,12 @@ export default async function JobPage({
                 />
               </div>
             ) : null}
-            {canDirectFieldActions &&
-            job.status !== "in_progress" &&
-            job.status !== "completed" ? (
-              <form action={setJobStatus} className="w-full sm:w-auto">
-                <input type="hidden" name="id" value={job.id} />
-                <input type="hidden" name="status" value="in_progress" />
-                <Button type="submit" variant="outline" className="w-full sm:w-auto">
-                  <Play className="size-4" /> Start job
-                </Button>
-              </form>
-            ) : null}
-            {canDirectFieldActions && job.status !== "completed" ? (
-              <form action={setJobStatus} className="w-full sm:w-auto">
-                <input type="hidden" name="id" value={job.id} />
-                <input type="hidden" name="status" value="completed" />
-                <ConfirmButton
-                  size="lg"
-                  className="w-full sm:w-auto"
-                  title={`Mark "${job.title || "this job"}" as complete?`}
-                  description="This marks the installation complete. Open service visits stay open. Only do this once the install is actually done."
-                  confirmLabel="Mark complete"
-                >
-                  <Check className="size-4" /> Mark complete
-                </ConfirmButton>
-              </form>
+            {canDirectFieldActions ? (
+              <JobInstallActions
+                jobId={job.id}
+                status={job.status}
+                title={job.title || "this job"}
+              />
             ) : null}
             <div className="w-full sm:w-auto">
               <PrintButton label="Print work order" size="default" />
