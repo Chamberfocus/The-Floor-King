@@ -4,12 +4,12 @@ import { redirect } from "next/navigation";
 import { Wrench } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
-import { Button } from "@/components/ui/button";
 import { WorkQueueBar, WorkQueuePager } from "@/components/work-queue-bar";
 import { requireProfile } from "@/lib/auth";
+import { getProfileNames } from "@/lib/data/customers";
 import { listServiceQueue } from "@/lib/data/ops-glue";
-import { resolveServiceCallback } from "@/app/(app)/ops/actions";
 import { formatDate } from "@/lib/format";
+import { serviceReportedAge, serviceVisitLabel } from "@/lib/service-callback";
 import { QUEUE_LIST_UNAVAILABLE, queueFailureMessage } from "@/lib/ops-scale";
 import {
   parseListPage,
@@ -28,7 +28,9 @@ export const dynamic = "force-dynamic";
 const CHIPS: { view: ServiceQueueView; label: string }[] = [
   { view: "open", label: "Open" },
   { view: "scheduled", label: "Scheduled" },
-  { view: "completed", label: "Completed" },
+  { view: "in_progress", label: "In progress" },
+  { view: "waiting", label: "Waiting" },
+  { view: "completed", label: "Resolved" },
   { view: "all", label: "All" },
 ];
 
@@ -60,6 +62,9 @@ export default async function ServicePage({
     listError = queueFailureMessage(error);
   }
   const pages = Math.max(1, Math.ceil(queue.total / queue.pageSize));
+  const names = await getProfileNames(
+    queue.rows.map((row) => row.assigned_to).filter((id): id is string => !!id),
+  );
 
   const href = (next: { view?: ServiceQueueView; page?: number }) => {
     const params = new URLSearchParams();
@@ -77,7 +82,7 @@ export default async function ServicePage({
     <div>
       <PageHeader
         title="Service"
-        description="Open issues, return visits, and warranty calls."
+        description="Open issues and return visits."
       />
       <WorkQueueBar
         action="/service"
@@ -98,17 +103,16 @@ export default async function ServicePage({
       ) : (
         <ul className="space-y-2">
           {queue.rows.map((r) => {
-            const recordHref = r.job_id ? `/jobs/${r.job_id}` : `/customers/${r.customer_id}`;
-            const open = r.status !== "resolved" && r.status !== "cancelled";
+            const age = serviceReportedAge(r.reported_at);
+            const visit = serviceVisitLabel({ status: r.status, followUpAt: r.follow_up_at });
+            const assigned = r.assigned_to ? names[r.assigned_to] ?? "Assigned" : "Unassigned";
             return (
               <li key={r.id} className="rounded-xl border bg-card p-3">
-                <Link href={recordHref} className="block min-h-11">
+                <Link href={`/service/${r.id}`} className="block min-h-11">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="truncate font-semibold">{r.customer_name || "Customer"}</div>
-                      {r.job_title ? (
-                        <div className="truncate text-sm">{r.job_title}</div>
-                      ) : null}
+                      {r.job_title ? <div className="truncate text-sm">{r.job_title}</div> : null}
                       {r.place ? (
                         <div className="truncate text-sm text-muted-foreground">{r.place}</div>
                       ) : null}
@@ -119,25 +123,15 @@ export default async function ServicePage({
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     {serviceQueueKindLabel(r.category)}
-                    {r.follow_up_at ? ` · Follow-up ${formatDate(r.follow_up_at)}` : " · No follow-up date"}
+                    {age ? ` · ${age}` : ""}
+                    {` · ${assigned}`}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {visit}
+                    {r.follow_up_at ? ` ${formatDate(r.follow_up_at)}` : ""}
                   </div>
                   {r.description ? <p className="mt-1 line-clamp-2 text-sm">{r.description}</p> : null}
                 </Link>
-                {open ? (
-                  <form action={resolveServiceCallback} className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
-                    <input type="hidden" name="callback_id" value={r.id} />
-                    <input type="hidden" name="job_id" value={r.job_id ?? ""} />
-                    <input type="hidden" name="customer_id" value={r.customer_id} />
-                    <textarea
-                      name="resolution_notes"
-                      placeholder="How it was resolved"
-                      className="min-h-11 flex-1 rounded-md border px-2 py-2 text-sm"
-                    />
-                    <Button type="submit" size="sm" variant="outline" className="min-h-11">
-                      Resolve
-                    </Button>
-                  </form>
-                ) : null}
               </li>
             );
           })}

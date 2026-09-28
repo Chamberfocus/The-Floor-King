@@ -6,6 +6,7 @@
  */
 import { flooringJobSnapshot, type JobSnapshotInput } from "@/lib/job-snapshot";
 import type { UserRole } from "@/lib/types";
+import { serviceStatusLabel } from "@/lib/service-callback";
 
 export const WORK_QUEUE_PAGE_SIZE = 40;
 
@@ -22,7 +23,13 @@ export type JobQueueView =
   | "completed"
   | "service"
   | "all";
-export type ServiceQueueView = "open" | "scheduled" | "completed" | "all";
+export type ServiceQueueView =
+  | "open"
+  | "scheduled"
+  | "in_progress"
+  | "waiting"
+  | "completed"
+  | "all";
 export type TaskQueueView = "mine" | "open" | "overdue" | "completed";
 
 const ORDER_VIEWS: OrderQueueView[] = ["review", "approved", "declined", "all"];
@@ -39,7 +46,14 @@ const JOB_VIEWS: JobQueueView[] = [
   "service",
   "all",
 ];
-const SERVICE_VIEWS: ServiceQueueView[] = ["open", "scheduled", "completed", "all"];
+const SERVICE_VIEWS: ServiceQueueView[] = [
+  "open",
+  "scheduled",
+  "in_progress",
+  "waiting",
+  "completed",
+  "all",
+];
 const TASK_VIEWS: TaskQueueView[] = ["mine", "open", "overdue", "completed"];
 
 function oneOf<T extends string>(value: string | undefined, allowed: readonly T[], fallback: T): T {
@@ -131,15 +145,14 @@ export function poStatusesForView(view: PoQueueView): string[] | null {
 export function serviceStatusesForView(view: ServiceQueueView): string[] | null {
   if (view === "all") return null;
   if (view === "scheduled") return ["scheduled"];
+  if (view === "in_progress") return ["in_progress"];
+  if (view === "waiting") return ["waiting"];
   if (view === "completed") return ["resolved"];
   return ["open", "in_progress", "waiting"];
 }
 
 export function serviceQueueStatusLabel(status: string): string {
-  if (status === "scheduled") return "Scheduled";
-  if (status === "resolved") return "Completed";
-  if (status === "cancelled") return "Cancelled";
-  return "Service open";
+  return serviceStatusLabel(status);
 }
 
 export function serviceQueueKindLabel(category: string): string {
@@ -213,7 +226,9 @@ export function serviceQueueEmpty(view: ServiceQueueView, searching: boolean): s
   if (searching) return "No service calls match that search.";
   if (view === "open") return "No service calls are open.";
   if (view === "scheduled") return "No service calls are scheduled.";
-  if (view === "completed") return "No completed service calls in this list.";
+  if (view === "in_progress") return "No service calls are in progress.";
+  if (view === "waiting") return "No service calls are waiting.";
+  if (view === "completed") return "No resolved service calls in this list.";
   return "No service calls yet.";
 }
 

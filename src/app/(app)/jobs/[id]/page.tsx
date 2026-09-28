@@ -567,7 +567,7 @@ export default async function JobPage({
             <ul className="mb-2 space-y-1 text-sm">
               {openCallbacks.map((c) => (
                 <li key={c.id}>
-                  <Link href="/service" className="font-medium text-primary hover:underline">
+                  <Link href={`/service/${c.id}`} className="font-medium text-primary hover:underline">
                     {serviceQueueKindLabel(c.category)} · {serviceQueueStatusLabel(c.status)}
                   </Link>
                 </li>

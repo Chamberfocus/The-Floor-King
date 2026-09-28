@@ -157,6 +157,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth";
 import { RecordActionCenter } from "@/components/record-action-center";
 import { loadCustomerRecordFacts } from "@/lib/data/record-facts";
+import { serviceReportedAge, serviceStatusLabel } from "@/lib/service-callback";
 import {
   buildCustomerActionCenter,
   depositOnFileFromSummary,
@@ -373,7 +374,16 @@ export default async function CustomerPage({
   const recordFacts = await loadCustomerRecordFacts(
     id,
     jobs.map((job) => job.id),
-  ).catch(() => ({ materialJobs: new Set<string>(), callbacks: [] as { id: string; job_id: string | null }[] }));
+  ).catch(() => ({
+    materialJobs: new Set<string>(),
+    callbacks: [] as {
+      id: string;
+      job_id: string | null;
+      status: string;
+      follow_up_at: string | null;
+      reported_at: string | null;
+    }[],
+  }));
   const jobTitle = new Map(jobs.map((job) => [job.id, job.title]));
   const customerAction = buildCustomerActionCenter({
     now: new Date(),
@@ -411,6 +421,7 @@ export default async function CustomerPage({
       }))
       : [],
     callbacks: recordFacts.callbacks.map((row) => ({
+      id: row.id,
       jobId: row.job_id,
       jobTitle: row.job_id ? jobTitle.get(row.job_id) ?? null : null,
     })),
@@ -822,6 +833,27 @@ export default async function CustomerPage({
       ) : null}
 
       <RecordActionCenter model={customerAction} />
+      {recordFacts.callbacks.length ? (
+        <section className="mb-3 rounded-lg border bg-card p-3">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Service
+          </h2>
+          <ul className="mt-2 space-y-2 text-sm">
+            {recordFacts.callbacks.map((row) => (
+              <li key={row.id}>
+                <Link href={`/service/${row.id}`} className="font-medium text-primary hover:underline">
+                  {serviceStatusLabel(row.status)}
+                  {row.job_id ? ` · ${jobTitle.get(row.job_id) || "Job"}` : ""}
+                </Link>
+                <div className="text-xs text-muted-foreground">
+                  {serviceReportedAge(row.reported_at) ?? "Reported date not recorded"}
+                  {row.follow_up_at ? ` · ${formatDate(row.follow_up_at)}` : ""}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {/* Identity band — who they are, their stage, contact, owner & schedule,
           all in one place (replaces the plain header + its scattered bits). */}

@@ -24,6 +24,13 @@ import {
   isInstallerIssueCategory,
   reuseOpenInstallerIssueId,
 } from "@/lib/ops-followup";
+import {
+  assessServiceTransition,
+  serviceEmployeeMessage,
+  serviceResolvePatch,
+  serviceSchedulePatch,
+  type ServiceStatus,
+} from "@/lib/service-callback";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -57,11 +64,12 @@ const CALLBACK_ROLES: UserRole[] = [
   "salesman",
 ];
 
-function refreshOps(jobId?: string | null, customerId?: string | null) {
+function refreshOps(jobId?: string | null, customerId?: string | null, callbackId?: string | null) {
   revalidatePath("/dashboard");
   revalidatePath("/jobs");
   revalidatePath("/tasks");
   revalidatePath("/service");
+  if (callbackId) revalidatePath(`/service/${callbackId}`);
   if (jobId) revalidatePath(`/jobs/${jobId}`);
   if (customerId) revalidatePath(`/customers/${customerId}`);
 }
@@ -270,7 +278,7 @@ export async function createServiceCallback(formData: FormData): Promise<void> {
   })
     .select("id")
     .maybeSingle();
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(serviceEmployeeMessage("create"));
   if (created?.id) {
     void onServiceCallbackOpenedOps({
       callbackId: created.id as string,
@@ -284,22 +292,31 @@ export async function createServiceCallback(formData: FormData): Promise<void> {
   refreshOps(jobId, customerId);
 }
 
-export async function resolveServiceCallback(formData: FormData): Promise<void> {
+export async function resolveServiceCallback(
+  formData: FormData,
+): Promise<{ error: string | null }> {
   await assertRole(CALLBACK_ROLES);
   const id = str(formData.get("callback_id"));
-  if (!id) throw new Error("Missing callback.");
+  if (!id) return { error: serviceEmployeeMessage("resolve") };
   const profile = await requireProfile();
   const supabase = await createClient();
+  const { data: prior } = await supabase
+    .from("service_callbacks")
+    .select("status, job_id, customer_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!prior) return { error: serviceEmployeeMessage("resolve") };
+  if ((prior.status as string) === "resolved") {
+    return { error: "This service issue is already resolved." };
+  }
+  const gate = assessServiceTransition(prior.status as string, "resolved");
+  if (!gate.ok) return { error: serviceEmployeeMessage("resolve") };
   const { error } = await supabase
     .from("service_callbacks")
-    .update({
-      status: "resolved",
-      resolution_notes: str(formData.get("resolution_notes")) || null,
-      completed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
-  if (error) throw new Error(error.message);
+    .update(serviceResolvePatch(str(formData.get("resolution_notes")) || null))
+    .eq("id", id)
+    .neq("status", "resolved");
+  if (error) return { error: serviceEmployeeMessage("resolve") };
   void completeAutomatedOfficeTasks({
     sourceKind: SERVICE_CALLBACK_KIND,
     entityId: id,
@@ -310,14 +327,22 @@ export async function resolveServiceCallback(formData: FormData): Promise<void> 
     entityId: id,
     completedBy: profile.id,
   });
-  refreshOps(str(formData.get("job_id")), str(formData.get("customer_id")));
+  refreshOps(
+    (prior.job_id as string | null) ?? str(formData.get("job_id")),
+    (prior.customer_id as string | null) ?? str(formData.get("customer_id")),
+    id,
+  );
+  return { error: null };
 }
 
 export async function cancelServiceCallback(formData: FormData): Promise<void> {
   await assertRole(["admin", "office"]);
   const id = str(formData.get("callback_id"));
-  if (!id) throw new Error("Missing callback.");
-  const supabase = await createClient();
+  if (!id) throw new Error(serviceEmployeeMessage("update"));
+  const { supabase, prior } = await loadCallbackForEdit(id);
+  if (!prior) throw new Error(serviceEmployeeMessage("update"));
+  const gate = assessServiceTransition(prior.status as string, "cancelled");
+  if (!gate.ok) throw new Error(serviceEmployeeMessage("update"));
   const { error } = await supabase
     .from("service_callbacks")
     .update({
@@ -325,8 +350,86 @@ export async function cancelServiceCallback(formData: FormData): Promise<void> {
       updated_at: new Date().toISOString(),
     })
     .eq("id", id);
-  if (error) throw new Error(error.message);
-  refreshOps();
+  if (error) throw new Error(serviceEmployeeMessage("update"));
+  refreshOps(null, null, id);
+}
+
+async function loadCallbackForEdit(id: string) {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("service_callbacks")
+    .select("id, status, job_id, customer_id")
+    .eq("id", id)
+    .maybeSingle();
+  return { supabase, prior: data };
+}
+
+export async function scheduleServiceVisit(
+  formData: FormData,
+): Promise<{ error: string | null }> {
+  await assertRole(CALLBACK_ROLES);
+  const id = str(formData.get("callback_id"));
+  const day = str(formData.get("visit_date"));
+  if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    return { error: serviceEmployeeMessage("schedule") };
+  }
+  const { supabase, prior } = await loadCallbackForEdit(id);
+  if (!prior) return { error: serviceEmployeeMessage("schedule") };
+  const gate = assessServiceTransition(prior.status as string, "scheduled");
+  if (!gate.ok) return { error: serviceEmployeeMessage("schedule") };
+  const { error } = await supabase
+    .from("service_callbacks")
+    .update(serviceSchedulePatch(`${day}T12:00:00.000Z`))
+    .eq("id", id);
+  if (error) return { error: serviceEmployeeMessage("schedule") };
+  refreshOps(prior.job_id as string | null, prior.customer_id as string | null, id);
+  return { error: null };
+}
+
+export async function assignServiceCallback(
+  formData: FormData,
+): Promise<{ error: string | null }> {
+  await assertRole(CALLBACK_ROLES);
+  const id = str(formData.get("callback_id"));
+  const assignedTo = str(formData.get("assigned_to"));
+  if (!id) return { error: serviceEmployeeMessage("assign") };
+  const { supabase, prior } = await loadCallbackForEdit(id);
+  if (!prior) return { error: serviceEmployeeMessage("assign") };
+  if ((prior.status as string) === "resolved" || (prior.status as string) === "cancelled") {
+    return { error: serviceEmployeeMessage("assign") };
+  }
+  const { error } = await supabase
+    .from("service_callbacks")
+    .update({
+      assigned_to: assignedTo || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) return { error: serviceEmployeeMessage("assign") };
+  refreshOps(prior.job_id as string | null, prior.customer_id as string | null, id);
+  return { error: null };
+}
+
+export async function setServiceCallbackStatus(
+  formData: FormData,
+): Promise<{ error: string | null }> {
+  await assertRole(CALLBACK_ROLES);
+  const id = str(formData.get("callback_id"));
+  const status = str(formData.get("status")) as ServiceStatus;
+  if (!id || (status !== "in_progress" && status !== "waiting" && status !== "open")) {
+    return { error: serviceEmployeeMessage("update") };
+  }
+  const { supabase, prior } = await loadCallbackForEdit(id);
+  if (!prior) return { error: serviceEmployeeMessage("update") };
+  const gate = assessServiceTransition(prior.status as string, status);
+  if (!gate.ok) return { error: serviceEmployeeMessage("update") };
+  const { error } = await supabase
+    .from("service_callbacks")
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) return { error: serviceEmployeeMessage("update") };
+  refreshOps(prior.job_id as string | null, prior.customer_id as string | null, id);
+  return { error: null };
 }
 
 const ISSUE_ROLES: UserRole[] = ["crew", "admin", "office"];
@@ -418,7 +521,7 @@ export async function reportInstallerIssue(formData: FormData): Promise<void> {
       })
       .select("id")
       .maybeSingle();
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(serviceEmployeeMessage("create"));
     callbackId = (created?.id as string | null) ?? null;
   }
   const title = installerIssueTitle(
