@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { Fragment, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -83,6 +83,21 @@ import {
   salespersonTakeoffDisplayRows,
 } from "@/lib/flooring-knowledge";
 import { saveEstimate, saveEstimateBuilderDraft, clearEstimateBuilderDraft, sendEstimateById } from "./actions";
+import {
+  areaChips,
+  claimSaveFlight,
+  cloneRoomLines,
+  duplicateAreaName,
+  EMPTY_AREA_NOT_SAVED,
+  employeeSaveError,
+  groupIndexedByRoom,
+  listAreas,
+  quantityCaption,
+  releaseSaveFlight,
+  renameRoomOnLines,
+  roomMatches,
+  unsavedPendingAreas,
+} from "@/lib/estimate-workflow";
 import { saveProductRate, createProductInline } from "../catalog/actions";
 import { writeScopeDescription } from "./ai-actions";
 import { ProductPicker, type CustomProductInput } from "./product-picker";
@@ -653,6 +668,12 @@ export function EstimateBuilder({
   // Fire-and-forget: it NEVER writes back into the fields you're editing, so it
   // can't cause the input glitch. A subtle indicator shows it's safe.
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">(draft ? "saved" : "idle");
+  const [activeArea, setActiveArea] = useState("");
+  const [pendingAreas, setPendingAreas] = useState<string[]>([]);
+  const [areaDraft, setAreaDraft] = useState("");
+  const [renameDraft, setRenameDraft] = useState<string | null>(null);
+  const [commitNote, setCommitNote] = useState<null | { kind: "saving" | "saved" | "error"; text: string }>(null);
+  const saveLock = useRef(false);
   const firstAuto = useRef(true);
   useEffect(() => {
     if (firstAuto.current) {
@@ -660,6 +681,7 @@ export function EstimateBuilder({
       return;
     }
     setSaveState("saving");
+    setCommitNote((n) => (n?.kind === "saving" ? n : null));
     const t = setTimeout(() => {
       void saveEstimateBuilderDraft(estimate.id, {
         title,
@@ -674,7 +696,7 @@ export function EstimateBuilder({
         options,
         commissionOverridePct,
         commissionOverrideAmount,
-      }).then(() => setSaveState("saved"));
+      }).then((res) => setSaveState(res?.ok === false ? "idle" : "saved"));
     }, 1000);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -772,8 +794,8 @@ export function EstimateBuilder({
       manufacturer = prevMat?.manufacturer ?? "";
     }
     const line: LineState = asLabor
-      ? { ...emptyLine(), category: "labor" }
-      : { ...emptyLine(), manufacturer };
+      ? { ...emptyLine(), category: "labor", room: activeArea }
+      : { ...emptyLine(), manufacturer, room: activeArea };
     setOptions((prev) =>
       prev.map((o, i) => (i === oi ? { ...o, lines: [...o.lines, line] } : o)),
     );
@@ -795,6 +817,7 @@ export function EstimateBuilder({
       ...emptyLine(),
       description: a.label,
       line_type: "mat_labor",
+      room: activeArea,
       category,
       unit: a.unit || "",
       material_rate: isLabor ? "" : sell,
@@ -814,6 +837,7 @@ export function EstimateBuilder({
     const line: LineState = {
       ...emptyLine(),
       category: "underlayment",
+      room: activeArea,
       unit: "sheet",
       line_type: "installed",
       description: confirm ? "Subfloor — confirm thickness & sheets on site" : `Subfloor — ${label}`,
@@ -823,6 +847,65 @@ export function EstimateBuilder({
       prev.map((o, i) => (i === oi ? { ...o, lines: [...o.lines, line] } : o)),
     );
     setActiveLine(line.key);
+  };
+
+  const addNamedArea = (name: string) => {
+    const next = name.trim();
+    if (!next) return;
+    setPendingAreas((areas) => listAreas([], [...areas, next]));
+    setActiveArea(next);
+    setAreaDraft("");
+  };
+
+  const renameArea = (oi: number, from: string, to: string) => {
+    const option = options[oi];
+    if (!option) return;
+    const renamed = renameRoomOnLines(option.lines, from, to);
+    if (!renamed.name || renamed.name.toLowerCase() === from.trim().toLowerCase()) return;
+    const next = renamed.name;
+    setOptions((curr) =>
+      curr.map((o, i) => (i === oi ? { ...o, lines: renamed.lines } : o)),
+    );
+    setPendingAreas((areas) => areas.map((area) => (roomMatches(area, from) ? next : area)));
+    setActiveArea(next);
+    setRenameDraft(null);
+  };
+
+  const duplicateArea = (oi: number, name: string) => {
+    const source = name.trim();
+    if (!source) return;
+    const option = options[oi];
+    if (!option) return;
+    const existing = listAreas(
+      option.lines.map((l) => l.room),
+      pendingAreas,
+    );
+    const copyName = duplicateAreaName(source, existing);
+    const copies = cloneRoomLines(option.lines, source, copyName).map((line) => ({
+      ...line,
+      key: newKey(),
+      id: undefined,
+    }));
+    if (!copies.length) {
+      toast.message(EMPTY_AREA_NOT_SAVED);
+      return;
+    }
+    setOptions((curr) =>
+      curr.map((o, i) => (i === oi ? { ...o, lines: [...o.lines, ...copies] } : o)),
+    );
+    setActiveArea(copyName);
+  };
+
+  const discardUnsavedRooms = () => {
+    const dropped = unsavedPendingAreas(
+      options.flatMap((o) => o.lines.map((l) => l.room)),
+      pendingAreas,
+    );
+    if (!dropped.length) return;
+    setPendingAreas((areas) => areas.filter((area) => !dropped.some((name) => roomMatches(area, name))));
+    if (dropped.some((name) => roomMatches(activeArea, name))) setActiveArea("");
+    setRenameDraft(null);
+    toast.message(EMPTY_AREA_NOT_SAVED);
   };
 
   const removeLine = (oi: number, li: number) =>
@@ -1685,28 +1768,51 @@ export function EstimateBuilder({
     });
   };
 
-  const save = (thenView: boolean) =>
+  const claimCommit = (text: string) => {
+    if (isPending || !claimSaveFlight(saveLock)) return false;
+    setCommitNote({ kind: "saving", text });
+    return true;
+  };
+  const finishCommit = (note: { kind: "saved" | "error"; text: string }) => {
+    releaseSaveFlight(saveLock);
+    setCommitNote(note);
+  };
+
+  const save = (thenView: boolean) => {
+    if (!claimCommit("Saving this estimate…")) return;
+    discardUnsavedRooms();
     startTransition(async () => {
-      const res = await saveEstimate(estimate.id, buildInput());
-      if (res.error) {
-        toast.error(res.error);
-        return;
+      try {
+        const res = await saveEstimate(estimate.id, buildInput());
+        if (res.error) {
+          const text = employeeSaveError(res.error);
+          toast.error(text);
+          finishCommit({ kind: "error", text });
+          return;
+        }
+        await flushDefaultRates();
+        // Committed for real — the in-progress draft is no longer needed.
+        void clearEstimateBuilderDraft(estimate.id);
+        if (res.reapprovalRequired) {
+          const text =
+            "Saved. Commercial changes need customer reapproval — previous approval kept. Job / POs / invoices were not changed.";
+          toast.success(text);
+          finishCommit({ kind: "saved", text: "Saved — needs approval again" });
+        } else {
+          toast.success("Estimate saved");
+          finishCommit({ kind: "saved", text: "Saved" });
+        }
+        // "Save & view" opens the estimate; a plain "Save" returns to the
+        // customer's dashboard (the job's spine) — only ever on a successful save.
+        if (thenView) router.push(`/estimates/${estimate.id}`);
+        else router.push(`/customers/${estimate.customer_id}`);
+      } catch {
+        const text = "This estimate did not save. Nothing was sent.";
+        toast.error(text);
+        finishCommit({ kind: "error", text });
       }
-      await flushDefaultRates();
-      // Committed for real — the in-progress draft is no longer needed.
-      void clearEstimateBuilderDraft(estimate.id);
-      if (res.reapprovalRequired) {
-        toast.success(
-          "Saved. Commercial changes need customer reapproval — previous approval kept. Job / POs / invoices were not changed.",
-        );
-      } else {
-        toast.success("Estimate saved");
-      }
-      // "Save & view" opens the estimate; a plain "Save" returns to the
-      // customer's dashboard (the job's spine) — only ever on a successful save.
-      if (thenView) router.push(`/estimates/${estimate.id}`);
-      else router.push(`/customers/${estimate.customer_id}`);
     });
+  };
 
   // Came from the smart builder's "Create & print" — open the print dialog once.
   useEffect(() => {
@@ -1717,58 +1823,89 @@ export function EstimateBuilder({
   }, [autoPrint]);
 
   // Save first so the record matches the printout, then open print.
-  const saveThenPrint = () =>
+  const saveThenPrint = () => {
+    if (!claimCommit("Saving before print…")) return;
+    discardUnsavedRooms();
     startTransition(async () => {
-      const res = await saveEstimate(estimate.id, buildInput());
-      if (res.error) {
-        toast.error(res.error);
-        return;
+      try {
+        const res = await saveEstimate(estimate.id, buildInput());
+        if (res.error) {
+          const text = employeeSaveError(res.error);
+          toast.error(text);
+          finishCommit({ kind: "error", text });
+          return;
+        }
+        await flushDefaultRates();
+        void clearEstimateBuilderDraft(estimate.id);
+        if (res.reapprovalRequired) {
+          toast.success(
+            "Saved for reapproval. Previous customer approval kept. Job / POs / invoices unchanged.",
+          );
+        }
+        finishCommit({ kind: "saved", text: "Saved" });
+        window.print();
+      } catch {
+        const text = "This estimate did not save, so it was not printed from a new save.";
+        toast.error(text);
+        finishCommit({ kind: "error", text });
       }
-      await flushDefaultRates();
-      void clearEstimateBuilderDraft(estimate.id);
-      if (res.reapprovalRequired) {
-        toast.success(
-          "Saved for reapproval. Previous customer approval kept. Job / POs / invoices unchanged.",
-        );
-      }
-      window.print();
     });
+  };
 
   // Finish the build and send it to the customer in one step: save, then mark
   // it sent + email the customer their portal link (advances the pipeline). If
   // there's no email on file, don't silently mark it sent — save and open the
   // estimate so an email can be added first.
-  const saveAndSend = (sendEmail = true) =>
+  const saveAndSend = (sendEmail = true) => {
+    if (!claimCommit(sendEmail ? "Saving, then sending…" : "Saving…")) return;
+    discardUnsavedRooms();
     startTransition(async () => {
-      const res = await saveEstimate(estimate.id, buildInput());
-      if (res.error) {
-        toast.error(res.error);
-        return;
+      try {
+        const res = await saveEstimate(estimate.id, buildInput());
+        if (res.error) {
+          const text = employeeSaveError(res.error);
+          toast.error(text);
+          finishCommit({ kind: "error", text });
+          return;
+        }
+        await flushDefaultRates();
+        void clearEstimateBuilderDraft(estimate.id);
+        const sent = await sendEstimateById(estimate.id, sendEmail);
+        if (!sendEmail) {
+          toast.success(
+            res.reapprovalRequired
+              ? "Revised estimate saved & marked sent (needs reapproval; no email)"
+              : "Estimate saved & marked sent (no email)",
+          );
+          finishCommit({ kind: "saved", text: "Saved and marked sent" });
+        } else if (sent.notify.status === "success") {
+          toast.success(
+            res.reapprovalRequired
+              ? `Revised estimate sent for reapproval to ${customer?.full_name || "the customer"}`
+              : `Estimate sent to ${customer?.full_name || "the customer"}`,
+          );
+          finishCommit({ kind: "saved", text: "Sent" });
+        } else if (sent.notify.status === "failed") {
+          const text = `Email failed. The estimate was not marked sent. ${sent.notify.error ?? ""}`.trim();
+          toast.error(text);
+          finishCommit({ kind: "error", text: "Not sent — the email did not go through." });
+          router.push(`/estimates/${estimate.id}`);
+          return;
+        } else {
+          const text = `The estimate was not marked sent. ${sent.notify.reason ?? "Add an email address first."}`;
+          toast.error(text);
+          finishCommit({ kind: "error", text: "Not sent." });
+          router.push(`/estimates/${estimate.id}`);
+          return;
+        }
+        router.push(`/estimates/${estimate.id}`);
+      } catch {
+        const text = "This estimate did not save, so it was not sent.";
+        toast.error(text);
+        finishCommit({ kind: "error", text });
       }
-      await flushDefaultRates();
-      void clearEstimateBuilderDraft(estimate.id);
-      const sent = await sendEstimateById(estimate.id, sendEmail);
-      if (!sendEmail) {
-        toast.success(
-          res.reapprovalRequired
-            ? "Revised estimate saved & marked sent (needs reapproval; no email)"
-            : "Estimate saved & marked sent (no email)",
-        );
-      } else if (sent.notify.status === "success") {
-        toast.success(
-          res.reapprovalRequired
-            ? `Revised estimate sent for reapproval to ${customer?.full_name || "the customer"}`
-            : `Estimate sent to ${customer?.full_name || "the customer"}`,
-        );
-      } else if (sent.notify.status === "failed") {
-        toast.error(`Email failed. The estimate was not marked sent. ${sent.notify.error ?? ""}`.trim());
-      } else {
-        toast.error(
-          `The estimate was not marked sent. ${sent.notify.reason ?? "Add an email address first."}`,
-        );
-      }
-      router.push(`/estimates/${estimate.id}`);
     });
+  };
 
   const [aiBusy, setAiBusy] = useState(false);
   const aiDescribe = async () => {
@@ -1958,6 +2095,12 @@ export function EstimateBuilder({
       >
         <ArrowLeft className="size-4" /> Back to {customerName}
       </Link>
+      {unsavedPendingAreas(
+        options.flatMap((option) => option.lines.map((line) => line.room)),
+        pendingAreas,
+      ).length ? (
+        <p className="mb-3 text-xs text-amber-800 dark:text-amber-200">{EMPTY_AREA_NOT_SAVED}</p>
+      ) : null}
 
       {/* Owner ⇄ customer preview toggle */}
       <div className="mb-4 flex items-center justify-between gap-2">
@@ -1998,10 +2141,12 @@ export function EstimateBuilder({
       {/* Progress spine — jump between sections */}
       <div className="sticky top-0 z-20 -mx-1 mb-4 flex flex-wrap gap-1 border-b bg-background/95 px-1 py-2 backdrop-blur">
         {[
-          ["sec-setup", "Setup"],
-          ["sec-materials", "Materials"],
+          ["sec-setup", "Customer"],
+          ["sec-areas", "Rooms"],
+          ["sec-materials", "Products"],
           ["sec-labor", "Labor"],
-          ["sec-review", "Review"],
+          ["sec-extras", "Extras"],
+          ["sec-review", "Price"],
         ].map(([id, label]) => (
           <button
             key={id}
@@ -2017,6 +2162,15 @@ export function EstimateBuilder({
       {/* Estimate header */}
       <Card className="mb-6 scroll-mt-16" id="sec-setup">
         <CardContent className="space-y-4 pt-6">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Customer / project
+            </div>
+            <div className="text-lg font-semibold">{customerName}</div>
+            {siteAddress ? (
+              <p className="text-sm text-muted-foreground">{siteAddress}</p>
+            ) : null}
+          </div>
           {/* Overall profit margin — drives every line without its own override */}
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3">
             <div className="min-w-0">
@@ -2286,6 +2440,12 @@ export function EstimateBuilder({
 
           const isRecommended = option.key === recommendedKey;
           const hasOptional = option.lines.some((l) => l.is_optional);
+          const roomChips = areaChips(
+            option.lines.map((l) => l.room),
+            pendingAreas,
+          );
+          const areaNames = roomChips.map((chip) => chip.name);
+          const activeChip = roomChips.find((chip) => roomMatches(activeArea, chip.name));
           return (
             <Card key={option.key} className={cn(isRecommended && "ring-1 ring-primary")}>
               <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
@@ -2347,6 +2507,137 @@ export function EstimateBuilder({
                 </div>
               </CardHeader>
               <CardContent className="space-y-5">
+                {(() => {
+                  return (
+                    <div id="sec-areas" className="scroll-mt-16 space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h3 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
+                          Rooms / areas
+                        </h3>
+                        <p className="text-xs text-muted-foreground">
+                          {activeChip?.pending
+                            ? `${activeChip.name} is not saved yet. Add a product or labor line to keep it.`
+                            : activeArea
+                              ? `Adding to ${activeArea}`
+                              : areaNames.length
+                                ? "Choose a room, then add products."
+                                : "Add a room or area to start this estimate."}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveArea("");
+                            setRenameDraft(null);
+                          }}
+                          className={cn(
+                            "min-h-11 rounded-full border px-3 text-sm font-medium",
+                            !activeArea ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted",
+                          )}
+                        >
+                          Unassigned
+                        </button>
+                        {roomChips.map((chip) => (
+                          <button
+                            key={chip.name}
+                            type="button"
+                            onClick={() => {
+                              setActiveArea(chip.name);
+                              setRenameDraft(null);
+                            }}
+                            className={cn(
+                              "min-h-11 rounded-full border px-3 text-sm font-medium",
+                              chip.pending && "border-dashed",
+                              roomMatches(activeArea, chip.name)
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "hover:bg-muted",
+                            )}
+                          >
+                            {chip.name}
+                            {chip.pending ? (
+                              <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide opacity-80">
+                                Not saved
+                              </span>
+                            ) : null}
+                          </button>
+                        ))}
+                      </div>
+                      {roomChips.some((chip) => chip.pending) ? (
+                        <p className="text-xs text-amber-800 dark:text-amber-200">{EMPTY_AREA_NOT_SAVED}</p>
+                      ) : null}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Input
+                          value={areaDraft}
+                          onChange={(e) => setAreaDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              addNamedArea(areaDraft);
+                            }
+                          }}
+                          placeholder="Living room, kitchen, stairs…"
+                          aria-label="New room or area"
+                          className="h-11 w-full sm:max-w-xs"
+                        />
+                        <Button type="button" variant="outline" className="min-h-11" onClick={() => addNamedArea(areaDraft)}>
+                          <Plus className="size-3.5" /> Add area
+                        </Button>
+                        {activeArea && renameDraft !== null ? (
+                          <>
+                            <Input
+                              value={renameDraft}
+                              onChange={(e) => setRenameDraft(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  renameArea(oi, activeArea, renameDraft);
+                                }
+                              }}
+                              aria-label="Rename room"
+                              className="h-11 w-full sm:max-w-xs"
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="min-h-11"
+                              onClick={() => renameArea(oi, activeArea, renameDraft)}
+                            >
+                              Save name
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="min-h-11"
+                              onClick={() => setRenameDraft(null)}
+                            >
+                              Cancel
+                            </Button>
+                          </>
+                        ) : activeArea ? (
+                          <>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="min-h-11"
+                              onClick={() => setRenameDraft(activeArea)}
+                            >
+                              Rename
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="min-h-11"
+                              onClick={() => duplicateArea(oi, activeArea)}
+                            >
+                              <Copy className="size-3.5" /> Duplicate area
+                            </Button>
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })()}
                 {(["mat", "labor"] as const).map((section) => {
                   const secLines = option.lines
                     .map((line, li) => ({ line, li }))
@@ -2371,7 +2662,11 @@ export function EstimateBuilder({
                           <ProductPicker
                             value=""
                             purpose="sell"
-                            label="Add a material — search catalog (name, color, mfr, SKU) or add new"
+                            label={
+                              activeArea
+                                ? `Add a product to ${activeArea} — search name, color, manufacturer, or item number`
+                                : "Add a product — search name, color, manufacturer, or item number"
+                            }
                             fullWidth
                             onPick={(p) => addMaterialFromPick(oi, p)}
                             onCreated={(p) => addMaterialFromPick(oi, p)}
@@ -2381,10 +2676,22 @@ export function EstimateBuilder({
                       ) : null}
                       {secLines.length === 0 ? (
                         <p className="px-1 py-1 text-xs text-muted-foreground">
-                          {section === "labor" ? "No labor lines yet." : "No material lines yet."}
+                          {section === "labor"
+                            ? "Add a product or labor item."
+                            : "Choose a product."}
                         </p>
                       ) : null}
-                      {secLines.map(({ line, li }) => {
+                      {groupIndexedByRoom(secLines).map((group) => (
+                        <div key={`${section}-${group.name || "none"}`} className="space-y-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2 px-1 pt-1">
+                            <h4 className="text-sm font-semibold">
+                              {group.name || "No room yet"}
+                            </h4>
+                            <span className="text-xs text-muted-foreground">
+                              {section === "labor" ? "Labor" : "Products"}
+                            </span>
+                          </div>
+                          {group.rows.map(({ line, li }) => {
                   const summ = {
                     // Carry category, or a labor line's per-line price shows a
                     // material rate the option total doesn't charge.
@@ -2517,7 +2824,7 @@ export function EstimateBuilder({
                       <button
                         type="button"
                         onClick={() => toggleLine(line.key)}
-                        className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-muted/40"
+                        className="flex w-full flex-wrap items-start gap-3 p-4 text-left transition-colors hover:bg-muted/40 sm:items-center"
                       >
                         <ChevronRight
                           className={cn(
@@ -2531,11 +2838,19 @@ export function EstimateBuilder({
                               <span className="font-normal text-muted-foreground">New line — tap to pick a product</span>
                             )}
                           </div>
+                          {(() => {
+                            const bits = [line.manufacturer, line.style, line.color, line.item_no]
+                              .map((part) => part.trim())
+                              .filter((part) => part && !displayName.toLowerCase().includes(part.toLowerCase()));
+                            if (!bits.length) return null;
+                            return <div className="truncate text-xs text-muted-foreground">{bits.join(" · ")}</div>;
+                          })()}
                           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                            {line.room ? <span>{line.room}</span> : null}
+                            {line.room ? <span>{line.room}</span> : <span>No room yet</span>}
                             {line.line_type !== "flat" && sQty > 0 ? (
                               <span className="tabular-nums">
-                                {sQty.toFixed(sQty < 100 ? 1 : 0)} {sUnit}
+                                Quantity {sQty.toFixed(sQty < 100 ? 1 : 0)}
+                                {sUnit ? ` ${sUnit}` : ""}
                                 {/* Exclusive carpet-tile Builder collapsed carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
                                 {/* Hard-surface Builder collapsed carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
                                 {sCartons ? ` · 📦 ${sCartons} carton(s)` : ""}
@@ -2547,9 +2862,15 @@ export function EstimateBuilder({
                                 {padRolls ? ` · ${padRolls} roll${padRolls === 1 ? "" : "s"}` : ""}
                               </span>
                             ) : null}
-                            {line.category === "labor" ? (
-                              <span className="rounded-full bg-muted px-1.5 py-0.5 font-medium">Labor</span>
-                            ) : null}
+                            {isLaborLine(line) ? (
+                              <span className="rounded-full bg-sky-100 px-1.5 py-0.5 font-medium text-sky-800 dark:bg-sky-500/20 dark:text-sky-200">
+                                Labor
+                              </span>
+                            ) : (
+                              <span className="rounded-full bg-muted px-1.5 py-0.5 font-medium">
+                                Material
+                              </span>
+                            )}
                             {line.from_stock ? (
                               <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-medium text-amber-700 dark:bg-amber-500/20 dark:text-amber-400">
                                 From stock
@@ -2567,7 +2888,7 @@ export function EstimateBuilder({
                             ) : null}
                           </div>
                         </div>
-                        <div className="shrink-0 text-right">
+                        <div className="ml-auto shrink-0 text-right">
                           <div className="text-base font-bold tabular-nums">
                             {materialSellUnresolved({
                               category: line.category,
@@ -2954,7 +3275,7 @@ export function EstimateBuilder({
                             ) : isCountLine(line) ? (
                               <div>
                                 <label className="mb-1 block text-xs text-muted-foreground">
-                                  How many {unitLabel(line.unit) || "units"}?
+                                  {quantityCaption(unitLabel(line.unit) || line.unit)}
                                 </label>
                                 <input
                                   type="number"
@@ -3203,6 +3524,22 @@ export function EstimateBuilder({
                               <label className="mb-1 block text-xs text-muted-foreground">
                                 Room / area
                               </label>
+                              {areaNames.length ? (
+                                <select
+                                  value={areaNames.some((name) => roomMatches(line.room, name)) ? line.room : ""}
+                                  onChange={(e) => {
+                                    const next = e.target.value;
+                                    if (next) updateLine(oi, li, { room: next });
+                                  }}
+                                  className="mb-1 h-11 w-full rounded-md border border-input bg-transparent px-2 text-sm"
+                                  aria-label="Move to room"
+                                >
+                                  <option value="">Move to a room…</option>
+                                  {areaNames.map((name) => (
+                                    <option key={name} value={name}>{name}</option>
+                                  ))}
+                                </select>
+                              ) : null}
                               <Input
                                 value={line.room}
                                 onChange={(e) => updateLine(oi, li, { room: e.target.value })}
@@ -3448,7 +3785,10 @@ export function EstimateBuilder({
                             {line.line_type !== "flat" && !isSubfloor(line) && !isCountLine(line) ? (
                               <div className="flex flex-wrap items-end gap-3">
                                 <LabeledNumber
-                                  label={`Qty${line.unit ? ` (${line.unit})` : ""}`}
+                                  label={quantityCaption(
+                                    line.unit.trim() ||
+                                      (line.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
+                                  )}
                                   value={line.quantity}
                                   width="w-20"
                                   onChange={(v) => updateLine(oi, li, { quantity: v })}
@@ -3481,7 +3821,10 @@ export function EstimateBuilder({
                             variant="ghost"
                             size="icon-sm"
                             aria-label="Remove line"
-                            onClick={() => removeLine(oi, li)}
+                            onClick={() => {
+                              if (!window.confirm("Remove this line from the estimate?")) return;
+                              removeLine(oi, li);
+                            }}
                           >
                             <Trash2 className="size-3.5" />
                           </Button>
@@ -3492,6 +3835,8 @@ export function EstimateBuilder({
                     </div>
                   );
                 })}
+                        </div>
+                      ))}
                       <div className="flex flex-wrap items-center gap-2">
                         {section === "labor" ? (
                           <Button
@@ -3522,34 +3867,6 @@ export function EstimateBuilder({
                                 <Plus className="size-4 text-primary" /> Material line
                                 <span className="text-xs font-normal text-muted-foreground">— search the catalog or type your own</span>
                               </button>
-                              {addonCatalog.length ? (
-                                <>
-                                  <div className="mt-1 border-t px-2 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                                    Common add-ons
-                                  </div>
-                                  {addonCatalog.map((a) => (
-                                    <button
-                                      key={a.label}
-                                      type="button"
-                                      onClick={(e) => {
-                                        addAddon(oi, a);
-                                        (e.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open");
-                                      }}
-                                      className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
-                                    >
-                                      <span className="min-w-0 truncate">
-                                        {a.label}
-                                        {a.custom ? (
-                                          <span className="ml-1 text-[10px] text-violet-600 dark:text-violet-400">custom</span>
-                                        ) : null}
-                                      </span>
-                                      <span className="shrink-0 text-xs text-muted-foreground">
-                                        {a.sell != null ? `${formatMoney(a.sell)}/${a.unit}` : a.labor ? "labor" : ""}
-                                      </span>
-                                    </button>
-                                  ))}
-                                </>
-                              ) : null}
                               <div className="mt-1 border-t px-2 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                                 Subfloor (by the sheet)
                               </div>
@@ -3574,10 +3891,46 @@ export function EstimateBuilder({
                   );
                 })}
 
-                {/* Option totals */}
-                <div className="ml-auto w-full max-w-xs space-y-1 border-t pt-3 text-sm scroll-mt-16" id="sec-review">
+                {addonCatalog.length ? (
+                  <div id="sec-extras" className="scroll-mt-16 space-y-2">
+                    <h3 className="border-b pb-1.5 text-sm font-bold uppercase tracking-wide text-muted-foreground">
+                      Extras
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      Add a saved extra to {activeArea || "this estimate"}. Prices come from your default pricing.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {addonCatalog.map((a) => (
+                        <Button
+                          key={a.label}
+                          type="button"
+                          variant="outline"
+                          className="min-h-11"
+                          onClick={() => addAddon(oi, a)}
+                        >
+                          <Plus className="size-3.5" />
+                          {a.label}
+                          <span className="text-xs font-normal text-muted-foreground">
+                            {a.labor ? "Labor" : "Material"}
+                            {a.sell != null ? ` · ${formatMoney(a.sell)}` : ""}
+                          </span>
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div id="sec-extras" className="scroll-mt-16 text-xs text-muted-foreground">
+                    Extras use your saved add-ons. None are set up yet — add a labor or material line instead.
+                  </div>
+                )}
+
+                {/* Option totals — canonical optionTotalsWithDiscount / jobProfit. */}
+                <div className="w-full space-y-1 border-t pt-3 text-sm scroll-mt-16 sm:ml-auto sm:max-w-xs" id="sec-review">
+                  <h3 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
+                    Price
+                  </h3>
                   <div className="flex justify-between text-muted-foreground">
-                    <span>Retail (subtotal)</span>
+                    <span>Subtotal</span>
                     <span>{formatMoney(totals.subtotal)}</span>
                   </div>
                   {/* Whole-job discount — owner only; the customer just sees the
@@ -3784,17 +4137,26 @@ export function EstimateBuilder({
           </div>
           <div className="flex items-center gap-2">
           <span
-            className="mr-1 hidden text-xs text-muted-foreground sm:inline"
+            className={cn(
+              "mr-1 text-xs sm:inline",
+              commitNote?.kind === "error" ? "text-destructive" : "text-muted-foreground",
+            )}
             aria-live="polite"
-            title="Your work auto-saves as you type"
+            title="Save writes this estimate. A working copy is kept while you type and is not the sent estimate."
           >
-            {saveState === "saving" ? "Saving…" : saveState === "saved" ? "✓ Saved" : ""}
+            {commitNote
+              ? commitNote.text
+              : saveState === "saving"
+                ? "Keeping a working copy…"
+                : saveState === "saved"
+                  ? "Working copy kept — Save writes the estimate"
+                  : "Save this estimate before sending it."}
           </span>
           <Button
             type="button"
             variant="outline"
             className="min-h-11"
-            disabled={isPending}
+            disabled={isPending || commitNote?.kind === "saving"}
             onClick={saveThenPrint}
           >
             <Printer className="size-4" /> Save &amp; print
@@ -3803,7 +4165,7 @@ export function EstimateBuilder({
             type="button"
             variant="outline"
             className="min-h-11"
-            disabled={isPending}
+            disabled={isPending || commitNote?.kind === "saving"}
             onClick={() => save(true)}
           >
             <Eye className="size-4" /> Save &amp; view
@@ -3812,20 +4174,20 @@ export function EstimateBuilder({
             type="button"
             variant="outline"
             className="min-h-11"
-            disabled={isPending}
+            disabled={isPending || commitNote?.kind === "saving"}
             onClick={() => save(false)}
           >
-            <Save className="size-4" /> {isPending ? "Saving…" : "Save"}
+            <Save className="size-4" /> {isPending || commitNote?.kind === "saving" ? "Saving…" : "Save"}
           </Button>
           <SendToClient
             clientName={customer?.full_name}
             email={customer?.email}
             title="Send this estimate to the customer?"
-            description="We'll save it, mark it sent, and email your branded estimate with a link to review & approve."
+            description="We'll save it first. It is marked sent only after the email goes through, unless you choose no email."
             sendLabel="Save & send"
             skipLabel="Save, no email"
             className="min-h-11"
-            disabled={isPending}
+            disabled={isPending || commitNote?.kind === "saving"}
             onChoose={(send) => saveAndSend(send)}
           >
             <Send className="size-4" /> Save &amp; send
