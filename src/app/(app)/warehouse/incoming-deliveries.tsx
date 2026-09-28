@@ -404,8 +404,15 @@ function PoCard({ po }: { po: IncomingPo }) {
  * never the purchase orders behind them, so there was no way to check a
  * delivery against what was actually ordered.
  */
-export function IncomingDeliveries({ pos }: { pos: IncomingPo[] }) {
+export function IncomingDeliveries({
+  pos,
+  receivedTotal,
+}: {
+  pos: IncomingPo[];
+  receivedTotal?: number;
+}) {
   const waiting = pos.filter((p) => p.status === "ordered");
+  const receivedRows = pos.filter((p) => p.status === "received");
   const problems = pos.filter((p) => p.backordered);
 
   if (!pos.length) {
@@ -434,14 +441,13 @@ export function IncomingDeliveries({ pos }: { pos: IncomingPo[] }) {
         <PoCard key={po.id} po={po} />
       ))}
 
-      {pos.filter((p) => p.status === "received").length ? (
+      {receivedRows.length ? (
         <details className="rounded-lg border p-3">
           <summary className="cursor-pointer text-sm font-medium">
-            Already received ({pos.filter((p) => p.status === "received").length})
+            Already received ({receivedTotal ?? receivedRows.length})
           </summary>
           <div className="mt-3 space-y-3">
-            {pos
-              .filter((p) => p.status === "received")
+            {receivedRows
               .map((po) => (
                 <PoCard key={po.id} po={po} />
               ))}

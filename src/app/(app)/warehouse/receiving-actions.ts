@@ -6,6 +6,8 @@ import { assertRole } from "@/lib/auth";
 import { applyPoStatus, notifyBackordered } from "@/app/(app)/purchase-orders/actions";
 import { applyPoLineReceiptDelta } from "@/lib/po-stock";
 import { employeeReceiptError } from "@/lib/po-facts";
+import { QUEUE_LIST_UNAVAILABLE, logQueueFailure } from "@/lib/ops-scale";
+import { listPageWindow, WORK_QUEUE_PAGE_SIZE } from "@/lib/work-queues";
 
 const RECEIVERS = ["admin", "office", "warehouse"] as const;
 
@@ -280,25 +282,50 @@ export interface IncomingPoRow {
   items: IncomingPoItem[];
 }
 
-export async function listIncomingPos(): Promise<IncomingPoRow[]> {
+const INCOMING_PO_COLUMNS =
+  "id, po_number, supplier, status, eta_date, backordered, received_at, " +
+  "customer:customers(full_name), job:jobs(title), " +
+  "items:po_items(id, position, description, quantity, unit, manufacturer, style, color, item_no, received_qty, received_at, receiving_note, category, sqft_per_box, roll_width_ft)";
+
+export async function listIncomingPos(
+  page?: number,
+  status?: "ordered" | "received",
+): Promise<{ rows: IncomingPoRow[]; total: number; page: number; pageSize: number }> {
   await assertRole([...RECEIVERS]);
   const db = createAdminClient();
+  const pageSize = WORK_QUEUE_PAGE_SIZE;
+  const statuses = status ? [status] : ["ordered", "received"];
 
-  const { data } = await db
+  const counted = await db
     .from("purchase_orders")
-    .select(
-      "id, po_number, supplier, status, eta_date, backordered, received_at, " +
-        "customer:customers(full_name), job:jobs(title), " +
-        "items:po_items(id, position, description, quantity, unit, manufacturer, style, color, item_no, received_qty, received_at, receiving_note, category, sqft_per_box, roll_width_ft)",
-    )
-    .in("status", ["ordered", "received"])
+    .select("id", { count: "exact", head: true })
+    .in("status", statuses);
+  if (counted.error) {
+    logQueueFailure("incoming_pos", counted.error);
+    throw new Error(QUEUE_LIST_UNAVAILABLE);
+  }
+  const total = counted.count ?? 0;
+  const window = listPageWindow(page ?? 1, pageSize, total);
+  if (total === 0) {
+    return { rows: [], total: 0, page: 1, pageSize };
+  }
+
+  const { data, error } = await db
+    .from("purchase_orders")
+    .select(INCOMING_PO_COLUMNS)
+    .in("status", statuses)
     .order("eta_date", { ascending: true, nullsFirst: false })
-    .limit(200);
+    .order("id", { ascending: true })
+    .range(window.from, Math.max(window.from, window.to - 1));
+  if (error) {
+    logQueueFailure("incoming_pos", error);
+    throw new Error(QUEUE_LIST_UNAVAILABLE);
+  }
 
   const one = <T,>(v: T | T[] | null | undefined): T | null =>
     v == null ? null : Array.isArray(v) ? (v[0] ?? null) : v;
 
-  return ((data ?? []) as unknown as Record<string, unknown>[]).map((p) => {
+  const rows = ((data ?? []) as unknown as Record<string, unknown>[]).map((p) => {
     const cust = one(p.customer as { full_name?: string } | { full_name?: string }[] | null);
     const job = one(p.job as { title?: string } | { title?: string }[] | null);
     const items = ((p.items ?? []) as IncomingPoItem[])
@@ -317,4 +344,5 @@ export async function listIncomingPos(): Promise<IncomingPoRow[]> {
       items,
     };
   });
+  return { rows, total, page: window.page, pageSize };
 }
