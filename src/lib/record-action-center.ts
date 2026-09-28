@@ -121,6 +121,7 @@ export interface CustomerActionInvoice {
 }
 
 export interface CustomerActionCallback {
+  id?: string | null;
   jobId?: string | null;
   jobTitle?: string | null;
 }
@@ -242,7 +243,10 @@ export function buildCustomerActionCenter(input: {
     const name = callback.jobTitle?.trim();
     const line = name ? `${name} has an open service issue.` : "A service issue is open.";
     if (!blocker) also = also ? `${also} ${line}` : line;
-    secondary.push({ label: "Open service", href: "/service" });
+    secondary.push({
+      label: "Open service",
+      href: callback.id ? `/service/${callback.id}` : "/service",
+    });
   }
 
   const followDue = sent.some((row) => {
@@ -497,6 +501,7 @@ export function buildJobActionCenter(input: {
   openBalance?: number | null;
   invoiceHref?: string | null;
   hasOpenCallback?: boolean;
+  serviceHref?: string | null;
   crewCollectsBalance?: boolean;
 }): RecordActionCenterModel {
   const role = input.role;
@@ -570,7 +575,7 @@ export function buildJobActionCenter(input: {
       attention: callback ? "A service issue is still open." : balance ? "A balance is still open." : null,
       blocker: callback ? "The install is finished, but a service issue is still open." : null,
       also: !callback && balance ? "The remaining balance does not change the completed install." : null,
-      primary: callback ? { label: "Open service", href: "/service" } : balance && input.invoiceHref ? { label: "Open invoice", href: input.invoiceHref } : null,
+      primary: callback ? { label: "Open service", href: input.serviceHref || "/service" } : balance && input.invoiceHref ? { label: "Open invoice", href: input.invoiceHref } : null,
       secondary: callback && balance && input.invoiceHref ? [{ label: "Open invoice", href: input.invoiceHref }] : [],
       history,
       quiet: callback || balance ? null : "This job is on track.",
@@ -622,7 +627,7 @@ export function buildJobActionCenter(input: {
       attention: "A service issue is open.",
       blocker: null,
       also: "The service issue is separate from the install date.",
-      primary: { label: "Open service", href: "/service" },
+      primary: { label: "Open service", href: input.serviceHref || "/service" },
       secondary: [],
       history,
       quiet: null,

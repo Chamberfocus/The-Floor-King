@@ -195,6 +195,8 @@ export interface ServiceQueueRow {
   category: string;
   description: string | null;
   follow_up_at: string | null;
+  reported_at: string | null;
+  assigned_to: string | null;
   customer_id: string;
   job_id: string | null;
   customer_name: string | null;
@@ -203,7 +205,7 @@ export interface ServiceQueueRow {
 }
 
 const SERVICE_COLUMNS =
-  "id, status, category, description, follow_up_at, customer_id, job_id, customer:customers(full_name, street, city), job:jobs(title, site_street, site_city)";
+  "id, status, category, description, follow_up_at, reported_at, assigned_to, customer_id, job_id, customer:customers(full_name, street, city), job:jobs(title, site_street, site_city)";
 
 function shapeServiceRows(data: unknown): ServiceQueueRow[] {
   return ((data ?? []) as {
@@ -212,6 +214,8 @@ function shapeServiceRows(data: unknown): ServiceQueueRow[] {
     category: string;
     description: string | null;
     follow_up_at: string | null;
+    reported_at: string | null;
+    assigned_to: string | null;
     customer_id: string;
     job_id: string | null;
     customer?:
@@ -235,6 +239,8 @@ function shapeServiceRows(data: unknown): ServiceQueueRow[] {
       category: row.category,
       description: row.description,
       follow_up_at: row.follow_up_at,
+      reported_at: row.reported_at,
+      assigned_to: row.assigned_to,
       customer_id: row.customer_id,
       job_id: row.job_id,
       customer_name: customer?.full_name ?? null,
@@ -297,6 +303,140 @@ export async function listServiceQueue(args: {
     pageSize,
     capped: false,
   };
+}
+
+export interface ServiceCallbackDetail {
+  id: string;
+  customer_id: string;
+  job_id: string | null;
+  category: string;
+  description: string;
+  status: string;
+  reported_at: string | null;
+  assigned_to: string | null;
+  follow_up_at: string | null;
+  resolution_notes: string | null;
+  completed_at: string | null;
+  created_at: string;
+  customer_name: string | null;
+  customer_phone: string | null;
+  job_title: string | null;
+  job_status: string | null;
+  job_completed_at: string | null;
+  job_scheduled_date: string | null;
+  place: string | null;
+}
+
+const SERVICE_DETAIL_COLUMNS =
+  "id, customer_id, job_id, category, description, status, reported_at, assigned_to, follow_up_at, resolution_notes, completed_at, created_at, customer:customers(full_name, phone, street, city, state, zip), job:jobs(title, status, completed_at, scheduled_date, site_street, site_city, site_state, site_zip)";
+
+export async function getServiceCallback(id: string): Promise<ServiceCallbackDetail | null> {
+  if (!id) return null;
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("service_callbacks")
+    .select(SERVICE_DETAIL_COLUMNS)
+    .eq("id", id)
+    .maybeSingle();
+  if (!data) return null;
+  const row = data as unknown as {
+    id: string;
+    customer_id: string;
+    job_id: string | null;
+    category: string;
+    description: string;
+    status: string;
+    reported_at: string | null;
+    assigned_to: string | null;
+    follow_up_at: string | null;
+    resolution_notes: string | null;
+    completed_at: string | null;
+    created_at: string;
+    customer?:
+      | {
+          full_name?: string | null;
+          phone?: string | null;
+          street?: string | null;
+          city?: string | null;
+          state?: string | null;
+          zip?: string | null;
+        }
+      | {
+          full_name?: string | null;
+          phone?: string | null;
+          street?: string | null;
+          city?: string | null;
+          state?: string | null;
+          zip?: string | null;
+        }[]
+      | null;
+    job?:
+      | {
+          title?: string | null;
+          status?: string | null;
+          completed_at?: string | null;
+          scheduled_date?: string | null;
+          site_street?: string | null;
+          site_city?: string | null;
+          site_state?: string | null;
+          site_zip?: string | null;
+        }
+      | {
+          title?: string | null;
+          status?: string | null;
+          completed_at?: string | null;
+          scheduled_date?: string | null;
+          site_street?: string | null;
+          site_city?: string | null;
+          site_state?: string | null;
+          site_zip?: string | null;
+        }[]
+      | null;
+  };
+  const customer = Array.isArray(row.customer) ? row.customer[0] : row.customer;
+  const job = Array.isArray(row.job) ? row.job[0] : row.job;
+  const place = [
+    job?.site_street ?? customer?.street,
+    job?.site_city ?? customer?.city,
+    job?.site_state ?? customer?.state,
+    job?.site_zip ?? customer?.zip,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  return {
+    id: row.id,
+    customer_id: row.customer_id,
+    job_id: row.job_id,
+    category: row.category,
+    description: row.description,
+    status: row.status,
+    reported_at: row.reported_at,
+    assigned_to: row.assigned_to,
+    follow_up_at: row.follow_up_at,
+    resolution_notes: row.resolution_notes,
+    completed_at: row.completed_at,
+    created_at: row.created_at,
+    customer_name: customer?.full_name ?? null,
+    customer_phone: customer?.phone ?? null,
+    job_title: job?.title ?? null,
+    job_status: job?.status ?? null,
+    job_completed_at: job?.completed_at ?? null,
+    job_scheduled_date: job?.scheduled_date ?? null,
+    place: place || null,
+  };
+}
+
+export async function listServiceAssignees(): Promise<{ id: string; name: string }[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("profiles")
+    .select("id, full_name")
+    .in("role", ["admin", "office", "sales_manager", "salesman", "scheduler", "crew"])
+    .order("full_name", { ascending: true });
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    name: (row.full_name as string) || "Staff",
+  }));
 }
 
 const TASK_COLUMNS =

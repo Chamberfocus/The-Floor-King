@@ -19,13 +19,19 @@ export async function loadCustomerRecordFacts(customerId: string, jobIds: string
   }
   const { data: callbacks } = await supabase
     .from("service_callbacks")
-    .select("id, job_id")
+    .select("id, job_id, status, follow_up_at, reported_at")
     .eq("customer_id", customerId)
     .in("status", ["open", "scheduled", "in_progress", "waiting"])
     .limit(20);
   return {
     materialJobs,
-    callbacks: (callbacks ?? []) as { id: string; job_id: string | null }[],
+    callbacks: (callbacks ?? []) as {
+      id: string;
+      job_id: string | null;
+      status: string;
+      follow_up_at: string | null;
+      reported_at: string | null;
+    }[],
   };
 }
 

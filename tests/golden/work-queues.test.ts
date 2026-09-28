@@ -77,10 +77,14 @@ describe("work queue filters follow canonical facts", () => {
     expect(parseServiceQueue(undefined)).toBe("open");
     expect(serviceStatusesForView("open")).toEqual(["open", "in_progress", "waiting"]);
     expect(serviceStatusesForView("scheduled")).toEqual(["scheduled"]);
+    expect(serviceStatusesForView("in_progress")).toEqual(["in_progress"]);
+    expect(serviceStatusesForView("waiting")).toEqual(["waiting"]);
     expect(serviceStatusesForView("completed")).toEqual(["resolved"]);
     expect(serviceStatusesForView("all")).toBeNull();
-    expect(serviceQueueStatusLabel("open")).toBe("Service open");
-    expect(serviceQueueStatusLabel("resolved")).toBe("Completed");
+    expect(serviceQueueStatusLabel("open")).toBe("Open");
+    expect(serviceQueueStatusLabel("in_progress")).toBe("In progress");
+    expect(serviceQueueStatusLabel("waiting")).toBe("Waiting");
+    expect(serviceQueueStatusLabel("resolved")).toBe("Resolved");
     expect(serviceQueueEmpty("open", false)).toBe("No service calls are open.");
   });
 
