@@ -71,7 +71,7 @@ export async function loadJobCoverageItems(
   const { data: items, error } = await db
     .from("po_items")
     .select(
-      "id, po_id, product_id, quantity, job_line_id, received_qty, received_at",
+      "id, po_id, product_id, quantity, unit, job_line_id, received_qty, received_at",
     )
     .in("po_id", poIds);
 
@@ -79,7 +79,7 @@ export async function loadJobCoverageItems(
   if (error) {
     const { data: legacy } = await db
       .from("po_items")
-      .select("id, po_id, product_id, quantity, received_qty, received_at")
+      .select("id, po_id, product_id, quantity, unit, received_qty, received_at")
       .in("po_id", poIds);
     return ((legacy ?? []) as Record<string, unknown>[]).map((r) => ({
       poItemId: r.id as string,
@@ -87,6 +87,7 @@ export async function loadJobCoverageItems(
       jobLineId: null,
       productId: (r.product_id as string | null) ?? null,
       quantity: Number(r.quantity) || 0,
+      unit: (r.unit as string | null) ?? null,
       receivedQty:
         r.received_qty == null ? null : Number(r.received_qty) || 0,
       receivedAt: (r.received_at as string | null) ?? null,
@@ -100,6 +101,7 @@ export async function loadJobCoverageItems(
     jobLineId: (r.job_line_id as string | null) ?? null,
     productId: (r.product_id as string | null) ?? null,
     quantity: Number(r.quantity) || 0,
+    unit: (r.unit as string | null) ?? null,
     receivedQty: r.received_qty == null ? null : Number(r.received_qty) || 0,
     receivedAt: (r.received_at as string | null) ?? null,
     poStatus: statusByPo.get(r.po_id as string) ?? "draft",

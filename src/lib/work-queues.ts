@@ -12,7 +12,7 @@ export const WORK_QUEUE_PAGE_SIZE = 40;
 export type OrderQueueView = "review" | "approved" | "declined" | "all";
 export type EstimateQueueView = "all" | "draft" | "sent" | "followup" | "approved";
 export type InvoiceQueueView = "open" | "partial" | "paid" | "overdue" | "all";
-export type PoQueueView = "open" | "ordered" | "received" | "all";
+export type PoQueueView = "open" | "draft" | "ordered" | "received" | "all";
 export type JobQueueView =
   | "open"
   | "material"
@@ -28,7 +28,7 @@ export type TaskQueueView = "mine" | "open" | "overdue" | "completed";
 const ORDER_VIEWS: OrderQueueView[] = ["review", "approved", "declined", "all"];
 const ESTIMATE_VIEWS: EstimateQueueView[] = ["all", "draft", "sent", "followup", "approved"];
 const INVOICE_VIEWS: InvoiceQueueView[] = ["open", "partial", "paid", "overdue", "all"];
-const PO_VIEWS: PoQueueView[] = ["open", "ordered", "received", "all"];
+const PO_VIEWS: PoQueueView[] = ["open", "draft", "ordered", "received", "all"];
 const JOB_VIEWS: JobQueueView[] = [
   "open",
   "material",
@@ -122,6 +122,7 @@ export function invoiceStatusesForView(view: InvoiceQueueView): string[] | null 
 
 export function poStatusesForView(view: PoQueueView): string[] | null {
   if (view === "open") return ["draft", "ordered"];
+  if (view === "draft") return ["draft"];
   if (view === "ordered") return ["ordered"];
   if (view === "received") return ["received", "closed"];
   return null;
@@ -201,6 +202,7 @@ export function invoiceQueueEmpty(view: InvoiceQueueView, searching: boolean): s
 
 export function poQueueEmpty(view: PoQueueView, searching: boolean): string {
   if (searching) return "No purchase orders match that search.";
+  if (view === "draft") return "No purchase orders are still drafts.";
   if (view === "open") return "No open purchase orders.";
   if (view === "ordered") return "No purchase orders are out with a vendor.";
   if (view === "received") return "No received purchase orders in this list.";

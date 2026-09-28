@@ -88,7 +88,7 @@ const fieldClass =
 export default async function WarehousePage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; view?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; view?: string; page?: string; deliveries?: string; received?: string }>;
 }) {
   const profile = await requireProfile();
   if (
@@ -155,8 +155,21 @@ export default async function WarehousePage({
     wh,
   );
 
-  // Purchase orders the warehouse should be expecting.
-  const incoming: IncomingPo[] = await listIncomingPos();
+  // Purchase orders the warehouse should be expecting. Ordered and received
+  // are separate pages so a long received history cannot hide open orders.
+  const emptyIncoming = { rows: [] as IncomingPo[], total: 0, page: 1, pageSize: 40 };
+  let orderedIncoming = emptyIncoming;
+  let receivedIncoming = emptyIncoming;
+  let incomingError: string | null = null;
+  try {
+    [orderedIncoming, receivedIncoming] = await Promise.all([
+      listIncomingPos(parseListPage(sp.deliveries), "ordered"),
+      listIncomingPos(parseListPage(sp.received), "received"),
+    ]);
+  } catch (error) {
+    incomingError = queueFailureMessage(error);
+  }
+  const incoming: IncomingPo[] = [...orderedIncoming.rows, ...receivedIncoming.rows];
   // Everything aimed at the shop — job notes, order notes, and shop-wide ones.
   const warehouseNotes = await listWarehouseNotes();
 
@@ -485,6 +498,20 @@ export default async function WarehousePage({
     if (q) params.set("q", q);
     if (nextView === "staged") params.set("view", "staged");
     if (page > 1) params.set("page", String(page));
+    if (orderedIncoming.page > 1) params.set("deliveries", String(orderedIncoming.page));
+    if (receivedIncoming.page > 1) params.set("received", String(receivedIncoming.page));
+    const qs = params.toString();
+    return qs ? `/warehouse?${qs}` : "/warehouse";
+  };
+  const incomingHref = (next: { deliveries?: number; received?: number }) => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (section === "staged") params.set("view", "staged");
+    if (board.page > 1) params.set("page", String(board.page));
+    const deliveries = next.deliveries ?? orderedIncoming.page;
+    const receivedPage = next.received ?? receivedIncoming.page;
+    if (deliveries > 1) params.set("deliveries", String(deliveries));
+    if (receivedPage > 1) params.set("received", String(receivedPage));
     const qs = params.toString();
     return qs ? `/warehouse?${qs}` : "/warehouse";
   };
@@ -684,9 +711,35 @@ export default async function WarehousePage({
           short shipment only surfaced when an installer opened the box. */}
       <div className="mb-6 space-y-2">
         <h2 className="text-sm font-semibold">
-          Incoming deliveries ({incoming.filter((p) => p.status === "ordered").length} on order)
+          Incoming deliveries ({incomingError ? "—" : orderedIncoming.total} on order)
         </h2>
-        <IncomingDeliveries pos={incoming} />
+        {incomingError ? (
+          <p className="text-sm text-muted-foreground">{incomingError}</p>
+        ) : (
+          <>
+            <IncomingDeliveries pos={incoming} receivedTotal={receivedIncoming.total} />
+            {orderedIncoming.total > orderedIncoming.pageSize ? (
+              <div>
+                <p className="text-xs text-muted-foreground">On order</p>
+                <WorkQueuePager
+                  page={orderedIncoming.page}
+                  pages={Math.max(1, Math.ceil(orderedIncoming.total / orderedIncoming.pageSize) || 1)}
+                  hrefFor={(page) => incomingHref({ deliveries: page })}
+                />
+              </div>
+            ) : null}
+            {receivedIncoming.total > receivedIncoming.pageSize ? (
+              <div>
+                <p className="text-xs text-muted-foreground">Already received</p>
+                <WorkQueuePager
+                  page={receivedIncoming.page}
+                  pages={Math.max(1, Math.ceil(receivedIncoming.total / receivedIncoming.pageSize) || 1)}
+                  hrefFor={(page) => incomingHref({ received: page })}
+                />
+              </div>
+            ) : null}
+          </>
+        )}
       </div>
 
       {/* New remnants to shelve — give each a location + a reusability call. */}

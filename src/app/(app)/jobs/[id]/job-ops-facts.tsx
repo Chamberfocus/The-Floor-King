@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { formatDate, formatMoney } from "@/lib/format";
 import { assessMaterialsReadyForSchedule } from "@/lib/materials-ready";
+import { poAttentionFact, poEtaMissing, type PoReceiptLine } from "@/lib/po-facts";
+import { formatPoNumber } from "@/lib/types";
 
 export function JobOpsFacts({
   hasMaterialNeed,
@@ -25,6 +27,7 @@ export function JobOpsFacts({
     eta_date: string | null;
     backordered: boolean | null;
     status: string | null;
+    items?: PoReceiptLine[];
   }[];
 }) {
   const materials = assessMaterialsReadyForSchedule({
@@ -36,49 +39,49 @@ export function JobOpsFacts({
     : materials.ready
       ? `Materials ready${stagingLocation ? ` · ${stagingLocation}` : ""}`
       : "Materials are not ready.";
-  const nextEta = pos
-    .map((p) => p.eta_date)
-    .filter((d): d is string => !!d)
-    .sort()[0];
-  const backordered = pos.some((p) => p.backordered);
 
   return (
     <div className="mb-4 grid gap-2 rounded-lg border bg-card p-3 sm:grid-cols-2 lg:grid-cols-4">
       <Fact label="Materials">{materialFact}</Fact>
-      <Fact label="Material ETA">
-        {backordered ? (
-          <span className="text-amber-700 dark:text-amber-300">Backordered</span>
-        ) : nextEta ? (
-          formatDate(nextEta)
-        ) : pos.length ? (
-          "No arrival date yet"
-        ) : (
-          "No purchase order on this job"
-        )}
+      <Fact label="Warehouse ready">
+        {warehouseReadyAt ? formatDate(warehouseReadyAt) : "Not confirmed"}
       </Fact>
       <Fact label="Customer balance">{formatMoney(openBalance)}</Fact>
       <Fact label="Available deposit">{formatMoney(availableDeposit)}</Fact>
-      {pos.length ? (
-        <div className="sm:col-span-2 lg:col-span-4">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Purchase orders
-          </div>
-          <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm">
+      <div className="sm:col-span-2 lg:col-span-4">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Purchase orders
+        </div>
+        {pos.length ? (
+          <ul className="mt-1 space-y-1 text-sm">
             {pos.map((p) => (
               <li key={p.id}>
                 <Link href={`/purchase-orders/${p.id}`} className="text-primary hover:underline">
-                  PO {p.po_number ?? ""} {p.supplier ? `· ${p.supplier}` : ""}
+                  {p.po_number != null ? formatPoNumber(Number(p.po_number)) : "Draft PO"}
+                  {p.supplier ? ` · ${p.supplier}` : ""}
                 </Link>
                 <span className="text-muted-foreground">
+                  {" · "}
+                  {poAttentionFact(p)}
                   {p.eta_date ? ` · ETA ${formatDate(p.eta_date)}` : ""}
-                  {p.backordered ? " · backorder" : ""}
-                  {p.status ? ` · ${p.status}` : ""}
+                  {poEtaMissing(p) ? " · ETA not entered" : ""}
                 </span>
               </li>
             ))}
           </ul>
-        </div>
-      ) : null}
+        ) : (
+          <p className="mt-1 text-sm text-muted-foreground">
+            {hasMaterialNeed
+              ? "No purchase order on this job."
+              : "No purchase order is required for scheduling."}
+          </p>
+        )}
+        {hasMaterialNeed ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Each purchase order keeps its own arrival date. Received material stays separate from warehouse ready.
+          </p>
+        ) : null}
+      </div>
       {estimateId ? (
         <div className="sm:col-span-2 lg:col-span-4 text-sm">
           Extra work or a return trip?{" "}

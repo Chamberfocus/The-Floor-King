@@ -9,6 +9,7 @@ import {
 } from "@/lib/data/job-operational-lines";
 import { loadJobCoverageItems } from "@/lib/data/job-purchasing";
 import { computeLineCoverage, isNonCoveringPoStatus, buildLegacyCoverageContext } from "@/lib/po-coverage";
+import { normalizeUnit } from "@/lib/units";
 import type { LineMeasurement } from "@/lib/types";
 
 export type MaterialSource = "stock" | "order";
@@ -46,6 +47,12 @@ export interface JobMaterialLine {
   purchasingGap: number;
   /** Excess on ordered/received/closed vs current need. */
   excessIssued: number;
+  /** Issued (ordered/received/closed) quantity on linked lines. Draft is separate. */
+  issuedQty: number;
+  /** Draft purchase-order quantity linked to this line. */
+  draftQty: number;
+  /** A linked PO line uses a different unit, so quantities were not compared. */
+  unitMismatch: boolean;
   /** Physically arrived qty against this job line. */
   arrivedQty: number;
   status:
@@ -74,6 +81,23 @@ export interface JobMaterials {
   materialsArrived: boolean;
   /** Legacy estimate PO items need manual review before auto-ordering. */
   legacyPoReviewRequired: boolean;
+}
+
+function unitMismatchForLine(
+  lineId: string,
+  needUnit: string,
+  items: { jobLineId: string | null; unit?: string | null; poStatus: string; quantity: number }[],
+  legacy: { unit?: string | null; poStatus: string; quantity: number }[],
+): boolean {
+  const need = normalizeUnit(needUnit);
+  if (!need) return false;
+  const linked = [...items.filter((i) => i.jobLineId === lineId), ...legacy];
+  return linked.some((i) => {
+    if (i.poStatus === "void" || i.poStatus === "cancelled") return false;
+    if ((Number(i.quantity) || 0) <= 0) return false;
+    const unit = normalizeUnit(i.unit);
+    return unit !== need;
+  });
 }
 
 type RawLine = CalcLine & {
@@ -280,6 +304,9 @@ export async function getJobMaterials(
       pulledQty,
       purchasingGap: cov?.gap ?? 0,
       excessIssued: cov?.excessIssued ?? 0,
+      issuedQty: cov ? cov.orderedQty + cov.receivedClosedQty : 0,
+      draftQty: cov?.draftQty ?? 0,
+      unitMismatch: unitMismatchForLine(l.id, lineDisplayUnit({ ...l, sqft: measuredSqft }), coverageItems, legacyCtx.legacyByLine.get(l.id) ?? []),
       arrivedQty: cov?.arrivedQty ?? 0,
       status,
     };

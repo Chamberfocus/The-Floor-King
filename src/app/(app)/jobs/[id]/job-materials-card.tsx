@@ -16,6 +16,10 @@ import { padRollCount } from "@/lib/job-scope";
 import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
 import { billedQtyToSqft, normalizeUnit } from "@/lib/units";
 import {
+  coverageSentence,
+  procurementCoverage,
+} from "@/lib/po-facts";
+import {
   prepareJobMaterials,
   setLineSource,
   pullJobLine,
@@ -95,7 +99,7 @@ export async function JobMaterialsCard({ data }: { data: JobMaterials }) {
               variant="outline"
               size="sm"
               title="Prepare materials for this job?"
-              description="Reserves in-stock items and builds a purchase order for the special-order items."
+              description="Reserves in-stock items and builds a draft purchase order for special-order quantities that are not already covered. Nothing is sent to a supplier. Review the draft before marking it ordered."
               confirmLabel="Prepare materials"
             >
               <PackageCheck className="size-4" /> Prepare materials
@@ -270,12 +274,40 @@ export async function JobMaterialsCard({ data }: { data: JobMaterials }) {
                       })()
                     : " · not stocked"}
                 </div>
+                {l.resolvedSource === "order" ? (
+                  <div className="text-xs text-muted-foreground">
+                    {l.unitMismatch
+                      ? coverageSentence({
+                          need: l.qty,
+                          unit: l.unit,
+                          kind: "unit_mismatch",
+                          orderedQty: 0,
+                          draftQty: 0,
+                        })
+                      : coverageSentence({
+                          need: l.qty,
+                          unit: l.unit,
+                          ...procurementCoverage({
+                            need: l.qty,
+                            needUnit: l.unit,
+                            items: [
+                              ...(l.issuedQty > 0
+                                ? [{ quantity: l.issuedQty, unit: l.unit, status: "ordered" }]
+                                : []),
+                              ...(l.draftQty > 0
+                                ? [{ quantity: l.draftQty, unit: l.unit, status: "draft" }]
+                                : []),
+                            ],
+                          }),
+                        })}
+                  </div>
+                ) : null}
                 {l.resolvedSource === "order" && l.supplier ? (
                   <div className="text-xs font-medium text-sky-600">
                     Order from {l.supplier}
                   </div>
                 ) : null}
-                {l.resolvedSource === "order" && l.purchasingGap > 0.001 ? (
+                {l.resolvedSource === "order" && !l.unitMismatch && l.purchasingGap > 0.001 ? (
                   <div className="text-xs text-amber-700">
                     Purchasing gap: {l.purchasingGap} {l.unit} still uncovered
                     {/* Exclusive carpet-tile job materials purchasing-gap carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
@@ -294,7 +326,7 @@ export async function JobMaterialsCard({ data }: { data: JobMaterials }) {
                       : ""}
                   </div>
                 ) : null}
-                {l.resolvedSource === "order" && l.excessIssued > 0.001 ? (
+                {l.resolvedSource === "order" && !l.unitMismatch && l.excessIssued > 0.001 ? (
                   <div className="flex items-center gap-1 text-xs text-amber-700">
                     <AlertTriangle className="size-3" />
                     Excess on issued PO: {l.excessIssued} {l.unit} (not auto-reduced)
@@ -316,7 +348,7 @@ export async function JobMaterialsCard({ data }: { data: JobMaterials }) {
                       : ""}
                   </div>
                 ) : null}
-                {l.resolvedSource === "order" && l.arrivedQty > 0 && l.status !== "arrived" ? (
+                {l.resolvedSource === "order" && !l.unitMismatch && l.arrivedQty > 0 && l.status !== "arrived" ? (
                   <div className="text-xs text-muted-foreground">
                     Arrived {l.arrivedQty} of {l.qty} {l.unit}
                     {/* Exclusive carpet-tile job materials purchasing-gap carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}

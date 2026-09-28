@@ -239,6 +239,8 @@ export async function getPurchaseOrder(
 
 export interface PoListRow extends PurchaseOrder {
   customer_name: string | null;
+  job_title: string | null;
+  job_city: string | null;
 }
 
 export async function listPurchaseOrders(): Promise<PoListRow[]> {
@@ -253,13 +255,15 @@ export async function listPurchaseOrders(): Promise<PoListRow[]> {
   const list: PoListRow[] = rows.map((r) => ({
     ...r,
     customer_name: r.customer?.full_name ?? null,
+    job_title: null,
+    job_city: null,
   }));
   await attachItems(supabase, list);
   return list;
 }
 
 const PO_LIST_COLUMNS =
-  "id, po_number, supplier, status, source_type, is_stock, customer_id, job_id, created_at, customer:customers(full_name)";
+  "id, po_number, supplier, status, source_type, is_stock, customer_id, job_id, eta_date, backordered, created_at, customer:customers(full_name), job:jobs(title, site_city)";
 
 /** Job purchase orders, one page. Stock-replenishment POs stay on Inventory. */
 export async function listPurchaseOrdersQueue(args: {
@@ -283,10 +287,18 @@ export async function listPurchaseOrdersQueue(args: {
   };
 
   const shape = (data: unknown): PoListRow[] =>
-    ((data ?? []) as (PurchaseOrder & { customer?: { full_name: string | null } | null })[]).map((row) => ({
-      ...row,
-      customer_name: row.customer?.full_name ?? null,
-    }));
+    ((data ?? []) as (PurchaseOrder & {
+      customer?: { full_name: string | null } | null;
+      job?: { title: string | null; site_city: string | null } | { title: string | null; site_city: string | null }[] | null;
+    })[]).map((row) => {
+      const job = Array.isArray(row.job) ? row.job[0] : row.job;
+      return {
+        ...row,
+        customer_name: row.customer?.full_name ?? null,
+        job_title: job?.title ?? null,
+        job_city: job?.site_city ?? null,
+      };
+    });
 
   let rows: PoListRow[] = [];
   let total = 0;
@@ -410,7 +422,12 @@ export async function getVendorSummary(supplierId: string): Promise<VendorSummar
     .eq("supplier_id", supplierId)
     .order("created_at", { ascending: false });
   const rows = (data ?? []) as (PurchaseOrder & { customer?: { full_name: string | null } | null })[];
-  const list: PoListRow[] = rows.map((r) => ({ ...r, customer_name: r.customer?.full_name ?? null }));
+  const list: PoListRow[] = rows.map((r) => ({
+    ...r,
+    customer_name: r.customer?.full_name ?? null,
+    job_title: null,
+    job_city: null,
+  }));
   await attachItems(supabase, list);
 
   let totalSpend = 0;

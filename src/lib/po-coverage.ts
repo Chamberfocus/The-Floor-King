@@ -40,6 +40,8 @@ export interface CoveragePoItem {
   productId: string | null;
   /** Ordered / planned quantity on the PO line. */
   quantity: number;
+  /** Unit on the PO line. Coverage math does not convert units. */
+  unit?: string | null;
   /** Qty checked in on the dock; null if never receiving-checked. */
   receivedQty: number | null;
   /** When set, the line has been receiving-checked (even if qty 0). */
