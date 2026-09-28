@@ -10,7 +10,7 @@ import { listTaskQueue } from "@/lib/data/ops-glue";
 import { getProfileNames } from "@/lib/data/customers";
 import { completeOfficeTask } from "@/app/(app)/ops/actions";
 import { formatDate } from "@/lib/format";
-import { isTaskOverdue } from "@/lib/office-task";
+import { isTaskOverdue, taskOperationalHref } from "@/lib/office-task";
 import { QUEUE_LIST_UNAVAILABLE, queueFailureMessage } from "@/lib/ops-scale";
 import {
   parseListPage,
@@ -110,11 +110,7 @@ export default async function TasksPage({
       ) : (
         <ul className="space-y-2">
           {queue.rows.map((task) => {
-            const recordHref = task.customer_id
-              ? `/customers/${task.customer_id}`
-              : task.job_id
-                ? `/jobs/${task.job_id}`
-                : null;
+            const recordHref = taskOperationalHref(task);
             const overdue = isTaskOverdue({ status: task.status, dueAt: task.due_at });
             const body = (
               <>

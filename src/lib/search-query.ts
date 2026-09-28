@@ -13,6 +13,7 @@ export type SearchHitType =
   | "order"
   | "po"
   | "job"
+  | "service"
   | "product";
 
 const SALES_VIEW: UserRole[] = ["admin", "office", "sales_manager", "salesman", "scheduler"];
@@ -21,10 +22,13 @@ const OFFICE: UserRole[] = ["admin", "office"];
 const JOBS: UserRole[] = ["admin", "office", "sales_manager", "salesman", "scheduler", "crew", "warehouse"];
 const PRODUCTS: UserRole[] = ["admin", "office", "sales_manager", "salesman", "warehouse"];
 
+const SERVICE: UserRole[] = ["admin", "office", "sales_manager", "salesman", "scheduler"];
+
 const ORDER: SearchHitType[] = [
   "customer",
   "estimate",
   "job",
+  "service",
   "order",
   "invoice",
   "po",
@@ -44,6 +48,7 @@ export function searchTypesForRole(role: UserRole): SearchHitType[] {
     allowed.add("po");
   }
   if (JOBS.includes(role)) allowed.add("job");
+  if (SERVICE.includes(role)) allowed.add("service");
   if (PRODUCTS.includes(role)) allowed.add("product");
   return ORDER.filter((type) => allowed.has(type));
 }

@@ -18,6 +18,7 @@ export type HomeCommandId =
   | "ready"
   | "today"
   | "service"
+  | "visits"
   | "tasks"
   | "orders"
   | "warehouse";
@@ -95,6 +96,12 @@ export function homeCommandsForRole(role: UserRole): HomeCommandSpec[] {
       href: "/service",
       singular: "service call needs attention",
       plural: "service calls need attention",
+    });
+    specs.push({
+      id: "visits",
+      href: "/service?view=scheduled",
+      singular: "service visit scheduled",
+      plural: "service visits scheduled",
     });
   }
   if (TASK_LIST_ROLES.includes(role)) {

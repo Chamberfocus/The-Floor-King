@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import {
-  Users, FileText, Receipt, ShoppingCart, ShoppingBag, Wrench, Package,
+  Users, FileText, Receipt, ShoppingCart, ShoppingBag, Wrench, Package, LifeBuoy,
   type LucideIcon,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
@@ -14,6 +14,7 @@ const ICON: Record<HitType, LucideIcon> = {
   customer: Users,
   estimate: FileText,
   job: Wrench,
+  service: LifeBuoy,
   order: ShoppingBag,
   invoice: Receipt,
   po: ShoppingCart,
@@ -24,6 +25,7 @@ const LIST_HREF: Partial<Record<HitType, string>> = {
   customer: "/customers",
   estimate: "/estimates",
   job: "/jobs",
+  service: "/service",
   order: "/orders",
   invoice: "/invoices",
   po: "/purchase-orders",
@@ -45,7 +47,7 @@ export default async function SearchPage({
         description={
           query
             ? `${total} result${total === 1 ? "" : "s"} for “${query}”`
-            : "Find a customer, phone, address, estimate, job, order, invoice, or purchase order."
+            : "Find a customer, phone, address, estimate, job, service issue, order, invoice, or purchase order."
         }
       />
 

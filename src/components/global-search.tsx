@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Search, Users, FileText, Receipt, ShoppingCart, ShoppingBag, Wrench, Package, ArrowRight, Loader2,
+  Search, Users, FileText, Receipt, ShoppingCart, ShoppingBag, Wrench, Package, LifeBuoy, ArrowRight, Loader2,
   type LucideIcon,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,7 @@ const ICON: Record<HitType, LucideIcon> = {
   customer: Users,
   estimate: FileText,
   job: Wrench,
+  service: LifeBuoy,
   order: ShoppingBag,
   invoice: Receipt,
   po: ShoppingCart,
@@ -122,8 +123,8 @@ export function GlobalSearch({
           onFocus={() => setOpen(true)}
           onKeyDown={onKey}
           id={inputId}
-          placeholder="Search name, phone, address, estimate, job…  (/)"
-          aria-label="Search customers, phones, addresses, and jobs"
+          placeholder="Search name, phone, address, job, service…  (/)"
+          aria-label="Search customers, phones, addresses, jobs, and service"
           autoFocus={autoFocus}
           className="h-11 pl-9"
         />

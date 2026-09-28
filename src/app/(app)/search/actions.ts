@@ -36,6 +36,7 @@ const GROUP_LABEL: Record<HitType, string> = {
   customer: "Customers",
   estimate: "Estimates",
   job: "Jobs",
+  service: "Service",
   order: "Orders",
   invoice: "Invoices",
   po: "Purchase orders",
@@ -45,6 +46,7 @@ const GROUP_ORDER: HitType[] = [
   "customer",
   "estimate",
   "job",
+  "service",
   "order",
   "invoice",
   "po",
@@ -102,7 +104,7 @@ const STATUS_LABEL: Record<string, string> = {
   received: "Received",
   open: "Open",
   waiting: "Waiting",
-  resolved: "Completed",
+  resolved: "Resolved",
   declined: "Declined",
   changes_requested: "Changes requested",
 };
@@ -173,7 +175,7 @@ export async function quickSearch(qRaw: string, limit = 6): Promise<QuickResults
   if (phone) customerOr.push(`phone.ilike.${phone}`);
 
   const emptyRows = Promise.resolve([] as Row[]);
-  const [custRes, estRows, jobRows, orderRows, invRows, poRows, prodRes] = await Promise.all([
+  const [custRes, estRows, jobRows, serviceRows, orderRows, invRows, poRows, prodRes] = await Promise.all([
     allowed.has("customer")
       ? supabase
           .from("customers")
@@ -184,6 +186,9 @@ export async function quickSearch(qRaw: string, limit = 6): Promise<QuickResults
     allowed.has("estimate") ? docs("estimates", `title.ilike.${like}`, "title") : emptyRows,
     allowed.has("job")
       ? docs("jobs", `title.ilike.${like},site_street.ilike.${like},site_city.ilike.${like}`, "title, site_street, site_city")
+      : emptyRows,
+    allowed.has("service")
+      ? docs("service_callbacks", `description.ilike.${like}`, "description, category")
       : emptyRows,
     allowed.has("order")
       ? docs(
@@ -288,6 +293,18 @@ export async function quickSearch(qRaw: string, limit = 6): Promise<QuickResults
         subtitle: customer?.full_name || (r.supplier as string) || "Purchase order",
         detail: dot([customer?.street, customer?.city, plainStatus(String(r.status ?? ""))]),
         href: `/purchase-orders/${r.id}`,
+      };
+    }),
+    service: serviceRows.map((r) => {
+      const customer = customerOf(r);
+      const description = ((r.description as string) || "").trim();
+      return {
+        type: "service" as const,
+        id: r.id as string,
+        title: customer?.full_name || "Service issue",
+        subtitle: description.length > 80 ? `${description.slice(0, 77)}…` : description,
+        detail: plainStatus(String(r.status ?? "")),
+        href: `/service/${r.id}`,
       };
     }),
     job: jobRows.map((r) => {
