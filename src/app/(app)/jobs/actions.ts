@@ -18,6 +18,7 @@ import {
 import { estimatedLaborCostForOption } from "@/lib/installer-bill";
 import { estimatedMaterialCostForOption } from "@/lib/job-costing";
 import { assessJobStatusTransition, jobStatusUpdatePatch } from "@/lib/job-status";
+import { jobStatusEmployeeMessage } from "@/lib/install-closeout";
 import {
   findInstallerScheduleConflict,
   employeeScheduleError,
@@ -1246,9 +1247,26 @@ export async function updateJob(
 
 /** Quick status change (also usable by assigned crew from the field). */
 export async function setJobStatus(formData: FormData): Promise<void> {
+  await commitJobStatus(formData);
+}
+
+/** Same write as setJobStatus, with an employee-safe error for the field UI. */
+export async function setJobStatusFeedback(
+  formData: FormData,
+): Promise<{ error: string | null }> {
+  return commitJobStatus(formData);
+}
+
+async function commitJobStatus(
+  formData: FormData,
+): Promise<{ error: string | null }> {
   const id = str(formData.get("id"));
   const status = str(formData.get("status")) as JobStatus;
-  if (!id || !status) return;
+  const intent =
+    status === "completed" ? "complete" : status === "in_progress" ? "start" : "other";
+  if (!id || !status) {
+    return { error: jobStatusEmployeeMessage(intent, "missing") };
+  }
 
   const supabase = await createClient();
   const { data: prior } = await supabase
@@ -1256,17 +1274,21 @@ export async function setJobStatus(formData: FormData): Promise<void> {
     .select("status, completed_at")
     .eq("id", id)
     .maybeSingle();
-  if (!prior) return;
-  const gate = assessJobStatusTransition(
-    (prior.status as JobStatus) ?? "unscheduled",
-    status,
-  );
-  if (!gate.ok) return;
+  if (!prior) return { error: jobStatusEmployeeMessage(intent, "missing") };
+  const from = (prior.status as JobStatus) ?? "unscheduled";
+  const gate = assessJobStatusTransition(from, status);
+  if (!gate.ok) {
+    return { error: jobStatusEmployeeMessage(intent, "blocked", from) };
+  }
   const patch = jobStatusUpdatePatch(
     status,
     (prior?.completed_at as string | null) ?? null,
   );
-  await supabase.from("jobs").update(patch).eq("id", id);
+  const { error: updateError } = await supabase
+    .from("jobs")
+    .update(patch)
+    .eq("id", id);
+  if (updateError) return { error: jobStatusEmployeeMessage(intent, "save") };
 
   const { data: job } = await supabase
     .from("jobs")
@@ -1308,6 +1330,7 @@ export async function setJobStatus(formData: FormData): Promise<void> {
   // Fan out to every view that shows the job (installer, warehouse, board,
   // calendar, pipeline, dashboard, customer file) — not just the jobs list.
   revalidateJobEverywhere(id, customerId);
+  return { error: null };
 }
 
 /** Email the customer their scheduled install date. */
