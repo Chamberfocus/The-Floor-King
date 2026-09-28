@@ -7,12 +7,17 @@ import {
   claimSaveFlight,
   duplicateAreaName,
   employeeSaveError,
+  areaChips,
+  cloneRoomLines,
+  EMPTY_AREA_NOT_SAVED,
   groupIndexedByRoom,
   listAreas,
   quantityCaption,
   releaseSaveFlight,
   renameAreaLabel,
+  renameRoomOnLines,
   roomMatches,
+  unsavedPendingAreas,
 } from "@/lib/estimate-workflow";
 
 describe("estimate room grouping", () => {
@@ -42,6 +47,64 @@ describe("estimate room grouping", () => {
     );
     expect(roomMatches(" Living Room ", "living room")).toBe(true);
     expect(roomMatches("", "Kitchen")).toBe(false);
+  });
+});
+
+describe("empty rooms, rename, and duplicate", () => {
+  const kitchen = {
+    room: "Kitchen",
+    quantity: "120",
+    unit: "sq ft",
+    material_rate: "4.50",
+    labor_rate: "2.00",
+    description: "LVP",
+  };
+  const hall = {
+    room: "Hall",
+    quantity: "40",
+    unit: "sq ft",
+    material_rate: "3.25",
+    labor_rate: "1.75",
+    description: "Carpet",
+  };
+
+  it("marks a room with no line as pending and drops it once a line uses the name", () => {
+    expect(areaChips(["Kitchen"], ["Hall", "Kitchen"])).toEqual([
+      { name: "Kitchen", pending: false },
+      { name: "Hall", pending: true },
+    ]);
+    expect(unsavedPendingAreas(["Kitchen"], ["Hall", "  "])).toEqual(["Hall"]);
+    expect(unsavedPendingAreas(["Hall"], ["Hall"])).toEqual([]);
+    expect(EMPTY_AREA_NOT_SAVED).toMatch(/not saved/i);
+    expect(EMPTY_AREA_NOT_SAVED).toMatch(/line/i);
+  });
+
+  it("renames only the room field on lines in that room", () => {
+    const renamed = renameRoomOnLines([kitchen, hall], "Kitchen", "Living Room");
+    expect(renamed.name).toBe("Living Room");
+    expect(renamed.lines).toHaveLength(2);
+    expect(renamed.lines[0]).toEqual({ ...kitchen, room: "Living Room" });
+    expect(renamed.lines[1]).toEqual(hall);
+    expect(renameRoomOnLines([kitchen], "Kitchen", "  ").name).toBeNull();
+    expect(renameRoomOnLines([kitchen], "Kitchen", "Kitchen").lines).toEqual([kitchen]);
+  });
+
+  it("duplicates a room by cloning its lines and preserves quantity and price", () => {
+    const copies = cloneRoomLines([kitchen, hall], "Kitchen", "Kitchen copy");
+    expect(copies).toEqual([{ ...kitchen, room: "Kitchen copy" }]);
+    expect(copies[0].quantity).toBe("120");
+    expect(copies[0].material_rate).toBe("4.50");
+    expect(copies[0].labor_rate).toBe("2.00");
+    expect(kitchen.room).toBe("Kitchen");
+  });
+
+  it("does not create a placeholder line for an empty room", () => {
+    const lines = [kitchen];
+    expect(cloneRoomLines(lines, "Basement", "Basement copy")).toEqual([]);
+    expect(lines).toEqual([kitchen]);
+    expect(unsavedPendingAreas(lines.map((line) => line.room), ["Basement"])).toEqual([
+      "Basement",
+    ]);
   });
 });
 
@@ -92,6 +155,10 @@ describe("estimate workflow sources", () => {
   it("stamps new lines with the selected room and guards save and send", () => {
     expect(builder).toContain("room: activeArea");
     expect(builder).toContain("claimSaveFlight");
+    expect(builder).toContain("EMPTY_AREA_NOT_SAVED");
+    expect(builder).toContain("cloneRoomLines");
+    expect(builder).toContain("Not saved");
+    expect(builder).not.toContain("window.prompt");
     expect(builder).toContain("groupIndexedByRoom");
     expect(builder).toContain('id="sec-areas"');
     expect(builder).toContain('id="sec-extras"');

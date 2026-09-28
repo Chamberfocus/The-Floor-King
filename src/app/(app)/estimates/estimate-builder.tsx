@@ -84,14 +84,19 @@ import {
 } from "@/lib/flooring-knowledge";
 import { saveEstimate, saveEstimateBuilderDraft, clearEstimateBuilderDraft, sendEstimateById } from "./actions";
 import {
+  areaChips,
   claimSaveFlight,
+  cloneRoomLines,
   duplicateAreaName,
+  EMPTY_AREA_NOT_SAVED,
   employeeSaveError,
   groupIndexedByRoom,
   listAreas,
   quantityCaption,
   releaseSaveFlight,
+  renameRoomOnLines,
   roomMatches,
+  unsavedPendingAreas,
 } from "@/lib/estimate-workflow";
 import { saveProductRate, createProductInline } from "../catalog/actions";
 import { writeScopeDescription } from "./ai-actions";
@@ -666,6 +671,7 @@ export function EstimateBuilder({
   const [activeArea, setActiveArea] = useState("");
   const [pendingAreas, setPendingAreas] = useState<string[]>([]);
   const [areaDraft, setAreaDraft] = useState("");
+  const [renameDraft, setRenameDraft] = useState<string | null>(null);
   const [commitNote, setCommitNote] = useState<null | { kind: "saving" | "saved" | "error"; text: string }>(null);
   const saveLock = useRef(false);
   const firstAuto = useRef(true);
@@ -852,21 +858,17 @@ export function EstimateBuilder({
   };
 
   const renameArea = (oi: number, from: string, to: string) => {
-    const next = to.trim();
-    const prev = from.trim();
-    if (!next || !prev || next.toLowerCase() === prev.toLowerCase()) return;
+    const option = options[oi];
+    if (!option) return;
+    const renamed = renameRoomOnLines(option.lines, from, to);
+    if (!renamed.name || renamed.name.toLowerCase() === from.trim().toLowerCase()) return;
+    const next = renamed.name;
     setOptions((curr) =>
-      curr.map((o, i) =>
-        i === oi
-          ? {
-              ...o,
-              lines: o.lines.map((l) => (roomMatches(l.room, prev) ? { ...l, room: next } : l)),
-            }
-          : o,
-      ),
+      curr.map((o, i) => (i === oi ? { ...o, lines: renamed.lines } : o)),
     );
-    setPendingAreas((areas) => areas.map((a) => (roomMatches(a, prev) ? next : a)));
+    setPendingAreas((areas) => areas.map((area) => (roomMatches(area, from) ? next : area)));
     setActiveArea(next);
+    setRenameDraft(null);
   };
 
   const duplicateArea = (oi: number, name: string) => {
@@ -879,17 +881,31 @@ export function EstimateBuilder({
       pendingAreas,
     );
     const copyName = duplicateAreaName(source, existing);
-    const copies = option.lines
-      .filter((l) => roomMatches(l.room, source))
-      .map((l) => ({ ...l, key: newKey(), id: undefined, room: copyName }));
-    if (copies.length) {
-      setOptions((curr) =>
-        curr.map((o, i) => (i === oi ? { ...o, lines: [...o.lines, ...copies] } : o)),
-      );
-    } else {
-      setPendingAreas((areas) => listAreas([], [...areas, copyName]));
+    const copies = cloneRoomLines(option.lines, source, copyName).map((line) => ({
+      ...line,
+      key: newKey(),
+      id: undefined,
+    }));
+    if (!copies.length) {
+      toast.message(EMPTY_AREA_NOT_SAVED);
+      return;
     }
+    setOptions((curr) =>
+      curr.map((o, i) => (i === oi ? { ...o, lines: [...o.lines, ...copies] } : o)),
+    );
     setActiveArea(copyName);
+  };
+
+  const discardUnsavedRooms = () => {
+    const dropped = unsavedPendingAreas(
+      options.flatMap((o) => o.lines.map((l) => l.room)),
+      pendingAreas,
+    );
+    if (!dropped.length) return;
+    setPendingAreas((areas) => areas.filter((area) => !dropped.some((name) => roomMatches(area, name))));
+    if (dropped.some((name) => roomMatches(activeArea, name))) setActiveArea("");
+    setRenameDraft(null);
+    toast.message(EMPTY_AREA_NOT_SAVED);
   };
 
   const removeLine = (oi: number, li: number) =>
@@ -1764,6 +1780,7 @@ export function EstimateBuilder({
 
   const save = (thenView: boolean) => {
     if (!claimCommit("Saving this estimate…")) return;
+    discardUnsavedRooms();
     startTransition(async () => {
       try {
         const res = await saveEstimate(estimate.id, buildInput());
@@ -1808,6 +1825,7 @@ export function EstimateBuilder({
   // Save first so the record matches the printout, then open print.
   const saveThenPrint = () => {
     if (!claimCommit("Saving before print…")) return;
+    discardUnsavedRooms();
     startTransition(async () => {
       try {
         const res = await saveEstimate(estimate.id, buildInput());
@@ -1840,6 +1858,7 @@ export function EstimateBuilder({
   // estimate so an email can be added first.
   const saveAndSend = (sendEmail = true) => {
     if (!claimCommit(sendEmail ? "Saving, then sending…" : "Saving…")) return;
+    discardUnsavedRooms();
     startTransition(async () => {
       try {
         const res = await saveEstimate(estimate.id, buildInput());
@@ -2076,6 +2095,12 @@ export function EstimateBuilder({
       >
         <ArrowLeft className="size-4" /> Back to {customerName}
       </Link>
+      {unsavedPendingAreas(
+        options.flatMap((option) => option.lines.map((line) => line.room)),
+        pendingAreas,
+      ).length ? (
+        <p className="mb-3 text-xs text-amber-800 dark:text-amber-200">{EMPTY_AREA_NOT_SAVED}</p>
+      ) : null}
 
       {/* Owner ⇄ customer preview toggle */}
       <div className="mb-4 flex items-center justify-between gap-2">
@@ -2415,10 +2440,12 @@ export function EstimateBuilder({
 
           const isRecommended = option.key === recommendedKey;
           const hasOptional = option.lines.some((l) => l.is_optional);
-          const areaNames = listAreas(
+          const roomChips = areaChips(
             option.lines.map((l) => l.room),
             pendingAreas,
           );
+          const areaNames = roomChips.map((chip) => chip.name);
+          const activeChip = roomChips.find((chip) => roomMatches(activeArea, chip.name));
           return (
             <Card key={option.key} className={cn(isRecommended && "ring-1 ring-primary")}>
               <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
@@ -2488,17 +2515,22 @@ export function EstimateBuilder({
                           Rooms / areas
                         </h3>
                         <p className="text-xs text-muted-foreground">
-                          {activeArea
-                            ? `Adding to ${activeArea}`
-                            : areaNames.length
-                              ? "Choose a room, then add products."
-                              : "Add a room or area to start this estimate."}
+                          {activeChip?.pending
+                            ? `${activeChip.name} is not saved yet. Add a product or labor line to keep it.`
+                            : activeArea
+                              ? `Adding to ${activeArea}`
+                              : areaNames.length
+                                ? "Choose a room, then add products."
+                                : "Add a room or area to start this estimate."}
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         <button
                           type="button"
-                          onClick={() => setActiveArea("")}
+                          onClick={() => {
+                            setActiveArea("");
+                            setRenameDraft(null);
+                          }}
                           className={cn(
                             "min-h-11 rounded-full border px-3 text-sm font-medium",
                             !activeArea ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted",
@@ -2506,22 +2538,34 @@ export function EstimateBuilder({
                         >
                           Unassigned
                         </button>
-                        {areaNames.map((name) => (
+                        {roomChips.map((chip) => (
                           <button
-                            key={name}
+                            key={chip.name}
                             type="button"
-                            onClick={() => setActiveArea(name)}
+                            onClick={() => {
+                              setActiveArea(chip.name);
+                              setRenameDraft(null);
+                            }}
                             className={cn(
                               "min-h-11 rounded-full border px-3 text-sm font-medium",
-                              activeArea.trim().toLowerCase() === name.toLowerCase()
+                              chip.pending && "border-dashed",
+                              roomMatches(activeArea, chip.name)
                                 ? "border-primary bg-primary text-primary-foreground"
                                 : "hover:bg-muted",
                             )}
                           >
-                            {name}
+                            {chip.name}
+                            {chip.pending ? (
+                              <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide opacity-80">
+                                Not saved
+                              </span>
+                            ) : null}
                           </button>
                         ))}
                       </div>
+                      {roomChips.some((chip) => chip.pending) ? (
+                        <p className="text-xs text-amber-800 dark:text-amber-200">{EMPTY_AREA_NOT_SAVED}</p>
+                      ) : null}
                       <div className="flex flex-wrap items-center gap-2">
                         <Input
                           value={areaDraft}
@@ -2539,16 +2583,44 @@ export function EstimateBuilder({
                         <Button type="button" variant="outline" className="min-h-11" onClick={() => addNamedArea(areaDraft)}>
                           <Plus className="size-3.5" /> Add area
                         </Button>
-                        {activeArea ? (
+                        {activeArea && renameDraft !== null ? (
+                          <>
+                            <Input
+                              value={renameDraft}
+                              onChange={(e) => setRenameDraft(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  renameArea(oi, activeArea, renameDraft);
+                                }
+                              }}
+                              aria-label="Rename room"
+                              className="h-11 w-full sm:max-w-xs"
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="min-h-11"
+                              onClick={() => renameArea(oi, activeArea, renameDraft)}
+                            >
+                              Save name
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="min-h-11"
+                              onClick={() => setRenameDraft(null)}
+                            >
+                              Cancel
+                            </Button>
+                          </>
+                        ) : activeArea ? (
                           <>
                             <Button
                               type="button"
                               variant="outline"
                               className="min-h-11"
-                              onClick={() => {
-                                const next = window.prompt("Rename this room", activeArea);
-                                if (next) renameArea(oi, activeArea, next);
-                              }}
+                              onClick={() => setRenameDraft(activeArea)}
                             >
                               Rename
                             </Button>

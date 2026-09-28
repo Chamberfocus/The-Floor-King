@@ -63,6 +63,70 @@ export function roomMatches(room: string, area: string): boolean {
   return room.trim().toLowerCase() === name.toLowerCase();
 }
 
+export type AreaChip = { name: string; pending: boolean };
+
+/**
+ * Saved rooms come from lines. A name with no line is pending and is not part
+ * of the estimate until a product or labor line uses it.
+ */
+export function areaChips(lineRooms: string[], pending: string[] = []): AreaChip[] {
+  const saved = listAreas(lineRooms);
+  const savedKeys = new Set(saved.map((name) => name.toLowerCase()));
+  const chips: AreaChip[] = saved.map((name) => ({ name, pending: false }));
+  for (const raw of pending) {
+    const name = raw.trim();
+    const key = name.toLowerCase();
+    if (!name || savedKeys.has(key)) continue;
+    savedKeys.add(key);
+    chips.push({ name, pending: true });
+  }
+  return chips;
+}
+
+/** Pending names that no current line uses. These are not written on save. */
+export function unsavedPendingAreas(lineRooms: string[], pending: string[]): string[] {
+  return areaChips(lineRooms, pending)
+    .filter((chip) => chip.pending)
+    .map((chip) => chip.name);
+}
+
+export const EMPTY_AREA_NOT_SAVED =
+  "Empty rooms are not saved. A room stays on the estimate only when a product or labor line is in it.";
+
+/**
+ * Rename the room label on matching lines. Other fields stay as they are.
+ * Returns the same array when the name does not change.
+ */
+export function renameRoomOnLines<T extends { room: string }>(
+  lines: T[],
+  from: string,
+  to: string,
+): { lines: T[]; name: string | null } {
+  const name = renameAreaLabel(from, to);
+  if (!name) return { lines, name: null };
+  if (name.toLowerCase() === from.trim().toLowerCase()) return { lines, name };
+  return {
+    name,
+    lines: lines.map((line) => (roomMatches(line.room, from) ? { ...line, room: name } : line)),
+  };
+}
+
+/**
+ * Clone lines that already belong to a room. An empty room clones nothing —
+ * callers must not invent a line to hold the name.
+ */
+export function cloneRoomLines<T extends { room: string }>(
+  lines: T[],
+  from: string,
+  copyName: string,
+): T[] {
+  const name = copyName.trim();
+  if (!from.trim() || !name) return [];
+  return lines
+    .filter((line) => roomMatches(line.room, from))
+    .map((line) => ({ ...line, room: name }));
+}
+
 /** Quantity caption. Uses the line's own unit string — no conversion. */
 export function quantityCaption(unit: string | null | undefined): string {
   const label = (unit ?? "").trim();
