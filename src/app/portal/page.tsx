@@ -13,6 +13,7 @@ import { JobStatusBadge } from "@/components/job-status-badge";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { requireProfile } from "@/lib/auth";
 import {
+  listPortalCompletionDays,
   listPortalEstimates,
   listPortalJobs,
   listPortalInstallerNames,
@@ -79,6 +80,10 @@ export default async function PortalHome() {
   }
   const installerNameByJobId = profile.customer_id
     ? await listPortalInstallerNames(profile.customer_id, activeJobs)
+    : new Map<string, string>();
+  const completedIds = jobs.filter((j) => j.status === "completed").map((j) => j.id);
+  const completedOnByJobId = profile.customer_id
+    ? await listPortalCompletionDays(profile.customer_id, completedIds)
     : new Map<string, string>();
 
   return (
@@ -248,14 +253,18 @@ export default async function PortalHome() {
                       .join("–")
                   : null;
                 const installer = installerNameByJobId.get(j.id) ?? null;
-                const scheduleCopy = j.scheduled_date
-                  ? portalInstallScheduleCopy({
-                      status: j.status,
-                      scheduledDateLabel: formatDate(j.scheduled_date),
-                      windowLabel: window,
-                      installerName: installer,
-                    })
-                  : null;
+                const scheduleCopy =
+                  j.status === "completed" || j.status === "cancelled" || j.scheduled_date
+                    ? portalInstallScheduleCopy({
+                        status: j.status,
+                        scheduledDateLabel: j.scheduled_date
+                          ? formatDate(j.scheduled_date)
+                          : null,
+                        windowLabel: window,
+                        installerName: installer,
+                        completedOnLabel: completedOnByJobId.get(j.id) ?? null,
+                      })
+                    : null;
                 return (
                   <li key={j.id} className="space-y-3 py-4">
                     <div className="flex items-center justify-between gap-3">

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { employeeDbError } from "@/lib/employee-error";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 import { sendSms } from "@/lib/sms";
 import type { MessageSendResult } from "@/lib/message-send";
@@ -164,7 +165,12 @@ export async function returnCheckout(checkoutId: string): Promise<Result> {
     .from("sample_checkouts")
     .update({ status: "returned", returned_at: new Date().toISOString() })
     .eq("id", checkoutId);
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("[sampleCheckout]", error.code);
+    return {
+      error: employeeDbError(error.message, "This sample could not be saved. Refresh and try again."),
+    };
+  }
   revalidateCustomer(customerId);
   return { error: null };
 }
@@ -205,7 +211,12 @@ export async function extendCheckout(
     .from("sample_checkouts")
     .update({ due_date: dueDate, last_reminder_on: null })
     .eq("id", checkoutId);
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("[sampleCheckout]", error.code);
+    return {
+      error: employeeDbError(error.message, "This sample could not be saved. Refresh and try again."),
+    };
+  }
   revalidateCustomer(await customerIdForCheckout(supabase, checkoutId));
   return { error: null };
 }
@@ -217,7 +228,12 @@ export async function markCheckoutLost(checkoutId: string): Promise<Result> {
     .from("sample_checkouts")
     .update({ status: "lost" })
     .eq("id", checkoutId);
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("[sampleCheckout]", error.code);
+    return {
+      error: employeeDbError(error.message, "This sample could not be saved. Refresh and try again."),
+    };
+  }
   revalidateCustomer(await customerIdForCheckout(supabase, checkoutId));
   return { error: null };
 }
@@ -233,7 +249,12 @@ export async function deleteCheckout(checkoutId: string): Promise<Result> {
   const supabase = await createClient();
   const customerId = await customerIdForCheckout(supabase, checkoutId);
   const { error } = await supabase.from("sample_checkouts").delete().eq("id", checkoutId);
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("[sampleCheckout]", error.code);
+    return {
+      error: employeeDbError(error.message, "This sample could not be saved. Refresh and try again."),
+    };
+  }
   revalidateCustomer(customerId);
   return { error: null };
 }

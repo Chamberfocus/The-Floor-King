@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { employeeDbError } from "@/lib/employee-error";
 import { aiText } from "@/lib/ai";
 import { extractJobFromNotes, type NotesJob } from "@/lib/extract";
 import { searchCatalog } from "@/lib/data/products";
@@ -574,7 +575,15 @@ export async function createEstimateFromNotes(
     };
     });
     const { error } = await supabase.from("estimate_line_items").insert(rows);
-    if (error) return { error: error.message };
+    if (error) {
+      console.error("[appendEstimateLines]", error.code);
+      return {
+        error: employeeDbError(
+          error.message,
+          "This estimate could not be saved. Refresh and try again.",
+        ),
+      };
+    }
     revalidatePath(`/estimates/${appendToEstimateId}`);
     return { error: null };
   }

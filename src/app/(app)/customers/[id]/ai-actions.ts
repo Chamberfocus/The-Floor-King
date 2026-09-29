@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { employeeDbError } from "@/lib/employee-error";
 import { aiText } from "@/lib/ai";
 import { getCustomer, listActivities } from "@/lib/data/customers";
 import { listEstimatesForCustomer } from "@/lib/data/estimates";
@@ -154,7 +155,12 @@ export async function logFollowup(
     type: channel,
     body: body.trim(),
   });
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("[saveAiActivity]", error.code);
+    return {
+      error: employeeDbError(error.message, "This note could not be saved. Refresh and try again."),
+    };
+  }
   revalidatePath(`/customers/${customerId}`);
   return { error: null };
 }

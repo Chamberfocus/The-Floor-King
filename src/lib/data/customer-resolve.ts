@@ -5,6 +5,7 @@
  */
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { employeeDbError } from "@/lib/employee-error";
 import { requireProfile } from "@/lib/auth";
 import {
   classifyImportRows,
@@ -310,7 +311,13 @@ export async function resolveOrCreateCustomer(args: {
     .select("id")
     .single();
   if (error || !data) {
-    return { action: "error", error: error?.message ?? "Couldn't save the customer." };
+    return {
+      action: "error",
+      error: employeeDbError(
+        error?.message,
+        "This customer could not be saved. Refresh and try again.",
+      ),
+    };
   }
   return { action: "created", customerId: data.id };
 }
@@ -374,7 +381,10 @@ export async function resolvePublicBookingCustomer(input: {
     return {
       customerId: null,
       created: false,
-      error: error?.message || "Couldn't submit your request.",
+      error: employeeDbError(
+        error?.message,
+        "Couldn't submit your request. Please try again.",
+      ),
     };
   }
   return { customerId: data.id, created: true, error: null };

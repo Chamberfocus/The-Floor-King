@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { employeeDbError } from "@/lib/employee-error";
 import { moveToAutoActionStage } from "@/lib/workflow-engine";
 
 function str(v: FormDataEntryValue | null): string {
@@ -162,7 +163,12 @@ export async function qualifyAnswers(
     .from("customers")
     .update({ qualified: true })
     .eq("id", customerId);
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("[qualifyCustomer]", error.code);
+    return {
+      error: employeeDbError(error.message, "This customer could not be updated. Refresh and try again."),
+    };
+  }
 
   revalidatePath(`/customers/${customerId}`);
   return { error: null, ok: true };

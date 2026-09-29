@@ -3,6 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { DOCUMENTS_STORAGE_JWT_ROLES } from "@/lib/job-warehouse";
+import { employeeDbError } from "@/lib/employee-error";
+import {
+  employeeFileSaveError,
+  safeDisplayFileName,
+  safeStorageFileName,
+} from "@/lib/upload-name";
 
 export interface DocState {
   error: string | null;
@@ -59,24 +65,33 @@ export async function uploadCustomerDocument(
   if (!gate.ok) return { error: gate.error };
   const { supabase, userId } = gate;
   const bytes = Buffer.from(await file.arrayBuffer());
-  const path = `customer/${customerId}/${crypto.randomUUID()}-${file.name}`;
+  const path = `customer/${customerId}/${safeStorageFileName(file.name)}`;
 
   const { error: upErr } = await supabase.storage
     .from("documents")
     .upload(path, bytes, {
       contentType: file.type || "application/octet-stream",
     });
-  if (upErr) return { error: upErr.message };
+  if (upErr) {
+    console.error("[uploadCustomerDocument]", upErr.name);
+    return { error: employeeFileSaveError("file") };
+  }
 
   const { error } = await supabase.from("documents").insert({
     customer_id: customerId,
     uploaded_by: userId,
-    name: file.name,
+    name: safeDisplayFileName(file.name),
     path,
     mime: file.type || null,
     kind,
   });
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("[uploadCustomerDocument]", error.code);
+    await supabase.storage.from("documents").remove([path]);
+    return {
+      error: employeeDbError(error.message, employeeFileSaveError("file")),
+    };
+  }
 
   revalidatePath(`/customers/${customerId}`);
   return { error: null, ok: true };
@@ -102,20 +117,29 @@ export async function saveMeasurementDiagram(
   for (const file of files) {
     if (file.size > 20 * 1024 * 1024) continue;
     const bytes = Buffer.from(await file.arrayBuffer());
-    const path = `customer/${customerId}/${crypto.randomUUID()}-${file.name}`;
+    const path = `customer/${customerId}/${safeStorageFileName(file.name, "svg")}`;
     const { error: upErr } = await supabase.storage
       .from("documents")
       .upload(path, bytes, { contentType: file.type || "image/svg+xml" });
-    if (upErr) return { error: upErr.message };
+    if (upErr) {
+      console.error("[saveMeasurementDiagram]", upErr.name);
+      return { error: employeeFileSaveError("file") };
+    }
     const { error } = await supabase.from("documents").insert({
       customer_id: customerId,
       uploaded_by: userId,
-      name: file.name,
+      name: safeDisplayFileName(file.name),
       path,
       mime: file.type || "image/svg+xml",
       kind: "measurement",
     });
-    if (error) return { error: error.message };
+    if (error) {
+      console.error("[saveMeasurementDiagram]", error.code);
+      await supabase.storage.from("documents").remove([path]);
+      return {
+        error: employeeDbError(error.message, employeeFileSaveError("file")),
+      };
+    }
   }
   revalidatePath(`/customers/${customerId}`);
   return { error: null, ok: true };

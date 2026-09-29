@@ -31,6 +31,9 @@ export function JobForm({ job }: { job: Job }) {
   return (
     <form action={formAction} className="space-y-4">
       <input type="hidden" name="id" value={job.id} />
+      {job.updated_at ? (
+        <input type="hidden" name="expected_updated_at" value={job.updated_at} />
+      ) : null}
 
       <div className="space-y-2">
         <Label htmlFor="title">Job title</Label>

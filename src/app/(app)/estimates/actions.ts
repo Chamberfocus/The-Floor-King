@@ -45,6 +45,7 @@ import {
 import { persistCommissionOverride } from "@/lib/estimate-commission";
 import type { EstimateStatus } from "@/lib/types";
 import { formatServiceAddress } from "@/lib/types";
+import { employeeDbError } from "@/lib/employee-error";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -129,7 +130,11 @@ async function applyOptionLinesAtomic(
   if (/could not find the function|schema cache|does not exist/i.test(error.message)) {
     return "Estimate line save requires database migration 0155. Run it in the Supabase SQL editor, then try again.";
   }
-  return error.message;
+  console.error("[applyOptionLinesAtomic]", error.code);
+  return employeeDbError(
+    error.message,
+    "This estimate could not be saved. Refresh and try again.",
+  );
 }
 
 /** Quote expiration date = today + the org's quote_valid_days (default 30). */

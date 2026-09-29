@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { employeeDbError } from "@/lib/employee-error";
 
 const GOOGLE = () => process.env.GOOGLE_MAPS_API_KEY;
 const RENTCAST = () => process.env.RENTCAST_API_KEY;
@@ -140,7 +141,12 @@ export async function lookupCustomerProperty(
     return { error: "No property record found for that address." };
   }
   const { error } = await supabase.from("customers").update(patch).eq("id", customerId);
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("[savePropertyLookup]", error.code);
+    return {
+      error: employeeDbError(error.message, "This property could not be saved. Refresh and try again."),
+    };
+  }
   revalidatePath(`/customers/${customerId}`);
   return { error: null };
 }
