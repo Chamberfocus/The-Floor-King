@@ -20,6 +20,7 @@ import {
   normalizePersonName,
   normalizePhoneDigits,
 } from "@/lib/customer-duplicate";
+import { LEAD_SOURCE_LABELS, type LeadSource } from "@/lib/types";
 
 export const OPEN_JOB_STATUSES = [
   "unscheduled",
@@ -341,6 +342,12 @@ function groupByCustomer<T extends { customer_id: string | null }>(
     map.set(id, arr);
   }
   return map;
+}
+
+/** Legacy `customers.source` may be null or a value outside the original enum. */
+export function leadSourceLabel(source: string | null | undefined): string {
+  if (!source) return "";
+  return (LEAD_SOURCE_LABELS as Record<string, string | undefined>)[source as LeadSource] ?? source;
 }
 
 export function formatCustomerActivityLine(

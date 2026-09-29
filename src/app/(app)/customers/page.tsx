@@ -7,12 +7,13 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { SearchPicker } from "@/components/ui/search-picker";
 import { listCustomersPage, getCustomerRowContexts, getCustomerListActivity } from "@/lib/data/customers";
-import { QUEUE_LIST_UNAVAILABLE, queueFailureMessage } from "@/lib/ops-scale";
+import { QUEUE_LIST_UNAVAILABLE, logQueueFailure, queueFailureMessage } from "@/lib/ops-scale";
 import { WorkQueuePager } from "@/components/work-queue-bar";
 import { parseListPage, resultCountLabel } from "@/lib/work-queues";
 import { listWorkflowStages, listHandoffMembers } from "@/lib/data/workflow";
-import { getSchedulingSettings } from "@/lib/data/scheduling";
+import { getSchedulingSettings, SCHEDULING_DEFAULTS } from "@/lib/data/scheduling";
 import { getUserPreferences } from "@/lib/data/preferences";
+import { DEFAULT_PREFERENCES } from "@/lib/preferences";
 import { requireProfile } from "@/lib/auth";
 import { SALES_ROLES, INSTALL_ROLES } from "@/lib/types";
 import { parseArrivalWindows } from "@/lib/format";
@@ -24,28 +25,32 @@ export default async function CustomersPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    q?: string;
-    stage?: string;
-    owner?: string;
-    stuck?: string;
-    view?: string;
-    page?: string;
+    q?: string | string[];
+    stage?: string | string[];
+    owner?: string | string[];
+    stuck?: string | string[];
+    view?: string | string[];
+    page?: string | string[];
   }>;
 }) {
   const sp = await searchParams;
-  const q = sp.q?.trim() ?? "";
+  const one = (value: string | string[] | undefined) => {
+    const raw = Array.isArray(value) ? value[0] : value;
+    return typeof raw === "string" ? raw.trim() : "";
+  };
+  const q = one(sp.q);
   // The stage filter is now a detailed workflow stage id (the 13-stage builder),
   // not the collapsed 6-bucket lead stage.
-  const stage = sp.stage?.trim() || undefined;
+  const stage = one(sp.stage) || undefined;
   // "Stuck only" — clients past their stage's time limit. Available to everyone
   // (RLS already scopes reps to their own book).
-  const stuck = sp.stuck === "1";
+  const stuck = one(sp.stuck) === "1";
 
   const profile = await requireProfile();
   const isAdmin = profile.role === "admin";
   // Admins can filter the list down to one salesperson's book, or to clients
   // that still have no salesperson ("unassigned").
-  const owner = isAdmin ? sp.owner?.trim() || undefined : undefined;
+  const owner = isAdmin ? one(sp.owner) || undefined : undefined;
   const unassignedOnly = owner === "unassigned";
 
   // Load stages first so we can hide "Closed" customers from the active list by
@@ -62,8 +67,8 @@ export default async function CustomersPage({
     "closed",
     "cancelled",
     "all",
-  ].includes(sp.view ?? "")
-    ? (sp.view as "closed" | "cancelled" | "all")
+  ].includes(one(sp.view))
+    ? (one(sp.view) as "closed" | "cancelled" | "all")
     : "active";
   let workflowStageIds: string[] | undefined;
   let excludeWorkflowStageIds: string[] | undefined;
@@ -78,6 +83,7 @@ export default async function CustomersPage({
   }
 
   let listError: string | null = null;
+  let detailError: string | null = null;
   let listed: Awaited<ReturnType<typeof listCustomersPage>> = {
     rows: [],
     total: 0,
@@ -96,7 +102,7 @@ export default async function CustomersPage({
       // still spans cancelled so past customers are findable.
       cancelledOnly: view === "cancelled" && !q,
       excludeCancelled: !q && (view === "active" || view === "closed"),
-      page: parseListPage(sp.page),
+      page: parseListPage(one(sp.page) || undefined),
     });
   } catch (error) {
     listError = queueFailureMessage(error);
@@ -105,13 +111,25 @@ export default async function CustomersPage({
   const customerPages = Math.max(1, Math.ceil(listed.total / listed.pageSize));
 
   // Shared data for per-row quick actions — fetched once for the whole list.
-  const [members, schedSettings, prefs, contexts, activity] = await Promise.all([
-    listHandoffMembers(),
-    getSchedulingSettings(),
-    getUserPreferences(),
-    getCustomerRowContexts(customers.map((c) => c.id)),
-    getCustomerListActivity(customers.map((c) => c.id)),
-  ]);
+  // A failure here must not take down the page. Rows already loaded stay visible.
+  let members: Awaited<ReturnType<typeof listHandoffMembers>> = [];
+  let schedSettings = SCHEDULING_DEFAULTS;
+  let prefs = DEFAULT_PREFERENCES;
+  let contexts: Awaited<ReturnType<typeof getCustomerRowContexts>> = {};
+  let activity: Awaited<ReturnType<typeof getCustomerListActivity>> = {};
+  try {
+    [members, schedSettings, prefs, contexts, activity] = await Promise.all([
+      listHandoffMembers(),
+      getSchedulingSettings(),
+      getUserPreferences(),
+      getCustomerRowContexts(customers.map((c) => c.id)),
+      getCustomerListActivity(customers.map((c) => c.id)),
+    ]);
+  } catch (error) {
+    logQueueFailure("customers-page", error);
+    detailError = QUEUE_LIST_UNAVAILABLE;
+    if (!customers.length) listError = detailError;
+  }
   const shared: ListShared = {
     stages: stages.map((s) => ({
       id: s.id,
@@ -315,13 +333,18 @@ export default async function CustomersPage({
           }
         />
       ) : (
-        <CustomerList
-          customers={customers}
-          contexts={contexts}
-          activity={activity}
-          shared={shared}
-          isAdmin={isAdmin}
-        />
+        <>
+          {detailError ? (
+            <p className="mb-3 text-sm text-destructive">{detailError}</p>
+          ) : null}
+          <CustomerList
+            customers={customers}
+            contexts={contexts}
+            activity={activity}
+            shared={shared}
+            isAdmin={isAdmin}
+          />
+        </>
       )}
       <WorkQueuePager
         page={listed.page}
