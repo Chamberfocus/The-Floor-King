@@ -1099,6 +1099,11 @@ export async function recordPayment(formData: FormData): Promise<void> {
     idempotencyKey,
   });
   if (res.error) fail(res.error);
+  if (res.duplicate) {
+    redirect(
+      `/invoices/${invoiceId}?payment_notice=${encodeURIComponent("This payment was already recorded.")}`,
+    );
+  }
 
   await recomputeStatus(supabase, invoiceId);
 

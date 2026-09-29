@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { employeeDbError } from "@/lib/employee-error";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 import {
   isOffSpine,
@@ -98,7 +99,12 @@ export async function setCustomerSource(formData: FormData): Promise<CustomerFor
     if (!filled) return { error: "Add the required detail for this source." };
   }
   const { error } = await supabase.from("customers").update(row).eq("id", id);
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("[setCustomerSource]", error.code);
+    return {
+      error: employeeDbError(error.message, "This customer could not be saved. Refresh and try again."),
+    };
+  }
   refreshCustomerViews(id);
   return { error: null, ok: true };
 }
@@ -250,7 +256,12 @@ export async function updateCustomer(
     const { source_id: _si, source_detail_id: _di, source_detail_text: _dt, referred_by_customer_id: _rb, ...legacy } = row;
     ({ error } = await supabase.from("customers").update(legacy).eq("id", id));
   }
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("[updateCustomer]", error.code);
+    return {
+      error: employeeDbError(error.message, "This customer could not be saved. Refresh and try again."),
+    };
+  }
 
   refreshCustomerViews(id);
   return { error: null, ok: true };
@@ -340,7 +351,12 @@ export async function addActivity(
     type,
     body,
   });
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("[addActivity]", error.code);
+    return {
+      error: employeeDbError(error.message, "This note could not be saved. Refresh and try again."),
+    };
+  }
 
   // Intelligent flow: logging the first contact nudges a brand-new lead forward.
   if (type !== "stage_change") {
@@ -682,7 +698,12 @@ export async function reassignCustomer(
   }
 
   const { error } = await supabase.from("customers").update(patch).eq("id", id);
-  if (error) return { error: error.message || "Couldn't save the assignment." };
+  if (error) {
+    console.error("[assignCustomer]", error.code);
+    return {
+      error: employeeDbError(error.message, "Couldn't save the assignment."),
+    };
+  }
 
   // A client's booked estimate belongs to their salesperson — so when the owner
   // changes to a salesperson, re-credit their open (scheduled) estimate visits
@@ -983,7 +1004,12 @@ export async function snoozeCustomerFollowup(formData: FormData): Promise<void> 
     .from("customers")
     .update({ next_action_due: dueAt })
     .eq("id", id);
-  if (error) throw new Error(error.message);
+  if (error) {
+    console.error("[snoozeCustomerFollowup]", error.code);
+    throw new Error(
+      employeeDbError(error.message, "This follow-up could not be saved. Refresh and try again."),
+    );
+  }
   const { data: ests } = await supabase
     .from("estimates")
     .select("id")

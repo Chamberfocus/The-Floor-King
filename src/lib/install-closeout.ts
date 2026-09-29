@@ -115,6 +115,8 @@ export function portalInstallScheduleCopy(input: {
   scheduledDateLabel: string | null;
   windowLabel: string | null;
   installerName: string | null;
+  /** Calendar day of jobs.completed_at, already formatted. Not a payment fact. */
+  completedOnLabel?: string | null;
 }): { title: string; detail: string } {
   const bits = [
     input.scheduledDateLabel,
@@ -123,9 +125,14 @@ export function portalInstallScheduleCopy(input: {
   ].filter(Boolean);
   const detail = bits.join(" · ");
   if (input.status === "completed") {
+    const completed = input.completedOnLabel
+      ? `Completed ${input.completedOnLabel}`
+      : null;
     return {
       title: "Installation completed",
-      detail: detail || "Your installation is complete.",
+      detail:
+        [completed, detail].filter(Boolean).join(" · ") ||
+        "Your installation is complete.",
     };
   }
   if (input.status === "in_progress") {

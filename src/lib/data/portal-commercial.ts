@@ -140,6 +140,37 @@ export async function listPortalEstimates(
   );
 }
 
+/**
+ * Completion day for this customer's finished jobs only.
+ * Reads completed_at with the service role after the caller already loaded
+ * jobs_customer. Does not return notes, cost, or the employee who finished it.
+ */
+export async function listPortalCompletionDays(
+  customerId: string,
+  jobIds: string[],
+): Promise<Map<string, string>> {
+  const days = new Map<string, string>();
+  if (!jobIds.length) return days;
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("jobs")
+    .select("id, completed_at")
+    .eq("customer_id", customerId)
+    .in("id", jobIds);
+  for (const row of data ?? []) {
+    const at = row.completed_at as string | null;
+    if (!at) continue;
+    const label = new Date(at).toLocaleDateString("en-US", {
+      timeZone: "America/New_York",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    if (label && label !== "Invalid Date") days.set(row.id as string, label);
+  }
+  return days;
+}
+
 export async function listPortalJobs(customerId: string): Promise<Job[]> {
   const supabase = await createClient();
   const { data } = await supabase

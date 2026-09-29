@@ -45,10 +45,10 @@ export default async function InvoicePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ print?: string; preview?: string; payment_error?: string; credit_error?: string; notify?: string; notify_detail?: string }>;
+  searchParams: Promise<{ print?: string; preview?: string; payment_error?: string; payment_notice?: string; credit_error?: string; notify?: string; notify_detail?: string }>;
 }) {
   const { id } = await params;
-  const { print, preview: previewParam, payment_error: paymentError, credit_error: creditError, notify, notify_detail: notifyDetail } = await searchParams;
+  const { print, preview: previewParam, payment_error: paymentError, payment_notice: paymentNotice, credit_error: creditError, notify, notify_detail: notifyDetail } = await searchParams;
   const preview = previewParam === "1";
   const invoice = await getInvoice(id);
   if (!invoice) notFound();
@@ -243,6 +243,11 @@ export default async function InvoicePage({
           {paymentError ? (
             <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {paymentError}
+            </p>
+          ) : null}
+          {paymentNotice ? (
+            <p className="rounded-md border bg-muted/50 px-3 py-2 text-sm">
+              {paymentNotice}
             </p>
           ) : null}
           {creditError ? (

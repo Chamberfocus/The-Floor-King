@@ -1230,7 +1230,9 @@ export async function updateJob(
     delivery_type: (str(formData.get("delivery_type")) ||
       "deliver") as JobDeliveryType,
   };
-  const update = supabase.from("jobs").update(patch).eq("id", id).eq("status", from);
+  const expectedUpdatedAt = str(formData.get("expected_updated_at"));
+  let update = supabase.from("jobs").update(patch).eq("id", id).eq("status", from);
+  if (expectedUpdatedAt) update = update.eq("updated_at", expectedUpdatedAt);
   const guarded = prior.completed_at
     ? update.eq("completed_at", prior.completed_at as string)
     : update.is("completed_at", null);
@@ -1295,10 +1297,13 @@ async function commitJobStatus(
   const supabase = await createClient();
   const { data: prior } = await supabase
     .from("jobs")
-    .select("status, completed_at")
+    .select("status, completed_at, assigned_to")
     .eq("id", id)
     .maybeSingle();
   if (!prior) return { error: jobStatusEmployeeMessage(intent, "missing") };
+  if (profile.role === "crew" && prior.assigned_to !== profile.id) {
+    return { error: jobStatusEmployeeMessage(intent, "forbidden") };
+  }
   const from = (prior.status as JobStatus) ?? "unscheduled";
   const gate = assessJobStatusTransition(from, status);
   if (!gate.ok) {
@@ -1958,10 +1963,11 @@ export async function completeWarehouseJob(
 
   const { data: jobRow } = await admin
     .from("jobs")
-    .select("id, estimate_id")
+    .select("id, estimate_id, warehouse_ready_at")
     .eq("id", id)
     .maybeSingle();
   if (!jobRow) return { error: "That job no longer exists." };
+  if (jobRow.warehouse_ready_at) return { error: null };
 
   const lines = await loadOperationalJobLines(admin, id);
   const hasMaterialNeed = lines.some((l) => isMaterialLine(l));

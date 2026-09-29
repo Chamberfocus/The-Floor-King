@@ -40,6 +40,7 @@ export async function recordJobFile(args: {
   });
   if (error) {
     console.error("[recordJobFile]", error.code, args.jobId);
+    await supabase.storage.from("job-files").remove([args.path]);
     return { error: employeeFileSaveError(args.kind) };
   }
 

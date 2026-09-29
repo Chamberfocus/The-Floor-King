@@ -7,6 +7,7 @@ import { getCustomerSourceStatus } from "@/lib/data/lead-sources";
 import type { LineMeasurement, ProductCategory } from "@/lib/types";
 import { lineDisplayUnit, lineSkipsAreaCartonMath } from "@/lib/units";
 import { sendEstimateById } from "./actions";
+import { employeeDbError } from "@/lib/employee-error";
 
 /** Clear a saved flooring-type default. */
 export async function deleteRoomDefault(category: string): Promise<void> {
@@ -49,7 +50,7 @@ export async function saveRoomDefault(input: {
     return {
       error: error.message.includes("room_defaults")
         ? "Run migration 0046 first (the defaults table is missing)."
-        : error.message,
+        : employeeDbError(error.message, "This default could not be saved. Refresh and try again."),
     };
   }
   return { error: null };
@@ -81,7 +82,7 @@ export async function saveAddonDefault(input: {
     return {
       error: error.message.includes("addon_defaults")
         ? "Run migration 0045 first (the defaults table is missing)."
-        : error.message,
+        : employeeDbError(error.message, "This default could not be saved. Refresh and try again."),
     };
   }
   return { error: null };

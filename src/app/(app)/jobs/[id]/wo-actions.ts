@@ -129,6 +129,7 @@ export async function uploadJobPhoto(_prev: WOState, formData: FormData): Promis
   });
   if (error) {
     console.error("[uploadJobPhoto]", error.code);
+    await db.storage.from("documents").remove([path]);
     return { error: employeeFileSaveError("photo") };
   }
   revalidatePath(`/jobs/${jobId}`);

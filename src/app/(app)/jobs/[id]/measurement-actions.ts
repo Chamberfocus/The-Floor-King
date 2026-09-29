@@ -100,6 +100,7 @@ export async function uploadJobMeasurement(
   });
   if (error) {
     console.error("[uploadJobMeasurement]", error.code);
+    await db.storage.from("documents").remove([path]);
     return { error: employeeFileSaveError("photo") };
   }
 
