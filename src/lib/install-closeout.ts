@@ -1,5 +1,5 @@
 import type { JobStatus } from "@/lib/types";
-import { isAllowedJobStatusTransition } from "@/lib/job-status";
+import { isAllowedJobStatusTransition, JOB_CHANGED_MESSAGE } from "@/lib/job-status";
 
 /**
  * Factual installation closeout. These lines describe what is already stored.
@@ -92,9 +92,11 @@ type StatusIntent = "start" | "complete" | "other";
 
 export function jobStatusEmployeeMessage(
   intent: StatusIntent,
-  reason: "missing" | "blocked" | "save",
+  reason: "missing" | "blocked" | "save" | "stale" | "forbidden",
   from?: JobStatus | null,
 ): string {
+  if (reason === "stale") return JOB_CHANGED_MESSAGE;
+  if (reason === "forbidden") return "Not authorized.";
   if (reason === "blocked" && from === "cancelled" && intent === "complete") {
     return "A cancelled installation cannot be marked complete.";
   }

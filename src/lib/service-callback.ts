@@ -115,6 +115,9 @@ export function serviceResolvePatch(
   };
 }
 
+export const SERVICE_CHANGED_MESSAGE =
+  "This service issue changed while you were working. Refresh and try again.";
+
 export function serviceEmployeeMessage(
   action: "create" | "update" | "schedule" | "resolve" | "assign",
 ): string {

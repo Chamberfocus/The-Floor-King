@@ -26,11 +26,17 @@ import {
 } from "@/lib/ops-followup";
 import {
   assessServiceTransition,
+  SERVICE_CHANGED_MESSAGE,
   serviceEmployeeMessage,
   serviceResolvePatch,
   serviceSchedulePatch,
   type ServiceStatus,
 } from "@/lib/service-callback";
+
+const TASK_SAVE_FAILED = "This task could not be saved. Refresh and try again.";
+const TASK_CHANGED =
+  "This task changed while you were working. Refresh and try again.";
+const HOLD_SAVE_FAILED = "This hold could not be saved. Refresh and try again.";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -95,7 +101,10 @@ export async function createOfficeTask(formData: FormData): Promise<void> {
     source: "manual",
     status: "open",
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    console.error("[createOfficeTask]", error.code);
+    throw new Error(TASK_SAVE_FAILED);
+  }
   refreshOps(str(formData.get("job_id")), str(formData.get("customer_id")));
 }
 
@@ -119,7 +128,10 @@ export async function completeOfficeTask(formData: FormData): Promise<void> {
   if (task.status === "cancelled") {
     throw new Error("Cancelled tasks can’t be completed.");
   }
-  const { error } = await supabase
+  if (task.status === "completed") {
+    throw new Error("This task is already complete.");
+  }
+  const { data: saved, error } = await supabase
     .from("office_tasks")
     .update({
       status: "completed",
@@ -127,8 +139,15 @@ export async function completeOfficeTask(formData: FormData): Promise<void> {
       completed_by: profile.id,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", id);
-  if (error) throw new Error(error.message);
+    .eq("id", id)
+    .eq("status", task.status)
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    console.error("[completeOfficeTask]", error.code);
+    throw new Error(TASK_SAVE_FAILED);
+  }
+  if (!saved) throw new Error(TASK_CHANGED);
   refreshOps();
 }
 
@@ -137,14 +156,28 @@ export async function cancelOfficeTask(formData: FormData): Promise<void> {
   if (!id) throw new Error("Missing task.");
   await assertRole(TASK_ASSIGN_ROLES);
   const supabase = await createClient();
-  const { error } = await supabase
+  const { data: task } = await supabase
+    .from("office_tasks")
+    .select("status")
+    .eq("id", id)
+    .maybeSingle();
+  if (!task) throw new Error("Task not found.");
+  if (task.status === "cancelled") return;
+  const { data: saved, error } = await supabase
     .from("office_tasks")
     .update({
       status: "cancelled",
       updated_at: new Date().toISOString(),
     })
-    .eq("id", id);
-  if (error) throw new Error(error.message);
+    .eq("id", id)
+    .eq("status", task.status)
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    console.error("[cancelOfficeTask]", error.code);
+    throw new Error(TASK_SAVE_FAILED);
+  }
+  if (!saved) throw new Error(TASK_CHANGED);
   refreshOps();
 }
 
@@ -185,7 +218,8 @@ export async function ensureAutomatedOfficeTask(args: {
     if (error.message.includes("office_tasks_source_key")) {
       return { created: false };
     }
-    throw new Error(error.message);
+    console.error("[ensureAutomatedOfficeTask]", error.code);
+    throw new Error(TASK_SAVE_FAILED);
   }
   return { created: true };
 }
@@ -211,7 +245,10 @@ export async function placeJobHold(formData: FormData): Promise<void> {
     category: str(formData.get("category")) || "other",
     placed_by: profile.id,
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    console.error("[placeJobHold]", error.code);
+    throw new Error(HOLD_SAVE_FAILED);
+  }
   refreshOps(jobId);
 }
 
@@ -230,7 +267,10 @@ export async function releaseJobHold(formData: FormData): Promise<void> {
     })
     .eq("id", holdId)
     .is("released_at", null);
-  if (error) throw new Error(error.message);
+  if (error) {
+    console.error("[releaseJobHold]", error.code);
+    throw new Error(HOLD_SAVE_FAILED);
+  }
   refreshOps(jobId);
 }
 
@@ -311,12 +351,15 @@ export async function resolveServiceCallback(
   }
   const gate = assessServiceTransition(prior.status as string, "resolved");
   if (!gate.ok) return { error: serviceEmployeeMessage("resolve") };
-  const { error } = await supabase
+  const { data: saved, error } = await supabase
     .from("service_callbacks")
     .update(serviceResolvePatch(str(formData.get("resolution_notes")) || null))
     .eq("id", id)
-    .neq("status", "resolved");
+    .eq("status", prior.status as string)
+    .select("id")
+    .maybeSingle();
   if (error) return { error: serviceEmployeeMessage("resolve") };
+  if (!saved) return { error: SERVICE_CHANGED_MESSAGE };
   void completeAutomatedOfficeTasks({
     sourceKind: SERVICE_CALLBACK_KIND,
     entityId: id,
@@ -343,14 +386,18 @@ export async function cancelServiceCallback(formData: FormData): Promise<void> {
   if (!prior) throw new Error(serviceEmployeeMessage("update"));
   const gate = assessServiceTransition(prior.status as string, "cancelled");
   if (!gate.ok) throw new Error(serviceEmployeeMessage("update"));
-  const { error } = await supabase
+  const { data: saved, error } = await supabase
     .from("service_callbacks")
     .update({
       status: "cancelled",
       updated_at: new Date().toISOString(),
     })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("status", prior.status as string)
+    .select("id")
+    .maybeSingle();
   if (error) throw new Error(serviceEmployeeMessage("update"));
+  if (!saved) throw new Error(SERVICE_CHANGED_MESSAGE);
   refreshOps(null, null, id);
 }
 
@@ -377,11 +424,15 @@ export async function scheduleServiceVisit(
   if (!prior) return { error: serviceEmployeeMessage("schedule") };
   const gate = assessServiceTransition(prior.status as string, "scheduled");
   if (!gate.ok) return { error: serviceEmployeeMessage("schedule") };
-  const { error } = await supabase
+  const { data: saved, error } = await supabase
     .from("service_callbacks")
     .update(serviceSchedulePatch(`${day}T12:00:00.000Z`))
-    .eq("id", id);
+    .eq("id", id)
+    .eq("status", prior.status as string)
+    .select("id")
+    .maybeSingle();
   if (error) return { error: serviceEmployeeMessage("schedule") };
+  if (!saved) return { error: SERVICE_CHANGED_MESSAGE };
   refreshOps(prior.job_id as string | null, prior.customer_id as string | null, id);
   return { error: null };
 }
@@ -398,14 +449,18 @@ export async function assignServiceCallback(
   if ((prior.status as string) === "resolved" || (prior.status as string) === "cancelled") {
     return { error: serviceEmployeeMessage("assign") };
   }
-  const { error } = await supabase
+  const { data: saved, error } = await supabase
     .from("service_callbacks")
     .update({
       assigned_to: assignedTo || null,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("status", prior.status as string)
+    .select("id")
+    .maybeSingle();
   if (error) return { error: serviceEmployeeMessage("assign") };
+  if (!saved) return { error: SERVICE_CHANGED_MESSAGE };
   refreshOps(prior.job_id as string | null, prior.customer_id as string | null, id);
   return { error: null };
 }
@@ -423,11 +478,15 @@ export async function setServiceCallbackStatus(
   if (!prior) return { error: serviceEmployeeMessage("update") };
   const gate = assessServiceTransition(prior.status as string, status);
   if (!gate.ok) return { error: serviceEmployeeMessage("update") };
-  const { error } = await supabase
+  const { data: saved, error } = await supabase
     .from("service_callbacks")
     .update({ status, updated_at: new Date().toISOString() })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("status", prior.status as string)
+    .select("id")
+    .maybeSingle();
   if (error) return { error: serviceEmployeeMessage("update") };
+  if (!saved) return { error: SERVICE_CHANGED_MESSAGE };
   refreshOps(prior.job_id as string | null, prior.customer_id as string | null, id);
   return { error: null };
 }

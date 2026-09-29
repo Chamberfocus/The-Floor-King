@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { jobFilesObjectPathError } from "@/lib/job-files-path";
+import { employeeFileSaveError } from "@/lib/upload-name";
 import type { JobFileKind } from "@/lib/types";
 
 export async function recordJobFile(args: {
@@ -37,7 +38,10 @@ export async function recordJobFile(args: {
     signer_name: args.signerName || null,
     uploaded_by: user.id,
   });
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("[recordJobFile]", error.code, args.jobId);
+    return { error: employeeFileSaveError(args.kind) };
+  }
 
   revalidatePath(`/jobs/${args.jobId}`);
   return { error: null };
