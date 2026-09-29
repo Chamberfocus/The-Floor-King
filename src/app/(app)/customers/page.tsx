@@ -17,6 +17,8 @@ import { DEFAULT_PREFERENCES } from "@/lib/preferences";
 import { requireProfile } from "@/lib/auth";
 import { SALES_ROLES, INSTALL_ROLES } from "@/lib/types";
 import { parseArrivalWindows } from "@/lib/format";
+import { asDisplayText } from "@/lib/customer-list";
+import { logCustomersServerFailure } from "@/lib/customers-render-log";
 import { CustomerList, type ListShared } from "./customer-list";
 
 export const metadata: Metadata = { title: "Customers" };
@@ -55,7 +57,9 @@ export default async function CustomersPage({
 
   // Load stages first so we can hide "Closed" customers from the active list by
   // default (they're still reachable by picking Closed in the stage filter).
-  const stages = await listWorkflowStages();
+  const stages = (await listWorkflowStages()).filter(
+    (s) => !!s && typeof s.id === "string" && typeof s.name === "string",
+  );
   const closedStageIds = stages
     .filter((s) => /closed/i.test(s.name))
     .map((s) => s.id);
@@ -105,6 +109,7 @@ export default async function CustomersPage({
       page: parseListPage(one(sp.page) || undefined),
     });
   } catch (error) {
+    logCustomersServerFailure("listCustomersPage", error);
     listError = queueFailureMessage(error);
   }
   const customers = listed.rows;
@@ -126,6 +131,7 @@ export default async function CustomersPage({
       getCustomerListActivity(customers.map((c) => c.id)),
     ]);
   } catch (error) {
+    logCustomersServerFailure("customers-page-details", error);
     logQueueFailure("customers-page", error);
     detailError = QUEUE_LIST_UNAVAILABLE;
     if (!customers.length) listError = detailError;
@@ -261,7 +267,7 @@ export default async function CustomersPage({
           placeholder="All stages"
           options={[
             { value: "", label: "All stages" },
-            ...stages.map((s) => ({ value: s.id, label: s.name })),
+            ...stages.map((s) => ({ value: s.id, label: asDisplayText(s.name) })),
           ]}
         />
         {isAdmin ? (
@@ -276,7 +282,7 @@ export default async function CustomersPage({
               { value: "unassigned", label: "— Unassigned —" },
               ...members
                 .filter((m) => (SALES_ROLES as string[]).includes(m.role))
-                .map((m) => ({ value: m.id, label: m.name })),
+                .map((m) => ({ value: m.id, label: asDisplayText(m.name) })),
             ]}
           />
         ) : null}
