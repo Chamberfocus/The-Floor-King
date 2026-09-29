@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireProfile } from "@/lib/auth";
+import { employeeDbError } from "@/lib/employee-error";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -51,7 +52,15 @@ export async function addAvailability(
     note,
     private: isPrivate,
   });
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("[addAvailability]", error.code);
+    return {
+      error: employeeDbError(
+        error.message,
+        "This availability could not be saved. Refresh and try again.",
+      ),
+    };
+  }
 
   revalidatePath("/installer");
   revalidatePath("/install-scheduler");

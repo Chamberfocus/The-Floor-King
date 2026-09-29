@@ -1301,6 +1301,10 @@ async function commitJobStatus(
     .eq("id", id)
     .maybeSingle();
   if (!prior) return { error: jobStatusEmployeeMessage(intent, "missing") };
+  // Installation status is a jobs UPDATE. That stays on assigned_to (RLS
+  // jobs_crew_update). A login linked only through assigned_crew_id may see
+  // the job, add photos, sign, and report a problem, and still cannot start
+  // or complete it. Collection stays on assigned_to as well.
   if (profile.role === "crew" && prior.assigned_to !== profile.id) {
     return { error: jobStatusEmployeeMessage(intent, "forbidden") };
   }

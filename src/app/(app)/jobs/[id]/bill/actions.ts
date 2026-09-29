@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { assertRole } from "@/lib/auth";
+import { employeeDbError } from "@/lib/employee-error";
 import { getBillJobContext, getInstallerBill } from "@/lib/data/installer-bills";
 import { laborBillLinesFromScope } from "@/lib/installer-bill";
 import {
@@ -51,12 +52,13 @@ function linesToJson(lines: BillLineInput[]) {
 }
 
 function rpcError(data: unknown, error: { message?: string } | null): string {
-  if (error?.message) return error.message;
+  const fallback = "This labor entry could not be saved. Refresh and try again.";
+  if (error?.message) return employeeDbError(error.message, fallback);
   if (data && typeof data === "object" && data !== null && "error" in data) {
     const e = (data as { error?: unknown }).error;
-    if (typeof e === "string" && e.trim()) return e;
+    if (typeof e === "string" && e.trim()) return employeeDbError(e, fallback);
   }
-  return "Installer labor action failed.";
+  return fallback;
 }
 
 function rpcOk(data: unknown): boolean {
