@@ -16,7 +16,6 @@ import { cn } from "@/lib/utils";
 import { formatDate, formatMoney } from "@/lib/format";
 import type { ArrivalWindow } from "@/lib/format";
 import {
-  LEAD_SOURCE_LABELS,
   DUTY_ROLES,
   DUTY_LABELS,
   STAGE_COLOR_BADGE,
@@ -28,6 +27,7 @@ import type { CustomerRowContext } from "@/lib/data/customers";
 import {
   EMPTY_CUSTOMER_LIST_ACTIVITY,
   formatCustomerActivityLine,
+  leadSourceLabel,
   type CustomerListActivity,
 } from "@/lib/customer-list";
 import { QuickActions } from "./[id]/quick-actions";
@@ -265,7 +265,7 @@ function DesktopRow({
         <TableCell className="text-muted-foreground">{c.phone ?? "—"}</TableCell>
         <TableCell className="text-muted-foreground">{c.city ?? "—"}</TableCell>
         <TableCell className="text-muted-foreground">
-          {c.source ? LEAD_SOURCE_LABELS[c.source] : "—"}
+          {c.source ? leadSourceLabel(c.source) : "—"}
         </TableCell>
         <TableCell className="text-right text-muted-foreground">
           {formatDate(c.updated_at)}
@@ -342,7 +342,7 @@ function MobileCard({
       >
         {c.phone ? <span>{c.phone}</span> : null}
         {c.city ? <span>{c.city}</span> : null}
-        {c.source ? <span>{LEAD_SOURCE_LABELS[c.source]}</span> : null}
+        {c.source ? <span>{leadSourceLabel(c.source)}</span> : null}
         <span className="ml-auto">{formatDate(c.updated_at)}</span>
       </Link>
       {open && hasActions ? (
@@ -440,7 +440,7 @@ export function CustomerList({
       case "stage": return stagePos(c);
       case "phone": return (c.phone ?? "").toLowerCase();
       case "city": return (c.city ?? "").toLowerCase();
-      case "source": return (c.source ? LEAD_SOURCE_LABELS[c.source] : "").toLowerCase();
+      case "source": return leadSourceLabel(c.source).toLowerCase();
       case "updated": return new Date(c.updated_at).getTime();
     }
   };

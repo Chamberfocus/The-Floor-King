@@ -110,7 +110,9 @@ export async function getCustomerRowContexts(
       null;
 
     const appts = [...(apptsBy.get(id) ?? [])].sort((a, b) =>
-      (a.starts_at as string).localeCompare(b.starts_at as string),
+      (typeof a.starts_at === "string" ? a.starts_at : "").localeCompare(
+        typeof b.starts_at === "string" ? b.starts_at : "",
+      ),
     );
     const upcoming = appts.find((a) => (a.starts_at as string) >= nowIso);
     const ap = upcoming ?? appts[appts.length - 1] ?? null;
@@ -278,6 +280,7 @@ export async function getCustomerListActivity(
         ).catch(() => []),
       ]);
     for (const it of itemRows) {
+      if (!it?.invoice_id) continue;
       const arr = itemsBy.get(it.invoice_id) ?? [];
       arr.push({
         quantity: Number(it.quantity) || 0,
@@ -286,16 +289,19 @@ export async function getCustomerListActivity(
       itemsBy.set(it.invoice_id, arr);
     }
     for (const p of payRows) {
+      if (!p?.invoice_id) continue;
       const arr = paysBy.get(p.invoice_id) ?? [];
       arr.push({ amount: Number(p.amount) || 0, status: p.status });
       paysBy.set(p.invoice_id, arr);
     }
     for (const c of creditRows) {
+      if (!c?.invoice_id) continue;
       const arr = creditsBy.get(c.invoice_id) ?? [];
       arr.push({ amount: Number(c.amount) || 0, status: c.status });
       creditsBy.set(c.invoice_id, arr);
     }
     for (const d of depositRows) {
+      if (!d?.invoice_id) continue;
       if ((d.status ?? "active") === "void") continue;
       depositsBy.set(
         d.invoice_id,
@@ -303,6 +309,7 @@ export async function getCustomerListActivity(
       );
     }
     for (const w of writeOffRows) {
+      if (!w?.invoice_id) continue;
       if ((w.status ?? "active") === "void") continue;
       writeOffsBy.set(
         w.invoice_id,
@@ -311,20 +318,25 @@ export async function getCustomerListActivity(
     }
   }
 
-  const invoices: CustomerListInvoice[] = invoiceHeaders.map((h) => ({
-    id: h.id,
-    customer_id: h.customer_id,
-    job_id: h.job_id,
-    status: h.status,
-    tax_rate: h.tax_rate,
-    number: h.number,
-    counter_sale: !!h.counter_sale,
-    items: itemsBy.get(h.id) ?? [],
-    payments: paysBy.get(h.id) ?? [],
-    creditApplications: creditsBy.get(h.id) ?? [],
-    appliedDeposits: depositsBy.get(h.id) ?? 0,
-    appliedWriteOffs: writeOffsBy.get(h.id) ?? 0,
-  }));
+  const invoices: CustomerListInvoice[] = invoiceHeaders.flatMap((h) => {
+    if (!h?.id || !h.customer_id) return [];
+    return [
+      {
+        id: h.id,
+        customer_id: h.customer_id,
+        job_id: h.job_id,
+        status: h.status,
+        tax_rate: h.tax_rate,
+        number: h.number,
+        counter_sale: !!h.counter_sale,
+        items: itemsBy.get(h.id) ?? [],
+        payments: paysBy.get(h.id) ?? [],
+        creditApplications: creditsBy.get(h.id) ?? [],
+        appliedDeposits: depositsBy.get(h.id) ?? 0,
+        appliedWriteOffs: writeOffsBy.get(h.id) ?? 0,
+      },
+    ];
+  });
 
   return {
     ...empty,

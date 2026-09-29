@@ -7,7 +7,7 @@ export async function listWorkflowStages(): Promise<WorkflowStage[]> {
     .from("workflow_stages")
     .select("*")
     .order("position", { ascending: true });
-  return (data ?? []) as WorkflowStage[];
+  return (Array.isArray(data) ? data : []) as WorkflowStage[];
 }
 
 export interface HandoffMember {
@@ -32,7 +32,7 @@ export async function listHandoffMembers(): Promise<HandoffMember[]> {
       "warehouse",
     ])
     .order("full_name", { ascending: true });
-  const rows = (data ?? []) as {
+  const rows = (Array.isArray(data) ? data : []) as {
     id: string;
     full_name: string | null;
     email: string;
