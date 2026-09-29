@@ -39,7 +39,7 @@ import { listEstimateScheduleFacts, listEstimatesForCustomer } from "@/lib/data/
 import { customerSeesCustomerMoney } from "@/lib/customer-record-access";
 import { listJobsForCustomer, listSchedulingJobsForCustomer, getJobSatisfaction } from "@/lib/data/jobs";
 import { listOrdersForCustomer } from "@/lib/data/orders";
-import { isCashCarryJob } from "@/lib/customer-list";
+import { asDisplayText, isCashCarryJob } from "@/lib/customer-list";
 import { canStageCustomerOrder } from "@/lib/order-warehouse-gates";
 import {
   createJobFromEstimate,
@@ -172,7 +172,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { id } = await params;
   const customer = await getCustomer(id);
-  return { title: customer?.full_name ?? "Customer" };
+  return { title: asDisplayText(customer?.full_name) || "Customer" };
 }
 
 const ACTIVITY_ICON: Record<ActivityType, LucideIcon> = {
@@ -220,6 +220,7 @@ export default async function CustomerPage({
   const prefs = await getUserPreferences();
   const customer = await getCustomer(id);
   if (!customer) notFound();
+  const customerName = asDisplayText(customer.full_name) || "Customer";
   const canDelete = profile.role === "admin" || profile.role === "office";
   const leadSources = await listLeadSources({ activeOnly: true });
   // Whether the lead source (+ its required sub-detail) is recorded — gates
@@ -869,7 +870,7 @@ export default async function CustomerPage({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-3">
               <h1 className="text-2xl font-bold tracking-tight sm:text-[1.75rem]">
-                {customer.full_name}
+                {customerName}
               </h1>
               {/* The stage, stated loudly, on every tab. It used to be kept
                   deliberately quiet so it wouldn't compete with the guided
@@ -992,7 +993,7 @@ export default async function CustomerPage({
             <ProcessCardButton
               url={orgSettings.card_processing_url}
               customerId={customer.id}
-              clientName={customer.full_name}
+              clientName={customerName}
               balance={money.balance}
               isAdmin={profile.role === "admin"}
             />
@@ -1040,7 +1041,7 @@ export default async function CustomerPage({
             <>
               <OnTheWayButton
                 customerId={customer.id}
-                customerName={customer.full_name}
+                customerName={customerName}
                 customerEmail={customer.email}
               />
               <QuickActions
@@ -1083,7 +1084,7 @@ export default async function CustomerPage({
           ) : null}
           <CancelCustomer
             customerId={customer.id}
-            name={customer.full_name}
+            name={customerName}
             cancelled={!!customer.cancelled_at}
             reasons={cancelReasons}
             hasOpenPO={customerPOs.some((po) => po.status === "ordered")}
@@ -1511,7 +1512,7 @@ export default async function CustomerPage({
           >
             <CustomerChat
               customerId={customer.id}
-              customerName={customer.full_name}
+              customerName={customerName}
               customerEmail={customer.email}
               messages={messages}
             />
@@ -1544,7 +1545,7 @@ export default async function CustomerPage({
                       key={e.id}
                       e={e}
                       customerId={customer.id}
-                      customerName={customer.full_name}
+                      customerName={customerName}
                     />
                   ))}
                 </div>
@@ -1615,7 +1616,7 @@ export default async function CustomerPage({
                               key={e.id}
                               e={e}
                               customerId={customer.id}
-                              customerName={customer.full_name}
+                              customerName={customerName}
                             />
                           ))}
                           {mine.invoices.map((inv) => (
@@ -1658,7 +1659,7 @@ export default async function CustomerPage({
                               key={e.id}
                               e={e}
                               customerId={customer.id}
-                              customerName={customer.full_name}
+                              customerName={customerName}
                             />
                           ))}
                       </div>

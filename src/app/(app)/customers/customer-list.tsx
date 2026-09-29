@@ -25,6 +25,7 @@ import {
 import type { QuickAction } from "@/lib/preferences";
 import type { CustomerRowContext } from "@/lib/data/customers";
 import {
+  asDisplayText,
   EMPTY_CUSTOMER_LIST_ACTIVITY,
   formatCustomerActivityLine,
   leadSourceLabel,
@@ -144,7 +145,7 @@ function ExpandToggle({
 }
 
 function contactLine(c: Customer): string {
-  return [c.street, c.city, c.phone].filter(Boolean).join(" · ");
+  return [c.street, c.city, c.phone].map(asDisplayText).filter(Boolean).join(" · ");
 }
 
 function ActivitySummary({
@@ -171,9 +172,7 @@ function ActivitySummary({
 /** The salesperson a client is permanently assigned to (admin-only column). */
 function assignedName(c: Customer, shared: ListShared): string {
   if (!c.assigned_to) return "Unassigned";
-  return (
-    shared.members.find((m) => m.id === c.assigned_to)?.name ?? "Unassigned"
-  );
+  return asDisplayText(shared.members.find((m) => m.id === c.assigned_to)?.name) || "Unassigned";
 }
 
 /** The customer's ACTUAL detailed workflow stage (the 13-stage builder),
@@ -190,7 +189,7 @@ function DetailedStageBadge({ c, shared }: { c: Customer; shared: ListShared }) 
         cls,
       )}
     >
-      {wf.name}
+      {asDisplayText(wf.name)}
     </span>
   );
 }
@@ -233,11 +232,11 @@ function DesktopRow({
         </TableCell>
         <TableCell className="font-medium">
           <Link href={`/customers/${c.id}`} className="hover:underline">
-            {c.full_name}
+            {asDisplayText(c.full_name) || "Customer"}
           </Link>
-          {c.company ? (
+          {asDisplayText(c.company) ? (
             <span className="block text-xs text-muted-foreground">
-              {c.company}
+              {asDisplayText(c.company)}
             </span>
           ) : null}
           {contactLine(c) ? (
@@ -262,8 +261,8 @@ function DesktopRow({
             {overdue ? <StuckBadge /> : null}
           </div>
         </TableCell>
-        <TableCell className="text-muted-foreground">{c.phone ?? "—"}</TableCell>
-        <TableCell className="text-muted-foreground">{c.city ?? "—"}</TableCell>
+        <TableCell className="text-muted-foreground">{asDisplayText(c.phone) || "—"}</TableCell>
+        <TableCell className="text-muted-foreground">{asDisplayText(c.city) || "—"}</TableCell>
         <TableCell className="text-muted-foreground">
           {c.source ? leadSourceLabel(c.source) : "—"}
         </TableCell>
@@ -303,10 +302,10 @@ function MobileCard({
     <div className="rounded-lg border p-3">
       <div className="flex items-start justify-between gap-2">
         <Link href={`/customers/${c.id}`} className="min-w-0 flex-1">
-          <div className="truncate font-medium">{c.full_name}</div>
-          {c.company ? (
+          <div className="truncate font-medium">{asDisplayText(c.full_name) || "Customer"}</div>
+          {asDisplayText(c.company) ? (
             <div className="truncate text-xs text-muted-foreground">
-              {c.company}
+              {asDisplayText(c.company)}
             </div>
           ) : null}
           {contactLine(c) ? (
@@ -340,8 +339,8 @@ function MobileCard({
         href={`/customers/${c.id}`}
         className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground"
       >
-        {c.phone ? <span>{c.phone}</span> : null}
-        {c.city ? <span>{c.city}</span> : null}
+        {asDisplayText(c.phone) ? <span>{asDisplayText(c.phone)}</span> : null}
+        {asDisplayText(c.city) ? <span>{asDisplayText(c.city)}</span> : null}
         {c.source ? <span>{leadSourceLabel(c.source)}</span> : null}
         <span className="ml-auto">{formatDate(c.updated_at)}</span>
       </Link>
@@ -435,11 +434,11 @@ export function CustomerList({
   };
   const sortVal = (c: Customer): string | number => {
     switch (sortKey) {
-      case "name": return (c.full_name ?? "").toLowerCase();
+      case "name": return asDisplayText(c.full_name).toLowerCase();
       case "assigned": return assignedName(c, shared).toLowerCase();
       case "stage": return stagePos(c);
-      case "phone": return (c.phone ?? "").toLowerCase();
-      case "city": return (c.city ?? "").toLowerCase();
+      case "phone": return asDisplayText(c.phone).toLowerCase();
+      case "city": return asDisplayText(c.city).toLowerCase();
       case "source": return leadSourceLabel(c.source).toLowerCase();
       case "updated": return new Date(c.updated_at).getTime();
     }
