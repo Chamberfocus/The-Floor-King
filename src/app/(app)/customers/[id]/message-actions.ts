@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { employeeDbError } from "@/lib/employee-error";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 import type { MessageChannel } from "@/lib/types";
 import type { MessageSendResult } from "@/lib/message-send";
@@ -39,7 +40,12 @@ export async function postMessage(
     author_id: user?.id ?? null,
     body,
   });
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("[sendCustomerMessage]", error.code);
+    return {
+      error: employeeDbError(error.message, "This message could not be saved. Refresh and try again."),
+    };
+  }
 
   let notify: MessageSendResult | null = null;
   if (channel === "client" && str(formData.get("send_email")) !== "no") {
