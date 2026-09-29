@@ -121,10 +121,10 @@ export function SignaturePad({ jobId }: { jobId: string }) {
           placeholder="Customer name"
           className="max-w-xs"
         />
-        <Button type="button" variant="outline" size="sm" onClick={clear}>
+        <Button type="button" variant="outline" className="min-h-11" onClick={clear}>
           Clear
         </Button>
-        <Button type="button" size="sm" disabled={busy} onClick={save}>
+        <Button type="button" className="min-h-11" disabled={busy} onClick={save}>
           {busy ? "Saving…" : "Save signature"}
         </Button>
       </div>

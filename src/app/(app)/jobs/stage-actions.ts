@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { requireProfile } from "@/lib/auth";
+import { assertRole, requireProfile } from "@/lib/auth";
+import { employeeDbError } from "@/lib/employee-error";
 import { deriveLeadStage } from "@/lib/workflow-engine";
 
 /**
@@ -24,6 +25,7 @@ export async function setJobStage(formData: FormData): Promise<void> {
   const note = str(formData.get("note"));
   if (!jobId || !toStageId) return;
 
+  await assertRole(["admin", "office", "scheduler"]);
   const profile = await requireProfile();
   const supabase = await createClient();
 
@@ -61,7 +63,12 @@ export async function setJobStage(formData: FormData): Promise<void> {
       next_action_due: due,
     })
     .eq("id", jobId);
-  if (error) throw new Error(`Couldn't move the job: ${error.message}`);
+  if (error) {
+    console.error("[setJobStage]", error.code);
+    throw new Error(
+      employeeDbError(error.message, "This job could not be moved. Refresh and try again."),
+    );
+  }
 
   const customerId = job.customer_id as string | null;
   if (customerId) {
