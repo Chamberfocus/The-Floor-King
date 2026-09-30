@@ -1,19 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
 import type { Handoff, WorkflowStage } from "@/lib/types";
 
-function isWorkflowStage(row: unknown): row is WorkflowStage {
-  if (!row || typeof row !== "object") return false;
-  const stage = row as WorkflowStage;
-  return typeof stage.id === "string" && typeof stage.name === "string";
-}
-
 export async function listWorkflowStages(): Promise<WorkflowStage[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("workflow_stages")
     .select("*")
     .order("position", { ascending: true });
-  return (Array.isArray(data) ? data : []).filter(isWorkflowStage);
+  return (data ?? []) as WorkflowStage[];
 }
 
 export interface HandoffMember {
@@ -38,30 +32,19 @@ export async function listHandoffMembers(): Promise<HandoffMember[]> {
       "warehouse",
     ])
     .order("full_name", { ascending: true });
-  const rows = (Array.isArray(data) ? data : []) as {
+  const rows = (data ?? []) as {
     id: string;
     full_name: string | null;
     email: string;
     title: string | null;
     role: string;
   }[];
-  return rows.flatMap((p) => {
-    if (!p || typeof p.id !== "string") return [];
-    const name =
-      typeof p.full_name === "string" && p.full_name.trim()
-        ? p.full_name
-        : typeof p.email === "string"
-          ? p.email
-          : "";
-    return [
-      {
-        id: p.id,
-        name,
-        title: typeof p.title === "string" ? p.title : null,
-        role: typeof p.role === "string" ? p.role : "",
-      },
-    ];
-  });
+  return rows.map((p) => ({
+    id: p.id,
+    name: p.full_name || p.email,
+    title: p.title,
+    role: p.role,
+  }));
 }
 
 export interface HandoffWithNames extends Handoff {

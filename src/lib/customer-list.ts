@@ -20,7 +20,6 @@ import {
   normalizePersonName,
   normalizePhoneDigits,
 } from "@/lib/customer-duplicate";
-import { LEAD_SOURCE_LABELS, type LeadSource } from "@/lib/types";
 
 export const OPEN_JOB_STATUSES = [
   "unscheduled",
@@ -120,8 +119,6 @@ export function uniqueCustomersById<T extends { id: string }>(rows: T[]): T[] {
   const seen = new Set<string>();
   const out: T[] = [];
   for (const row of rows) {
-    // A null slot must not reject the whole page. Distinct ids still stay distinct.
-    if (row == null || typeof row !== "object") continue;
     if (!row.id || seen.has(row.id)) continue;
     seen.add(row.id);
     out.push(row);
@@ -344,19 +341,6 @@ function groupByCustomer<T extends { customer_id: string | null }>(
     map.set(id, arr);
   }
   return map;
-}
-
-/** Text that is safe to place in a React child. Objects are not rendered. */
-export function asDisplayText(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  return "";
-}
-
-/** Legacy `customers.source` may be null or a value outside the original enum. */
-export function leadSourceLabel(source: unknown): string {
-  if (typeof source !== "string" || !source) return "";
-  return (LEAD_SOURCE_LABELS as Record<string, string | undefined>)[source as LeadSource] ?? source;
 }
 
 export function formatCustomerActivityLine(

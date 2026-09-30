@@ -17,7 +17,6 @@ import { SearchPicker } from "@/components/ui/search-picker";
 import { cn } from "@/lib/utils";
 import { fileToGrid } from "@/lib/pdf-client";
 import type { ClientRow } from "@/lib/extract";
-import { asDisplayText } from "@/lib/customer-list";
 import { importClients, previewImportClients } from "./import-actions";
 import type { ClassifiedImportRow } from "./import-actions";
 import { ImportClassBadge, ImportClassSummary, classForIndex } from "./import-class-summary";
@@ -270,7 +269,7 @@ export function CustomerMappingImporter() {
                   <td className="px-2 py-1">
                     <ImportClassBadge cls={classForIndex(classified, i)} />
                   </td>
-                  <td className="px-2 py-1">{asDisplayText(c.full_name)}</td>
+                  <td className="px-2 py-1">{c.full_name}</td>
                   <td className="px-2 py-1 text-muted-foreground">{c.phone ?? "—"}</td>
                   <td className="px-2 py-1 text-muted-foreground">{c.email ?? "—"}</td>
                   <td className="px-2 py-1 text-muted-foreground">{c.city ?? "—"}</td>

@@ -12,7 +12,6 @@ import { PageHeader } from "@/components/page-header";
 import { getCustomer, listActivities } from "@/lib/data/customers";
 import { listQualifyingQuestions } from "@/lib/data/qualifying";
 import { formatDate } from "@/lib/format";
-import { asDisplayText } from "@/lib/customer-list";
 import { QualifyPanel } from "../qualify-panel";
 
 export const metadata: Metadata = { title: "Qualification" };
@@ -38,7 +37,7 @@ export default async function QualifyPage({
         href={`/customers/${id}`}
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft className="size-4" /> Back to {asDisplayText(customer.full_name) || "Customer"}
+        <ArrowLeft className="size-4" /> Back to {customer.full_name}
       </Link>
       <PageHeader
         title="Qualification"

@@ -15,7 +15,6 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type { Customer } from "@/lib/types";
-import { asDisplayText } from "@/lib/customer-list";
 import type { LucideIcon } from "lucide-react";
 import { CustomerForm } from "../customer-form";
 import { InvitePortalForm } from "./invite-portal-form";
@@ -46,7 +45,6 @@ export function CustomerSettingsMenu({
   const [view, setView] = useState<View>("menu");
   const [confirmText, setConfirmText] = useState("");
   const canConfirmDelete = confirmText.trim().toUpperCase() === "DELETE";
-  const customerName = asDisplayText(customer.full_name) || "Customer";
 
   const onOpenChange = (o: boolean) => {
     setOpen(o);
@@ -70,7 +68,7 @@ export function CustomerSettingsMenu({
               <DialogHeader>
                 <DialogTitle>Customer settings</DialogTitle>
                 <DialogDescription>
-                  Manage {customerName}&apos;s record.
+                  Manage {customer.full_name}&apos;s record.
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-2">
@@ -105,7 +103,7 @@ export function CustomerSettingsMenu({
             <>
               <DialogHeader>
                 <BackButton onClick={() => setView("menu")} />
-                <DialogTitle>Edit {customerName}</DialogTitle>
+                <DialogTitle>Edit {customer.full_name}</DialogTitle>
                 <DialogDescription>
                   Update contact details, address and lead source.
                 </DialogDescription>
@@ -118,7 +116,7 @@ export function CustomerSettingsMenu({
                 <BackButton onClick={() => setView("menu")} />
                 <DialogTitle>Customer portal</DialogTitle>
                 <DialogDescription>
-                  A login lets {customerName} view their estimates, jobs and
+                  A login lets {customer.full_name} view their estimates, jobs and
                   invoices online.
                 </DialogDescription>
               </DialogHeader>
@@ -141,7 +139,7 @@ export function CustomerSettingsMenu({
             <>
               <DialogHeader>
                 <BackButton onClick={() => setView("menu")} />
-                <DialogTitle>Delete {customerName}?</DialogTitle>
+                <DialogTitle>Delete {customer.full_name}?</DialogTitle>
                 <DialogDescription>
                   This permanently deletes the customer <strong>and everything
                   attached</strong> — estimates, jobs, invoices, payments,
