@@ -202,3 +202,137 @@ describe("Customers server render survives the digest-producing paths", () => {
     expect(leadSourceLabel("website")).toBe("Website");
   });
 });
+
+describe("Customers page phases identify the failure and still render", () => {
+  beforeEach(() => {
+    tables.clear();
+    tables.set("profiles", {
+      data: [
+        {
+          id: "admin-1",
+          email: "a@example.com",
+          full_name: "Admin",
+          phone: null,
+          title: null,
+          role: "admin",
+          customer_id: null,
+          created_at: "2026-01-01",
+        },
+      ],
+      error: null,
+    });
+    tables.set("workflow_stages", { data: [openStage, closedStage], error: null });
+    tables.set("scheduling_settings", { data: null, error: null });
+    tables.set("user_preferences", { data: null, error: null });
+    tables.set("customers", { data: [customer()], error: null, count: 1 });
+    for (const table of [
+      "jobs",
+      "appointments",
+      "estimates",
+      "invoices",
+      "orders",
+      "invoice_items",
+      "payments",
+      "credit_applications",
+      "customer_deposit_applications",
+      "invoice_write_offs",
+    ]) {
+      tables.set(table, { data: [], error: null });
+    }
+  });
+
+  async function render(search: Record<string, unknown> = {}) {
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+      logs.push(args.map((part) => String(part)).join(" "));
+    });
+    try {
+      const { default: CustomersPage } = await import("@/app/(app)/customers/page");
+      const element = await CustomersPage({ searchParams: Promise.resolve(search as never) });
+      const html = renderToString(element);
+      return { html, logs };
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  function phase(logs: string[], name: string, status: string) {
+    return logs.find(
+      (line) =>
+        line.includes("[customers-phase]") &&
+        line.includes(`"phase":"${name}"`) &&
+        line.includes(`"status":"${status}"`),
+    );
+  }
+
+  it("server-renders malformed rows without throwing or printing object text", async () => {
+    tables.set("customers", {
+      data: [
+        null,
+        customer({
+          id: "c1",
+          full_name: { label: "Pat" },
+          company: { name: "Acme" },
+          phone: { n: "216" },
+          city: { name: "Cleveland" },
+          street: { line: "1 Main" },
+          source: { code: "web" },
+          stage: { name: "new" },
+          assigned_to: { id: "admin-1" },
+          workflow_stage_id: { id: "st-open" },
+          updated_at: { at: "yesterday" },
+          next_action_due: { at: "tomorrow" },
+        }),
+      ],
+      error: null,
+      count: 2,
+    });
+    tables.set("jobs", {
+      data: [{ id: "j1", customer_id: "c1", status: { code: "open" }, delivery_type: null }],
+      error: null,
+    });
+    const { html, logs } = await render({ stage: ["st-open", "nope"], page: ["2", "9"] });
+    expect(html).toContain("/customers/c1");
+    expect(html).not.toContain("[object Object]");
+    expect(html).not.toContain("No customers yet");
+    expect(phase(logs, "customers.activity", "failure")).toBeTruthy();
+    expect(phase(logs, "customers.renderPreparation", "success")).toBeTruthy();
+    expect(logs.join("\n")).not.toMatch(/Pat Customer|216|Cleveland|1 Main/);
+  });
+
+  it("a failed primary query names that phase and does not show an empty book", async () => {
+    tables.set("customers", {
+      data: null,
+      error: { message: "failed to parse logic tree", code: "PGRST100" },
+      count: null,
+    });
+    const { html, logs } = await render();
+    expect(html).toContain("temporarily unavailable");
+    expect(html).not.toContain("No customers yet");
+    expect(phase(logs, "customers.listCustomers", "failure")).toMatch(/PGRST100/);
+    expect(phase(logs, "customers.activity", "start")).toBeUndefined();
+  });
+
+  it("a failed row-context query keeps the customer list and names that phase", async () => {
+    tables.set("appointments", { data: { bad: true }, error: null });
+    const { html, logs } = await render();
+    expect(html).toContain("Pat Customer");
+    expect(html).toContain("temporarily unavailable");
+    expect(html).not.toContain("No customers yet");
+    expect(phase(logs, "customers.rowContexts", "failure")).toBeTruthy();
+    expect(phase(logs, "customers.listCustomers", "success")).toBeTruthy();
+    expect(phase(logs, "customers.renderPreparation", "success")).toBeTruthy();
+  });
+
+  it("missing scheduling settings still render the list", async () => {
+    const { html, logs } = await render();
+    expect(html).toContain("Pat Customer");
+    expect(html).not.toContain("temporarily unavailable");
+    expect(phase(logs, "customers.schedulingSettings", "success")).toBeTruthy();
+    expect(phase(logs, "customers.requireProfile", "success")).toBeTruthy();
+    expect(phase(logs, "customers.workflowStages", "success")).toBeTruthy();
+    expect(phase(logs, "customers.handoffMembers", "success")).toBeTruthy();
+    expect(phase(logs, "customers.userPreferences", "success")).toBeTruthy();
+    expect(phase(logs, "customers.transform", "success")).toBeTruthy();
+  });
+});
