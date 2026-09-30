@@ -11,116 +11,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { StageBadge } from "@/components/stage-badge";
 import { cn } from "@/lib/utils";
-import { formatDate, formatMoney } from "@/lib/format";
-import type { ArrivalWindow } from "@/lib/format";
-import {
-  DUTY_ROLES,
-  DUTY_LABELS,
-  STAGE_COLOR_BADGE,
-  inferStageDuty,
-  type Customer,
-} from "@/lib/types";
-import type { QuickAction } from "@/lib/preferences";
-import type { CustomerRowContext } from "@/lib/data/customers";
-import {
-  asDisplayText,
-  EMPTY_CUSTOMER_LIST_ACTIVITY,
-  formatCustomerActivityLine,
-  leadSourceLabel,
-  type CustomerListActivity,
-} from "@/lib/customer-list";
+import type {
+  CustomerListQuickModel,
+  CustomerListRowModel,
+  CustomerListSortKey,
+} from "@/lib/customers-list-view";
 import { QuickActions } from "./[id]/quick-actions";
-
-/** Shared data fetched once by the page, reused by every row. */
-export interface ListShared {
-  stages: {
-    id: string;
-    name: string;
-    color: string;
-    position: number;
-    auto_action: string | null;
-    owner_duty: string | null;
-  }[];
-  members: { id: string; name: string; title: string | null; role: string }[];
-  reps: { id: string; name: string }[];
-  installOptions: { id: string; name: string }[];
-  arrivalWindows: ArrivalWindow[];
-  listActions: QuickAction[];
-  /** URL to return to after a row action, so we stay on the (filtered) list. */
-  listHref: string;
-  /** Whether this viewer may close a job out (admin / office / sales manager) —
-   *  the close-out page enforces the same roles. */
-  canCloseOut: boolean;
-}
-
-/** Map a customer + its context + shared data into QuickActions props (role-
- *  scoped assignee list, resolved owner/installer/rep names). */
-function quickProps(
-  c: Customer,
-  ctx: CustomerRowContext | undefined,
-  shared: ListShared,
-) {
-  const stage = shared.stages.find((s) => s.id === c.workflow_stage_id) ?? null;
-  const duty = inferStageDuty(stage) ?? stage?.owner_duty ?? null;
-  const roles = duty ? DUTY_ROLES[duty] : null;
-  const nameById = (id: string | null) =>
-    id ? (shared.members.find((m) => m.id === id)?.name ?? null) : null;
-  const reassignOptions = (
-    roles
-      ? shared.members.filter(
-          (m) =>
-            (roles as string[]).includes(m.role) ||
-            m.id === c.workflow_owner_id,
-        )
-      : shared.members
-  ).map((m) => ({ id: m.id, name: m.name, title: m.title }));
-
-  return {
-    customerId: c.id,
-    stages: shared.stages.map((s) => ({ id: s.id, name: s.name })),
-    currentStageId: c.workflow_stage_id ?? null,
-    currentStageName: stage?.name ?? null,
-    currentOwnerId: c.workflow_owner_id ?? null,
-    assignedRepId: c.assigned_to ?? null,
-    currentOwnerName: nameById(c.workflow_owner_id ?? null),
-    ownerDutyLabel: duty ? DUTY_LABELS[duty] : null,
-    reassignOptions,
-    repOptions: shared.reps,
-    installOptions: shared.installOptions,
-    estimate: ctx?.estimate
-      ? {
-          startsAt: ctx.estimate.startsAt,
-          rep: nameById(ctx.estimate.salespersonId),
-        }
-      : null,
-    job: ctx?.job
-      ? { ...ctx.job, installerName: nameById(ctx.job.installerId) }
-      : null,
-    closeout: ctx?.closeout ?? null,
-    canCloseOut: shared.canCloseOut,
-    arrivalWindows: shared.arrivalWindows,
-    actions: shared.listActions,
-    showSwitcher: false,
-    compact: true,
-    redirectTo: shared.listHref,
-  };
-}
-
-/**
- * Would this row's dropdown actually contain anything? Close-out hides itself
- * when there's no job to close out, so a row whose only enabled action is
- * close-out must not offer a chevron that opens an empty panel.
- */
-function rowHasActions(
-  ctx: CustomerRowContext | undefined,
-  shared: ListShared,
-): boolean {
-  return shared.listActions.some((a) =>
-    a === "closeout" ? shared.canCloseOut && !!ctx?.closeout : true,
-  );
-}
 
 function ExpandToggle({
   open,
@@ -144,57 +41,31 @@ function ExpandToggle({
   );
 }
 
-function contactLine(c: Customer): string {
-  return [c.street, c.city, c.phone].map(asDisplayText).filter(Boolean).join(" · ");
-}
-
-function ActivitySummary({
-  activity,
-}: {
-  activity: CustomerListActivity;
-}) {
-  const line = formatCustomerActivityLine(activity);
-  const money: string[] = [];
-  if (activity.openBalance > 0.005) {
-    money.push(`${formatMoney(activity.openBalance)} open`);
-  }
-  if (activity.lifetimeSales > 0.005) {
-    money.push(`${formatMoney(activity.lifetimeSales)} lifetime`);
-  }
-  if (!line && !money.length) return null;
+function ActivitySummary({ row }: { row: CustomerListRowModel }) {
+  if (!row.activityLine && !row.moneyLine) return null;
   return (
     <div className="mt-0.5 space-y-0.5 text-xs text-muted-foreground">
-      {line ? <div className="font-medium text-foreground/80">{line}</div> : null}
-      {money.length ? <div>{money.join(" · ")}</div> : null}
+      {row.activityLine ? (
+        <div className="font-medium text-foreground/80">{row.activityLine}</div>
+      ) : null}
+      {row.moneyLine ? <div>{row.moneyLine}</div> : null}
     </div>
   );
 }
-/** The salesperson a client is permanently assigned to (admin-only column). */
-function assignedName(c: Customer, shared: ListShared): string {
-  if (!c.assigned_to) return "Unassigned";
-  return asDisplayText(shared.members.find((m) => m.id === c.assigned_to)?.name) || "Unassigned";
-}
 
-/** The customer's ACTUAL detailed workflow stage (the 13-stage builder),
- *  colored by that stage's own color. Falls back to the lead-stage bucket only
- *  if the customer somehow has no workflow stage. */
-function DetailedStageBadge({ c, shared }: { c: Customer; shared: ListShared }) {
-  const wf = shared.stages.find((s) => s.id === c.workflow_stage_id);
-  if (!wf) return <StageBadge stage={c.stage} />;
-  const cls = STAGE_COLOR_BADGE[wf.color] ?? STAGE_COLOR_BADGE.zinc;
+function StageLabel({ row }: { row: CustomerListRowModel }) {
   return (
     <span
       className={cn(
         "inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium",
-        cls,
+        row.stageClassName,
       )}
     >
-      {asDisplayText(wf.name)}
+      {row.stageLabel}
     </span>
   );
 }
 
-/** Flag for a client sitting past its stage's time limit. */
 function StuckBadge() {
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-semibold text-destructive">
@@ -203,77 +74,69 @@ function StuckBadge() {
   );
 }
 
-function DesktopRow({
-  c,
-  ctx,
-  activity,
-  shared,
-  isAdmin,
-  overdue,
+function RowActions({
+  open,
+  quick,
 }: {
-  c: Customer;
-  ctx: CustomerRowContext | undefined;
-  activity: CustomerListActivity;
-  shared: ListShared;
+  open: boolean;
+  quick: CustomerListQuickModel | null;
+}) {
+  if (!open || !quick) return null;
+  return <QuickActions {...quick} />;
+}
+
+function DesktopRow({
+  row,
+  isAdmin,
+}: {
+  row: CustomerListRowModel;
   isAdmin: boolean;
-  overdue: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const hasActions = rowHasActions(ctx, shared);
   return (
     <>
       <TableRow>
-        {/* First column, so the expander is always in view — it used to sit in
-            the last of eight columns and needed a horizontal scroll to reach. */}
         <TableCell className="w-9 pr-0 align-top">
-          {hasActions ? (
+          {row.hasActions ? (
             <ExpandToggle open={open} onClick={() => setOpen((v) => !v)} />
           ) : null}
         </TableCell>
         <TableCell className="font-medium">
-          <Link href={`/customers/${c.id}`} className="hover:underline">
-            {asDisplayText(c.full_name) || "Customer"}
+          <Link href={`/customers/${row.id}`} className="hover:underline">
+            {row.displayName}
           </Link>
-          {asDisplayText(c.company) ? (
-            <span className="block text-xs text-muted-foreground">
-              {asDisplayText(c.company)}
-            </span>
+          {row.company ? (
+            <span className="block text-xs text-muted-foreground">{row.company}</span>
           ) : null}
-          {contactLine(c) ? (
+          {row.contactLine ? (
             <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-              {contactLine(c)}
+              {row.contactLine}
             </span>
           ) : null}
-          <ActivitySummary activity={activity} />
+          <ActivitySummary row={row} />
         </TableCell>
         {isAdmin ? (
-          <TableCell
-            className={
-              c.assigned_to ? "font-medium" : "text-muted-foreground italic"
-            }
-          >
-            {assignedName(c, shared)}
+          <TableCell className={row.hasAssignee ? "font-medium" : "text-muted-foreground italic"}>
+            {row.assignedLabel}
           </TableCell>
         ) : null}
         <TableCell>
           <div className="flex flex-wrap items-center gap-1.5">
-            <DetailedStageBadge c={c} shared={shared} />
-            {overdue ? <StuckBadge /> : null}
+            <StageLabel row={row} />
+            {row.overdue ? <StuckBadge /> : null}
           </div>
         </TableCell>
-        <TableCell className="text-muted-foreground">{asDisplayText(c.phone) || "—"}</TableCell>
-        <TableCell className="text-muted-foreground">{asDisplayText(c.city) || "—"}</TableCell>
-        <TableCell className="text-muted-foreground">
-          {c.source ? leadSourceLabel(c.source) : "—"}
-        </TableCell>
+        <TableCell className="text-muted-foreground">{row.phone || "—"}</TableCell>
+        <TableCell className="text-muted-foreground">{row.city || "—"}</TableCell>
+        <TableCell className="text-muted-foreground">{row.sourceLabel || "—"}</TableCell>
         <TableCell className="text-right text-muted-foreground">
-          {formatDate(c.updated_at)}
+          {row.updatedDisplay}
         </TableCell>
       </TableRow>
-      {open && hasActions ? (
+      {open && row.hasActions ? (
         <TableRow>
           <TableCell colSpan={isAdmin ? 8 : 7} className="bg-muted/30">
-            <QuickActions {...quickProps(c, ctx, shared)} />
+            <RowActions open={open} quick={row.quick} />
           </TableCell>
         </TableRow>
       ) : null}
@@ -282,80 +145,60 @@ function DesktopRow({
 }
 
 function MobileCard({
-  c,
-  ctx,
-  activity,
-  shared,
+  row,
   isAdmin,
-  overdue,
 }: {
-  c: Customer;
-  ctx: CustomerRowContext | undefined;
-  activity: CustomerListActivity;
-  shared: ListShared;
+  row: CustomerListRowModel;
   isAdmin: boolean;
-  overdue: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const hasActions = rowHasActions(ctx, shared);
   return (
     <div className="rounded-lg border p-3">
       <div className="flex items-start justify-between gap-2">
-        <Link href={`/customers/${c.id}`} className="min-w-0 flex-1">
-          <div className="truncate font-medium">{asDisplayText(c.full_name) || "Customer"}</div>
-          {asDisplayText(c.company) ? (
-            <div className="truncate text-xs text-muted-foreground">
-              {asDisplayText(c.company)}
-            </div>
+        <Link href={`/customers/${row.id}`} className="min-w-0 flex-1">
+          <div className="truncate font-medium">{row.displayName}</div>
+          {row.company ? (
+            <div className="truncate text-xs text-muted-foreground">{row.company}</div>
           ) : null}
-          {contactLine(c) ? (
-            <div className="mt-0.5 truncate text-xs text-muted-foreground">
-              {contactLine(c)}
-            </div>
+          {row.contactLine ? (
+            <div className="mt-0.5 truncate text-xs text-muted-foreground">{row.contactLine}</div>
           ) : null}
-          <ActivitySummary activity={activity} />
+          <ActivitySummary row={row} />
           {isAdmin ? (
             <div className="mt-0.5 truncate text-xs text-muted-foreground">
               Assigned to{" "}
-              <span
-                className={
-                  c.assigned_to ? "font-medium text-foreground" : "italic"
-                }
-              >
-                {assignedName(c, shared)}
+              <span className={row.hasAssignee ? "font-medium text-foreground" : "italic"}>
+                {row.assignedLabel}
               </span>
             </div>
           ) : null}
         </Link>
         <div className="flex shrink-0 items-center gap-2">
-          {overdue ? <StuckBadge /> : null}
-          <DetailedStageBadge c={c} shared={shared} />
-          {hasActions ? (
+          {row.overdue ? <StuckBadge /> : null}
+          <StageLabel row={row} />
+          {row.hasActions ? (
             <ExpandToggle open={open} onClick={() => setOpen((v) => !v)} />
           ) : null}
         </div>
       </div>
       <Link
-        href={`/customers/${c.id}`}
+        href={`/customers/${row.id}`}
         className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground"
       >
-        {asDisplayText(c.phone) ? <span>{asDisplayText(c.phone)}</span> : null}
-        {asDisplayText(c.city) ? <span>{asDisplayText(c.city)}</span> : null}
-        {c.source ? <span>{leadSourceLabel(c.source)}</span> : null}
-        <span className="ml-auto">{formatDate(c.updated_at)}</span>
+        {row.phone ? <span>{row.phone}</span> : null}
+        {row.city ? <span>{row.city}</span> : null}
+        {row.sourceLabel ? <span>{row.sourceLabel}</span> : null}
+        <span className="ml-auto">{row.updatedDisplay}</span>
       </Link>
-      {open && hasActions ? (
+      {open && row.hasActions ? (
         <div className="mt-3 border-t pt-3">
-          <QuickActions {...quickProps(c, ctx, shared)} />
+          <RowActions open={open} quick={row.quick} />
         </div>
       ) : null}
     </div>
   );
 }
 
-type SortKey = "name" | "assigned" | "stage" | "phone" | "city" | "source" | "updated";
-
-/** A clickable, sort-toggling column header. */
 function SortTh({
   label,
   k,
@@ -365,10 +208,10 @@ function SortTh({
   align,
 }: {
   label: string;
-  k: SortKey;
-  sortKey: SortKey;
+  k: CustomerListSortKey;
+  sortKey: CustomerListSortKey;
   dir: "asc" | "desc";
-  onSort: (k: SortKey) => void;
+  onSort: (k: CustomerListSortKey) => void;
   align?: "right";
 }) {
   const active = sortKey === k;
@@ -398,28 +241,15 @@ function SortTh({
 }
 
 export function CustomerList({
-  customers,
-  contexts,
-  activity,
-  shared,
+  rows,
   isAdmin = false,
 }: {
-  customers: Customer[];
-  contexts: Record<string, CustomerRowContext>;
-  activity: Record<string, CustomerListActivity>;
-  shared: ListShared;
-  /** Show the "Assigned to" (salesperson) column — admin only. */
+  rows: CustomerListRowModel[];
   isAdmin?: boolean;
 }) {
-  const nowMs = Date.now();
-  const isOverdue = (c: Customer) =>
-    !!c.next_action_due && new Date(c.next_action_due).getTime() < nowMs;
-
-  // Click a column to sort by it (toggles asc/desc). Stage sorts by the pipeline
-  // ORDER (stage position), not alphabetically — New Lead → … → Closed.
-  const [sortKey, setSortKey] = useState<SortKey>("updated");
+  const [sortKey, setSortKey] = useState<CustomerListSortKey>("updated");
   const [dir, setDir] = useState<"asc" | "desc">("desc");
-  const sortBy = (k: SortKey) => {
+  const sortBy = (k: CustomerListSortKey) => {
     if (k === sortKey) setDir((d) => (d === "asc" ? "desc" : "asc"));
     else {
       setSortKey(k);
@@ -427,37 +257,20 @@ export function CustomerList({
     }
   };
 
-  const stagePos = (c: Customer): number => {
-    const s = shared.stages.find((x) => x.id === c.workflow_stage_id);
-    // Unstaged rows sort to the end regardless of direction.
-    return s ? s.position : Number.MAX_SAFE_INTEGER;
-  };
-  const sortVal = (c: Customer): string | number => {
-    switch (sortKey) {
-      case "name": return asDisplayText(c.full_name).toLowerCase();
-      case "assigned": return assignedName(c, shared).toLowerCase();
-      case "stage": return stagePos(c);
-      case "phone": return asDisplayText(c.phone).toLowerCase();
-      case "city": return asDisplayText(c.city).toLowerCase();
-      case "source": return leadSourceLabel(c.source).toLowerCase();
-      case "updated": return new Date(c.updated_at).getTime();
-    }
-  };
   const sorted = useMemo(() => {
-    const arr = [...customers];
+    const arr = [...rows];
     arr.sort((a, b) => {
-      const av = sortVal(a);
-      const bv = sortVal(b);
+      const av = a.sort[sortKey];
+      const bv = b.sort[sortKey];
       const cmp = av < bv ? -1 : av > bv ? 1 : 0;
       return dir === "asc" ? cmp : -cmp;
     });
     return arr;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customers, sortKey, dir]);
+  }, [rows, sortKey, dir]);
 
-  const SORT_LABELS: { k: SortKey; label: string }[] = [
+  const SORT_LABELS: { k: CustomerListSortKey; label: string }[] = [
     { k: "name", label: "Name" },
-    ...(isAdmin ? [{ k: "assigned" as SortKey, label: "Assigned to" }] : []),
+    ...(isAdmin ? [{ k: "assigned" as const, label: "Assigned to" }] : []),
     { k: "stage", label: "Stage" },
     { k: "city", label: "City" },
     { k: "source", label: "Source" },
@@ -466,12 +279,11 @@ export function CustomerList({
 
   return (
     <>
-      {/* Phone: a sort control, then tappable cards */}
       <div className="mb-2 flex items-center gap-2 md:hidden">
         <span className="text-xs text-muted-foreground">Sort by</span>
         <select
           value={sortKey}
-          onChange={(e) => setSortKey(e.target.value as SortKey)}
+          onChange={(e) => setSortKey(e.target.value as CustomerListSortKey)}
           className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
         >
           {SORT_LABELS.map((s) => (
@@ -489,19 +301,10 @@ export function CustomerList({
         </button>
       </div>
       <div className="space-y-2 md:hidden">
-        {sorted.map((c) => (
-          <MobileCard
-            key={c.id}
-            c={c}
-            ctx={contexts[c.id]}
-            activity={activity[c.id] ?? EMPTY_CUSTOMER_LIST_ACTIVITY}
-            shared={shared}
-            isAdmin={isAdmin}
-            overdue={isOverdue(c)}
-          />
+        {sorted.map((row) => (
+          <MobileCard key={row.id} row={row} isAdmin={isAdmin} />
         ))}
       </div>
-      {/* Larger screens: table, each row expandable to quick actions */}
       <div className="hidden overflow-x-auto rounded-lg border md:block">
         <Table>
           <TableHeader>
@@ -519,16 +322,8 @@ export function CustomerList({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sorted.map((c) => (
-              <DesktopRow
-                key={c.id}
-                c={c}
-                ctx={contexts[c.id]}
-                activity={activity[c.id] ?? EMPTY_CUSTOMER_LIST_ACTIVITY}
-                shared={shared}
-                isAdmin={isAdmin}
-                overdue={isOverdue(c)}
-              />
+            {sorted.map((row) => (
+              <DesktopRow key={row.id} row={row} isAdmin={isAdmin} />
             ))}
           </TableBody>
         </Table>

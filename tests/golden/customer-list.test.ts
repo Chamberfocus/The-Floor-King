@@ -454,8 +454,13 @@ describe("customer list data layer uses customers table, not a job join", () => 
       join(ROOT, "src/app/(app)/customers/customer-list.tsx"),
       "utf8",
     );
+    const view = readFileSync(
+      join(ROOT, "src/lib/customers-list-view.ts"),
+      "utf8",
+    );
     expect(page).toContain("getCustomerListActivity");
-    expect(list).toContain("`/customers/${c.id}`");
-    expect(list).toContain("formatCustomerActivityLine");
+    expect(page).toContain("customers.listCustomers");
+    expect(list).toContain("`/customers/${row.id}`");
+    expect(view).toContain("formatCustomerActivityLine");
   });
 });
