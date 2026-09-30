@@ -190,6 +190,8 @@ function revalidateLifecycle(type: LifecycleRecordType, id: string) {
   revalidatePath("/invoices");
   revalidatePath("/catalog");
   revalidatePath("/settings/suppliers");
+  revalidatePath("/settings/team");
+  revalidatePath("/install-scheduler");
   if (type === "customer") revalidatePath(`/customers/${id}`);
   if (type === "estimate") revalidatePath(`/estimates/${id}`);
   if (type === "job") revalidatePath(`/jobs/${id}`);

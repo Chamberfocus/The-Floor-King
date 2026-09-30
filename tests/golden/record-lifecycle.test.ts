@@ -259,6 +259,41 @@ describe("lifecycle authorization and schema guards", () => {
     expect(orders).not.toContain('.from("purchase_orders").delete()');
   });
 
+  it("puts archive and administrator delete on installer crews", () => {
+    const manager = read("src/app/(app)/settings/install-crews/install-crews-manager.tsx");
+    const team = read("src/app/(app)/settings/team/page.tsx");
+    const member = read("src/app/(app)/settings/team/team-member-row.tsx");
+    const crews = read("src/lib/data/install-crews.ts");
+    expect(manager).toContain('recordType="installer"');
+    expect(manager).toContain("allowDelete={allowDelete}");
+    expect(team).toContain("LifecycleFilter");
+    expect(team).toContain('allowDelete={me.role === "admin"}');
+    expect(team).toContain('if (me.role !== "admin") redirect');
+    expect(member).toContain('recordType="installer"');
+    expect(member).toContain("allowDelete={allowDelete}");
+    expect(crews).toContain('q.is("archived_at", null)');
+    expect(crews).toContain('q.not("archived_at", "is", null)');
+    expect(actions).toContain('revalidatePath("/settings/team")');
+    expect(sql).toContain("'install_crews'");
+    expect(sql).toContain("from public.job_labor where crew_id = p_id");
+    expect(sql).toContain("from public.jobs where assigned_crew_id = p_id");
+    expect(sql).toContain("from public.installer_bills where crew_id = p_id");
+  });
+
+  it("does not delete existing rows when the migration is applied", () => {
+    const commitAt = sql.indexOf("create or replace function public.lifecycle_commit_delete");
+    const firstDelete = sql.toLowerCase().indexOf("delete from");
+    expect(commitAt).toBeGreaterThan(-1);
+    expect(firstDelete).toBeGreaterThan(commitAt);
+    expect(sql.toLowerCase()).not.toContain("truncate");
+    expect(sql.toLowerCase()).not.toContain("drop table");
+    expect(sql).not.toContain("delete from public.orders");
+    expect(sql).toContain("add column if not exists archived_at timestamptz");
+    expect(sql.toLowerCase()).not.toContain("archived_at timestamptz not null");
+    expect(sql).not.toContain("books_of_record");
+    expect(sql).not.toContain("backup_pitr_confirmed_at");
+  });
+
   it("records a storage failure without storing a file name", () => {
     const db = read("src/lib/record-lifecycle-db.ts");
     expect(db).toContain("storage_remove_failed");
