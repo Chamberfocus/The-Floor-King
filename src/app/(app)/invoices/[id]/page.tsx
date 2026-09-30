@@ -31,6 +31,7 @@ import {
   emailInvoice,
 } from "../actions";
 import { RecordLifecycleMenu } from "@/components/record-lifecycle-menu";
+import { canArchiveRole, canDeleteForeverRole } from "@/lib/record-lifecycle";
 import { PaymentIdempotencyField } from "../payment-idempotency-field";
 import { applyCreditToInvoice, issueGoodwillCredit, writeOffInvoiceBalance } from "@/app/(app)/credits/actions";
 import { getCustomerCreditSummary, memoAvailable } from "@/lib/data/credits";
@@ -56,6 +57,8 @@ export default async function InvoicePage({
   const customer = await getCustomer(invoice.customer_id);
   const org = await getOrgSettings();
   const profile = await requireProfile();
+  const mayArchive = canArchiveRole(profile.role);
+  const mayDeleteForever = canDeleteForeverRole(profile.role);
   const invoiceScope = await getInvoiceScope(invoice);
   const paid = amountPaid(invoice);
   const credited = amountCredited(invoice);
@@ -521,8 +524,8 @@ export default async function InvoicePage({
           recordType="invoice"
           recordId={invoice.id}
           archivedAt={(invoice as { archived_at?: string | null }).archived_at}
-          allowArchive={profile.role === "admin" || profile.role === "office"}
-          allowDelete={profile.role === "admin"}
+          allowArchive={mayArchive}
+          allowDelete={mayDeleteForever}
         />
       </div>
       ) : null}

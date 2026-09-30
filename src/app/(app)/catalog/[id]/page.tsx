@@ -11,6 +11,7 @@ import { getOrgSettings } from "@/lib/data/org";
 import { ProductForm } from "../product-form";
 import { requireProfile } from "@/lib/auth";
 import { RecordLifecycleMenu } from "@/components/record-lifecycle-menu";
+import { canArchiveRole, canDeleteForeverRole } from "@/lib/record-lifecycle";
 
 export async function generateMetadata({
   params,
@@ -29,6 +30,8 @@ export default async function EditProductPage({
 }) {
   const { id } = await params;
   const profile = await requireProfile();
+  const mayArchive = canArchiveRole(profile.role);
+  const mayDeleteForever = canDeleteForeverRole(profile.role);
   const product = await getProduct(id);
   if (!product) notFound();
   // All vendors (incl. inactive) so an existing product's vendor still shows.
@@ -60,8 +63,8 @@ export default async function EditProductPage({
           recordType="product"
           recordId={product.id}
           archivedAt={(product as { archived_at?: string | null }).archived_at}
-          allowArchive={profile.role === "admin" || profile.role === "office"}
-          allowDelete={profile.role === "admin"}
+          allowArchive={mayArchive}
+          allowDelete={mayDeleteForever}
         />
       </div>
     </div>

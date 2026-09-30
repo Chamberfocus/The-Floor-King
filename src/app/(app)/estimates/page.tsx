@@ -30,7 +30,7 @@ import { optionTotals } from "@/lib/estimate-calc";
 import { formatMoney, formatDate } from "@/lib/format";
 import { DeleteEstimateButton } from "./estimate-list-actions";
 import { lifecycleSchemaReady } from "@/lib/record-lifecycle-db";
-import { parseLifecycleView } from "@/lib/record-lifecycle";
+import { canArchiveRole, canDeleteForeverRole, parseLifecycleView } from "@/lib/record-lifecycle";
 import { LifecycleFilter } from "@/components/record-lifecycle-menu";
 
 export const metadata: Metadata = { title: "Estimates" };
@@ -50,6 +50,8 @@ export default async function EstimatesPage({
   searchParams: Promise<{ q?: string; view?: string; who?: string; page?: string; life?: string }>;
 }) {
   const profile = await requireProfile();
+  const mayArchive = canArchiveRole(profile.role);
+  const mayDeleteForever = canDeleteForeverRole(profile.role);
   if (!roleSeesMoneyList(profile.role)) redirect("/");
   const sp = await searchParams;
   const q = sp.q?.trim() ?? "";
@@ -175,7 +177,7 @@ export default async function EstimatesPage({
                   </div>
                 </Link>
                 <EstimateStatusBadge status={e.status} />
-                <DeleteEstimateButton id={e.id} isAdmin={profile.role === "admin"} archivedAt={(e as { archived_at?: string | null }).archived_at} />
+                <DeleteEstimateButton id={e.id} canArchive={mayArchive} isAdmin={mayDeleteForever} archivedAt={(e as { archived_at?: string | null }).archived_at} />
               </div>
               <div className="mt-1.5 flex flex-wrap items-baseline gap-x-3 text-xs text-muted-foreground">
                 <span className="font-medium text-foreground">{formatMoney(headlineTotal(e))}</span>
@@ -227,7 +229,7 @@ export default async function EstimatesPage({
                     {formatDate(e.created_at)}
                   </TableCell>
                   <TableCell className="text-right">
-                    <DeleteEstimateButton id={e.id} isAdmin={profile.role === "admin"} archivedAt={(e as { archived_at?: string | null }).archived_at} />
+                    <DeleteEstimateButton id={e.id} canArchive={mayArchive} isAdmin={mayDeleteForever} archivedAt={(e as { archived_at?: string | null }).archived_at} />
                   </TableCell>
                 </TableRow>
               ))}

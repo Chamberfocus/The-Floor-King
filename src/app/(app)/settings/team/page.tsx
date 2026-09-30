@@ -19,7 +19,7 @@ import { TeamMemberRow } from "./team-member-row";
 import { InstallCrewsManager } from "../install-crews/install-crews-manager";
 import { LifecycleFilter } from "@/components/record-lifecycle-menu";
 import { lifecycleSchemaReady } from "@/lib/record-lifecycle-db";
-import { parseLifecycleView } from "@/lib/record-lifecycle";
+import { canArchiveRole, canDeleteForeverRole, parseLifecycleView } from "@/lib/record-lifecycle";
 import { setInstallerCollects } from "./actions";
 
 export const metadata: Metadata = { title: "Team" };
@@ -30,6 +30,8 @@ export default async function TeamPage({
   searchParams: Promise<{ life?: string }>;
 }) {
   const me = await requireProfile();
+  const mayArchive = canArchiveRole(me.role);
+  const mayDeleteForever = canDeleteForeverRole(me.role);
   if (me.role !== "admin") redirect("/");
   const lifecycle = parseLifecycleView((await searchParams).life);
   const lifecycleReady = await lifecycleSchemaReady();
@@ -134,8 +136,8 @@ export default async function TeamPage({
                   isCrew={m.role === "crew"}
                   skills={skillsByProfile.get(m.id) ?? []}
                   crewRecord={crewByProfile.get(m.id) ?? null}
-                  allowArchive={me.role === "admin" || me.role === "office"}
-                  allowDelete={me.role === "admin"}
+                  allowArchive={mayArchive}
+                  allowDelete={mayDeleteForever}
                 />
               ))}
             </ul>
@@ -180,8 +182,8 @@ export default async function TeamPage({
         <InstallCrewsManager
           initial={subCrews}
           payouts={payouts}
-          allowArchive={me.role === "admin" || me.role === "office"}
-          allowDelete={me.role === "admin"}
+          allowArchive={mayArchive}
+          allowDelete={mayDeleteForever}
         />
       </div>
     </div>

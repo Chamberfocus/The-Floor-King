@@ -55,6 +55,18 @@ export type LifecycleFacts = {
   flags: Record<string, boolean>;
 };
 
+/** Canonical roles. Archive is administrator or office. Delete forever is administrator only. */
+export const LIFECYCLE_ARCHIVE_ROLES = ["admin", "office"] as const;
+export const LIFECYCLE_DELETE_ROLES = ["admin"] as const;
+
+export function canArchiveRole(role: string | null | undefined): boolean {
+  return role === "admin" || role === "office";
+}
+
+export function canDeleteForeverRole(role: string | null | undefined): boolean {
+  return role === "admin";
+}
+
 const ARCHIVE_TYPES = new Set<LifecycleRecordType>([
   "customer",
   "estimate",

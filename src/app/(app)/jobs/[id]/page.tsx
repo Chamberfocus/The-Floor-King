@@ -63,6 +63,7 @@ import { setJobShowPrices, setJobCollectsBalance } from "./wo-actions";
 import { JobMeasurementUpload } from "./measurement-upload";
 import { requireProfile } from "@/lib/auth";
 import { RecordLifecycleMenu } from "@/components/record-lifecycle-menu";
+import { canArchiveRole, canDeleteForeverRole } from "@/lib/record-lifecycle";
 import { lineTotal } from "@/lib/estimate-calc";
 import { formatDate, formatMoney, to12 } from "@/lib/format";
 import { JobForm } from "../job-form";
@@ -154,6 +155,8 @@ export default async function JobPage({
   // readable white sheet), with the job-management chrome hidden.
   const preview = sp.preview === "1";
   const profile = await requireProfile();
+  const mayArchive = canArchiveRole(profile.role);
+  const mayDeleteForever = canDeleteForeverRole(profile.role);
   const isStaff = profile.role === "admin" || profile.role === "office";
   const canManageMaterials = isStaff || profile.role === "sales_manager";
 
@@ -1765,8 +1768,8 @@ export default async function JobPage({
               recordType="job"
               recordId={job.id}
               archivedAt={(job as { archived_at?: string | null }).archived_at}
-              allowArchive={profile.role === "admin" || profile.role === "office"}
-              allowDelete={profile.role === "admin"}
+              allowArchive={mayArchive}
+              allowDelete={mayDeleteForever}
             />
           </div>
         </>

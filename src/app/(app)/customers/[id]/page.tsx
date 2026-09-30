@@ -138,6 +138,7 @@ import {
 } from "./customer-tabs";
 import { CustomerSettingsMenu } from "./customer-settings-menu";
 import { RecordLifecycleMenu } from "@/components/record-lifecycle-menu";
+import { canArchiveRole, canDeleteForeverRole } from "@/lib/record-lifecycle";
 import { listLeadSources } from "@/lib/data/lead-sources";
 import { NewEstimate } from "@/components/new-estimate";
 import { QualifyDialog } from "./qualify-dialog";
@@ -218,6 +219,8 @@ export default async function CustomerPage({
   const openScheduler =
     sp.schedule === "estimate" || sp.schedule === "install" ? sp.schedule : null;
   const profile = await requireProfile();
+  const mayArchive = canArchiveRole(profile.role);
+  const mayDeleteForever = canDeleteForeverRole(profile.role);
   const prefs = await getUserPreferences();
   const customer = await getCustomer(id);
   if (!customer) notFound();
@@ -700,6 +703,7 @@ export default async function CustomerPage({
         label: [l.room, l.description].filter(Boolean).join(" — ") || "Line item",
         amount: seesMoney ? lineTotal(l) : null,
       })),
+      archivedAt: (e as { archived_at?: string | null }).archived_at ?? null,
     };
   });
 
@@ -759,6 +763,7 @@ export default async function CustomerPage({
         label: it.description || "Item",
         amount: (Number(it.quantity) || 0) * (Number(it.rate) || 0),
       })),
+      archivedAt: (inv as { archived_at?: string | null }).archived_at ?? null,
     };
   });
 
@@ -1023,8 +1028,8 @@ export default async function CustomerPage({
             recordType="customer"
             recordId={customer.id}
             archivedAt={(customer as { archived_at?: string | null }).archived_at}
-            allowArchive={profile.role === "admin" || profile.role === "office"}
-            allowDelete={profile.role === "admin"}
+            allowArchive={mayArchive}
+            allowDelete={mayDeleteForever}
           />
           <CustomerSettingsMenu
             customer={customer}
@@ -1148,6 +1153,7 @@ export default async function CustomerPage({
                 <div>
                   <JobRollUp
                     customerId={id}
+                    canArchive={mayArchive}
                     jobs={jobChecklists}
                     materialByJob={Object.fromEntries(
                       jobs
@@ -1553,6 +1559,8 @@ export default async function CustomerPage({
                       e={e}
                       customerId={customer.id}
                       customerName={customer.full_name}
+                      canArchive={mayArchive}
+                      canDelete={mayDeleteForever}
                     />
                   ))}
                 </div>
@@ -1624,10 +1632,17 @@ export default async function CustomerPage({
                               e={e}
                               customerId={customer.id}
                               customerName={customer.full_name}
+                              canArchive={mayArchive}
+                              canDelete={mayDeleteForever}
                             />
                           ))}
                           {mine.invoices.map((inv) => (
-                            <InvoiceRow key={inv.id} inv={inv} />
+                            <InvoiceRow
+                              key={inv.id}
+                              inv={inv}
+                              canArchive={mayArchive}
+                              canDelete={mayDeleteForever}
+                            />
                           ))}
                           {mine.pos.length ? (
                             <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs">
@@ -1667,6 +1682,8 @@ export default async function CustomerPage({
                               e={e}
                               customerId={customer.id}
                               customerName={customer.full_name}
+                              canArchive={mayArchive}
+                              canDelete={mayDeleteForever}
                             />
                           ))}
                       </div>
@@ -1782,7 +1799,13 @@ export default async function CustomerPage({
               ) : (
                 <div className="space-y-2">
                   {invoiceRows.map((inv) => (
-                    <InvoiceRow key={inv.id} inv={inv} customerId={customer.id} />
+                    <InvoiceRow
+                      key={inv.id}
+                      inv={inv}
+                      customerId={customer.id}
+                      canArchive={mayArchive}
+                      canDelete={mayDeleteForever}
+                    />
                   ))}
                 </div>
               )}

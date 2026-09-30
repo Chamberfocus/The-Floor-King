@@ -6,6 +6,7 @@ import { RecordLifecycleMenu } from "@/components/record-lifecycle-menu";
 export function DeleteEstimateButton({
   id,
   archivedAt,
+  canArchive = false,
   isAdmin = false,
 }: {
   id: string;
@@ -13,6 +14,8 @@ export function DeleteEstimateButton({
   customerName?: string;
   variant?: "icon" | "full";
   archivedAt?: string | null;
+  /** Administrator or office. Server actions enforce the same rule. */
+  canArchive?: boolean;
   isAdmin?: boolean;
 }) {
   return (
@@ -20,7 +23,7 @@ export function DeleteEstimateButton({
       recordType="estimate"
       recordId={id}
       archivedAt={archivedAt}
-      allowArchive
+      allowArchive={canArchive}
       allowDelete={isAdmin}
     />
   );

@@ -7,6 +7,8 @@ import {
   assessLifecycle,
   auditDetail,
   isLifecycleRecordType,
+  LIFECYCLE_ARCHIVE_ROLES,
+  LIFECYCLE_DELETE_ROLES,
   phraseMatches,
   type LifecycleRecordType,
 } from "@/lib/record-lifecycle";
@@ -17,8 +19,6 @@ import {
   previewLifecycle,
 } from "@/lib/record-lifecycle-db";
 import { createClient } from "@/lib/supabase/server";
-
-const ARCHIVE_ROLES = ["admin", "office"] as const;
 
 export type LifecycleActionResult = {
   ok: boolean;
@@ -49,7 +49,7 @@ export async function previewDeleteForever(
   recordId: string,
 ): Promise<LifecycleActionResult> {
   try {
-    await assertRole(["admin"]);
+    await assertRole([...LIFECYCLE_DELETE_ROLES]);
   } catch {
     return { ok: false, error: "Only an administrator can review permanent deletion." };
   }
@@ -68,7 +68,7 @@ export async function previewDeleteForever(
 }
 
 export async function archiveRecord(formData: FormData): Promise<LifecycleActionResult> {
-  await assertRole([...ARCHIVE_ROLES]);
+  await assertRole([...LIFECYCLE_ARCHIVE_ROLES]);
   const pending = await requireReady();
   if (pending) return { ok: false, error: pending };
   const recordType = readType(formData.get("record_type"));
@@ -94,7 +94,7 @@ export async function archiveRecord(formData: FormData): Promise<LifecycleAction
 }
 
 export async function restoreRecord(formData: FormData): Promise<LifecycleActionResult> {
-  await assertRole([...ARCHIVE_ROLES]);
+  await assertRole([...LIFECYCLE_ARCHIVE_ROLES]);
   const pending = await requireReady();
   if (pending) return { ok: false, error: pending };
   const recordType = readType(formData.get("record_type"));
@@ -120,7 +120,7 @@ export async function restoreRecord(formData: FormData): Promise<LifecycleAction
 }
 
 export async function deleteForever(formData: FormData): Promise<LifecycleActionResult> {
-  const profile = await assertRole(["admin"]);
+  const profile = await assertRole([...LIFECYCLE_DELETE_ROLES]);
   const pending = await requireReady();
   if (pending) return { ok: false, error: pending };
   const recordType = readType(formData.get("record_type"));

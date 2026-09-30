@@ -5,7 +5,11 @@ import {
   archiveState,
   assessLifecycle,
   auditDetail,
+  canArchiveRole,
+  canDeleteForeverRole,
   confirmPhrase,
+  LIFECYCLE_ARCHIVE_ROLES,
+  LIFECYCLE_DELETE_ROLES,
   phraseMatches,
   restoreState,
   type LifecycleFacts,
@@ -201,11 +205,13 @@ describe("lifecycle authorization and schema guards", () => {
   const orders = read("src/app/(app)/orders/actions.ts");
 
   it("requires an administrator on the server before delete forever", () => {
-    expect(actions).toContain('assertRole(["admin"])');
+    expect(actions).toContain("assertRole([...LIFECYCLE_DELETE_ROLES])");
+    expect(actions).toContain('if (profile.role !== "admin")');
     expect(actions).toContain("lifecycle_commit_delete");
     expect(actions).toContain("phraseMatches");
     expect(sql).toContain("if not public.is_admin()");
     expect(sql).toContain("for update");
+    expect(LIFECYCLE_DELETE_ROLES).toEqual(["admin"]);
   });
 
   it("refuses the old blind customer, estimate, job, and invoice deletes", () => {
@@ -267,7 +273,8 @@ describe("lifecycle authorization and schema guards", () => {
     expect(manager).toContain('recordType="installer"');
     expect(manager).toContain("allowDelete={allowDelete}");
     expect(team).toContain("LifecycleFilter");
-    expect(team).toContain('allowDelete={me.role === "admin"}');
+    expect(team).toContain("canDeleteForeverRole(me.role)");
+    expect(team).toContain("allowDelete={mayDeleteForever}");
     expect(team).toContain('if (me.role !== "admin") redirect');
     expect(member).toContain('recordType="installer"');
     expect(member).toContain("allowDelete={allowDelete}");
@@ -298,5 +305,70 @@ describe("lifecycle authorization and schema guards", () => {
     const db = read("src/lib/record-lifecycle-db.ts");
     expect(db).toContain("storage_remove_failed");
     expect(db).not.toContain("file_name");
+  });
+
+  it("lets only administrator and office archive or restore", () => {
+    expect(LIFECYCLE_ARCHIVE_ROLES).toEqual(["admin", "office"]);
+    expect(canArchiveRole("admin")).toBe(true);
+    expect(canArchiveRole("office")).toBe(true);
+    for (const role of [
+      "scheduler",
+      "sales_manager",
+      "salesman",
+      "warehouse",
+      "crew",
+      "customer",
+      null,
+      undefined,
+      "",
+    ]) {
+      expect(canArchiveRole(role)).toBe(false);
+    }
+    expect(actions).toContain("assertRole([...LIFECYCLE_ARCHIVE_ROLES])");
+    expect(actions).not.toContain("is_staff()");
+    expect(sql).toContain("public.my_role() in ('admin', 'office')");
+    expect(sql).toContain("if not public.lifecycle_may_archive()");
+    expect(sql).toContain("archive requires an administrator or office role");
+    expect(sql).toContain("lifecycle_archive_column_guard");
+    expect(sql).toContain(
+      "create trigger lifecycle_archive_column_guard before insert or update on public.%I",
+    );
+    expect(sql).not.toContain("is_admin() or public.is_staff()");
+    expect(sql).not.toContain("create or replace function public.is_staff");
+    expect(sql).toContain(
+      "'customers', 'estimates', 'jobs', 'invoices', 'products', 'suppliers', 'install_crews'",
+    );
+    for (const file of [
+      "src/app/(app)/customers/[id]/page.tsx",
+      "src/app/(app)/estimates/page.tsx",
+      "src/app/(app)/estimates/[id]/page.tsx",
+      "src/app/(app)/invoices/page.tsx",
+      "src/app/(app)/invoices/[id]/page.tsx",
+      "src/app/(app)/jobs/[id]/page.tsx",
+      "src/app/(app)/catalog/[id]/page.tsx",
+      "src/app/(app)/settings/suppliers/[id]/page.tsx",
+      "src/app/(app)/settings/team/page.tsx",
+    ]) {
+      expect(read(file)).toContain("canArchiveRole(");
+    }
+    expect(read("src/app/(app)/estimates/estimate-list-actions.tsx")).toContain(
+      "allowArchive={canArchive}",
+    );
+    expect(read("src/app/(app)/invoices/delete-invoice-button.tsx")).toContain(
+      "allowArchive={canArchive}",
+    );
+    expect(read("src/app/(app)/customers/[id]/job-roll-up.tsx")).toContain(
+      "allowArchive={canArchive}",
+    );
+  });
+
+  it("keeps delete forever on the administrator when the record is otherwise eligible", () => {
+    const eligible = assessLifecycle(facts({ recordType: "customer", counts: {} }));
+    expect(eligible.canDeleteForever).toBe(true);
+    expect(canDeleteForeverRole("admin") && eligible.canDeleteForever).toBe(true);
+    for (const role of ["office", "scheduler", "sales_manager", "salesman", "warehouse", "crew", "customer"]) {
+      expect(canDeleteForeverRole(role)).toBe(false);
+      expect(canDeleteForeverRole(role) && eligible.canDeleteForever).toBe(false);
+    }
   });
 });

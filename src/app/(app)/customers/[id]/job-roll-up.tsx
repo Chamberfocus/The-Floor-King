@@ -25,6 +25,7 @@ export function JobRollUp({
   ownerName,
   actionSlots,
   canOverride = false,
+  canArchive = false,
   jobStageNames,
   materialByJob,
 }: {
@@ -39,6 +40,8 @@ export function JobRollUp({
   actionSlots?: Record<string, ReactNode>;
   /** Whether this viewer may mark a step done without the record behind it. */
   canOverride?: boolean;
+  /** Administrator or office. Blank-job archive uses the same rule as every other record. */
+  canArchive?: boolean;
   /** Each job's OWN stage name, by job id. The account-level `stageName` above
    *  is the pre-job position and is wrong for a multi-job account — a finished
    *  kitchen and an unmeasured basement are not at the same stage. */
@@ -200,7 +203,7 @@ export function JobRollUp({
                     <RecordLifecycleMenu
                       recordType="job"
                       recordId={j.jobId}
-                      allowArchive
+                      allowArchive={canArchive}
                       allowDelete={false}
                     />
                   ) : null}

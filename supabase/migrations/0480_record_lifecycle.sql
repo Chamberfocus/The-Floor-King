@@ -173,7 +173,63 @@ begin
   end loop;
 end $$;
 
--- 6) Archive / restore. Idempotent. Does not touch money, inventory, or files.
+-- 6) Archive / restore. Administrator or office only.
+-- is_staff() is not the check: archive must stay administrator and office
+-- even if that helper is ever widened. Other roles that can update a row
+-- (scheduler on jobs, warehouse on jobs, sales on customers) still cannot
+-- change archived_at. The column guard enforces that on every update.
+create or replace function public.lifecycle_may_archive()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.my_role() in ('admin', 'office');
+$$;
+
+revoke all on function public.lifecycle_may_archive() from public;
+revoke all on function public.lifecycle_may_archive() from anon;
+grant execute on function public.lifecycle_may_archive() to authenticated;
+
+create or replace function public.lifecycle_archive_column_guard()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if public.lifecycle_may_archive() then
+    return new;
+  end if;
+  if tg_op = 'INSERT' and new.archived_at is null and new.archived_by is null then
+    return new;
+  end if;
+  if tg_op = 'UPDATE'
+     and new.archived_at is not distinct from old.archived_at
+     and new.archived_by is not distinct from old.archived_by then
+    return new;
+  end if;
+  raise exception 'archive requires an administrator or office role';
+end;
+$$;
+
+do $$
+declare
+  t text;
+begin
+  foreach t in array array[
+    'customers', 'estimates', 'jobs', 'invoices', 'products', 'suppliers', 'install_crews'
+  ]
+  loop
+    execute format('drop trigger if exists lifecycle_archive_column_guard on public.%I', t);
+    execute format(
+      'create trigger lifecycle_archive_column_guard before insert or update on public.%I for each row execute function public.lifecycle_archive_column_guard()',
+      t
+    );
+  end loop;
+end $$;
+
+-- Idempotent. Does not touch money, inventory, or files.
 create or replace function public.lifecycle_set_archived(
   p_type text,
   p_id uuid,
@@ -187,7 +243,7 @@ declare
   v_table text;
   v_archived timestamptz;
 begin
-  if not (public.is_admin() or public.is_staff()) then
+  if not public.lifecycle_may_archive() then
     return jsonb_build_object('ok', false, 'error', 'not_authorized');
   end if;
   v_table := case p_type

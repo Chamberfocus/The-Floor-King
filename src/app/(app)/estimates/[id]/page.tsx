@@ -70,6 +70,7 @@ import { cn } from "@/lib/utils";
 import type { EstimateLineItem, EstimateOption } from "@/lib/types";
 import { setEstimateStatus, duplicateOption, unapproveEstimate } from "../actions";
 import { DeleteEstimateButton } from "../estimate-list-actions";
+import { canArchiveRole, canDeleteForeverRole } from "@/lib/record-lifecycle";
 import { createJobFromEstimate } from "@/app/(app)/jobs/actions";
 import { createClient } from "@/lib/supabase/server";
 import { jobMaterialsHref } from "@/lib/job-materials-href";
@@ -187,6 +188,8 @@ export default async function EstimatePage({
   // Never shown to the customer (this whole page is staff-facing; the customer's
   // copy is EstimatePrintDoc above).
   const profile = await requireProfile();
+  const mayArchive = canArchiveRole(profile.role);
+  const mayDeleteForever = canDeleteForeverRole(profile.role);
   const linked = linkedJob as {
     id: string;
     title: string | null;
@@ -937,7 +940,8 @@ export default async function EstimatePage({
           id={estimate.id}
           customerId={estimate.customer_id}
           variant="full"
-          isAdmin={profile.role === "admin"}
+          canArchive={mayArchive}
+          isAdmin={mayDeleteForever}
           archivedAt={(estimate as { archived_at?: string | null }).archived_at}
         />
       </div>

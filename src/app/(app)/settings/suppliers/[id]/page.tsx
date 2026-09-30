@@ -18,6 +18,7 @@ import {
 import { formatMoney, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { RecordLifecycleMenu } from "@/components/record-lifecycle-menu";
+import { canArchiveRole, canDeleteForeverRole } from "@/lib/record-lifecycle";
 
 export const metadata: Metadata = { title: "Vendor" };
 export const dynamic = "force-dynamic";
@@ -59,8 +60,8 @@ export default async function VendorPage({ params }: { params: Promise<{ id: str
           recordType="supplier"
           recordId={vendor.id}
           archivedAt={(vendor as { archived_at?: string | null }).archived_at}
-          allowArchive
-          allowDelete
+          allowArchive={canArchiveRole(profile.role)}
+          allowDelete={canDeleteForeverRole(profile.role)}
         />
         <Link
           href={`/settings/suppliers/${vendor.id}/connect`}

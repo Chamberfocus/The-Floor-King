@@ -28,7 +28,7 @@ import {
 import { formatDate, formatMoney } from "@/lib/format";
 import { DeleteInvoiceButton } from "./delete-invoice-button";
 import { lifecycleSchemaReady } from "@/lib/record-lifecycle-db";
-import { parseLifecycleView } from "@/lib/record-lifecycle";
+import { canArchiveRole, canDeleteForeverRole, parseLifecycleView } from "@/lib/record-lifecycle";
 import { LifecycleFilter } from "@/components/record-lifecycle-menu";
 
 export const metadata: Metadata = { title: "Invoices" };
@@ -39,6 +39,8 @@ export default async function InvoicesPage({
   searchParams: Promise<{ q?: string; view?: string; page?: string; aging?: string; life?: string }>;
 }) {
   const profile = await requireProfile();
+  const mayArchive = canArchiveRole(profile.role);
+  const mayDeleteForever = canDeleteForeverRole(profile.role);
   if (!roleSeesMoneyList(profile.role)) redirect("/");
   const sp = await searchParams;
   const q = sp.q?.trim() ?? "";
@@ -161,7 +163,8 @@ export default async function InvoicesPage({
                   customerId={inv.customer_id}
                   label={inv.number || "this invoice"}
                   redirectTo="/invoices"
-                  isAdmin={profile.role === "admin"}
+                  canArchive={mayArchive}
+                  isAdmin={mayDeleteForever}
                   archivedAt={(inv as { archived_at?: string | null }).archived_at}
                 />
               </div>
@@ -216,7 +219,8 @@ export default async function InvoicesPage({
                         customerId={inv.customer_id}
                         label={inv.number || "this invoice"}
                         redirectTo="/invoices"
-                        isAdmin={profile.role === "admin"}
+                        canArchive={mayArchive}
+                        isAdmin={mayDeleteForever}
                         archivedAt={(inv as { archived_at?: string | null }).archived_at}
                       />
                     </TableCell>
