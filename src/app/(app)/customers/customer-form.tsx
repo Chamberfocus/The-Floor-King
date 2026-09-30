@@ -16,7 +16,6 @@ import {
   type LeadSourceRow,
 } from "@/lib/types";
 import { createCustomer, updateCustomer, type CustomerFormState } from "./actions";
-import { asDisplayText } from "@/lib/customer-list";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { SourceFields } from "./source-fields";
 
@@ -56,7 +55,7 @@ export function CustomerForm({
           <Input
             id="full_name"
             name="full_name"
-            defaultValue={asDisplayText(customer?.full_name)}
+            defaultValue={customer?.full_name ?? ""}
             placeholder="Jane Homeowner"
             required
             autoFocus
@@ -165,7 +164,7 @@ export function CustomerForm({
                 className="flex items-center justify-between gap-3 rounded-md border bg-background px-2.5 py-2 text-sm"
               >
                 <div className="min-w-0">
-                  <div className="truncate font-medium">{asDisplayText(d.full_name) || "Customer"}</div>
+                  <div className="truncate font-medium">{d.full_name}</div>
                   <div className="truncate text-xs text-muted-foreground">
                     {[d.phone, d.email, d.street || d.city].filter(Boolean).join(" · ") || "No contact details"}
                   </div>

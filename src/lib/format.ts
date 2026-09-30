@@ -1,20 +1,15 @@
 /** Parse an ISO value safely. A DATE-ONLY string ("YYYY-MM-DD") is read as LOCAL
  *  midnight (not UTC), so a date never displays a day early in western time zones
  *  — the classic off-by-one. Full timestamps parse normally. */
-export function parseLocalDate(iso: unknown): Date {
-  if (iso instanceof Date) return new Date(iso.getTime());
-  if (typeof iso === "number" && Number.isFinite(iso)) return new Date(iso);
-  if (typeof iso !== "string") return new Date(NaN);
+export function parseLocalDate(iso: string): Date {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim());
   if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
   return new Date(iso);
 }
 
 export function formatDate(iso: string | null | undefined): string {
-  if (iso == null || iso === "") return "";
-  const date = parseLocalDate(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString("en-US", {
+  if (!iso) return "";
+  return parseLocalDate(iso).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -90,7 +85,7 @@ export interface ArrivalWindow {
 export function parseArrivalWindows(
   raw: string | null | undefined,
 ): ArrivalWindow[] {
-  const src = typeof raw === "string" && raw.trim() ? raw : DEFAULT_ARRIVAL_WINDOWS;
+  const src = raw && raw.trim() ? raw : DEFAULT_ARRIVAL_WINDOWS;
   const valid = (t: string) => /^\d{1,2}:\d{2}$/.test(t);
   const out = src
     .split(",")
