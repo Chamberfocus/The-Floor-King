@@ -19,6 +19,9 @@ alter table public.invoices
 alter table public.products
   add column if not exists archived_at timestamptz,
   add column if not exists archived_by uuid references auth.users (id) on delete set null;
+-- Products use column-level SELECT. New columns stay invisible until granted,
+-- which made lifecycle_set_archived and search_products fail for every role.
+grant select (archived_at, archived_by) on public.products to authenticated;
 alter table public.suppliers
   add column if not exists archived_at timestamptz,
   add column if not exists archived_by uuid references auth.users (id) on delete set null;

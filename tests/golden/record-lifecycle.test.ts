@@ -338,6 +338,9 @@ describe("lifecycle authorization and schema guards", () => {
     expect(sql).toContain(
       "'customers', 'estimates', 'jobs', 'invoices', 'products', 'suppliers', 'install_crews'",
     );
+    expect(sql).toContain(
+      "grant select (archived_at, archived_by) on public.products to authenticated",
+    );
     for (const file of [
       "src/app/(app)/customers/[id]/page.tsx",
       "src/app/(app)/estimates/page.tsx",
