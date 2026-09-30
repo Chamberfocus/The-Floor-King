@@ -893,80 +893,12 @@ export async function reopenCustomer(formData: FormData): Promise<void> {
   redirect(`/customers/${id}`);
 }
 
-/**
- * Permanently delete a customer and everything attached (estimates, jobs,
- * invoices, messages, history) via cascade. Admin/office only; irreversible.
- */
-export async function deleteCustomer(formData: FormData): Promise<void> {
-  const id = str(formData.get("id"));
-  if (!id) return;
-
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return;
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
-  if (!me || !["admin", "office"].includes(me.role as string)) return;
-
-  // POs, expenses, and stock movements are set-null (not cascade) on a customer
-  // delete, so they'd linger and keep counting as spend/COGS in Business Pulse.
-  // Remove them first — by customer and by the customer's estimates/jobs — so
-  // deleting a customer truly wipes their financial footprint. (Invoices,
-  // payments, jobs, estimates, labor all cascade-delete on their own.)
-  const [{ data: ests }, { data: jbs }] = await Promise.all([
-    supabase.from("estimates").select("id").eq("customer_id", id),
-    supabase.from("jobs").select("id").eq("customer_id", id),
-  ]);
-  const estIds = (ests ?? []).map((e) => e.id as string);
-  const jobIds = (jbs ?? []).map((j) => j.id as string);
-
-  // Before wiping anything, put inventory back so the left hand knows what the
-  // right did: (1) free any stock this customer's jobs had reserved, and
-  // (2) undo the on-hand a received PO added. Both read records we're about to
-  // delete, so they must run FIRST.
-  if (jobIds.length) await releaseJobReservations(supabase, jobIds);
-
-  const poIdSet = new Set<string>();
-  const collectPoIds = (rows: { id: unknown }[] | null) => {
-    for (const r of rows ?? []) if (r.id) poIdSet.add(r.id as string);
-  };
-  collectPoIds(
-    (await supabase.from("purchase_orders").select("id").eq("customer_id", id))
-      .data,
+/** Blind customer deletion is disabled. Delete forever goes through the lifecycle preview. */
+export async function deleteCustomer(_formData: FormData): Promise<void> {
+  await assertRole(["admin"]);
+  throw new Error(
+    "Permanent customer deletion must use Delete forever after the impact preview. Nothing was deleted.",
   );
-  if (estIds.length)
-    collectPoIds(
-      (
-        await supabase
-          .from("purchase_orders")
-          .select("id")
-          .in("estimate_id", estIds)
-      ).data,
-    );
-  if (jobIds.length)
-    collectPoIds(
-      (await supabase.from("purchase_orders").select("id").in("job_id", jobIds))
-        .data,
-    );
-  const poIds = [...poIdSet];
-  if (poIds.length) {
-    await reverseReceivedPOs(supabase, poIds);
-    await supabase.from("purchase_orders").delete().in("id", poIds);
-  }
-  if (jobIds.length) {
-    // F6-P3B: do not hard-delete expense history. job_id FK sets null when jobs are removed.
-    await supabase.from("stock_movements").delete().in("job_id", jobIds);
-  }
-
-  await supabase.from("customers").delete().eq("id", id);
-
-  refreshCustomerViews();
-  redirect("/customers");
 }
 
 const FOLLOWUP_ROLES = [

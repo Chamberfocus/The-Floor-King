@@ -62,11 +62,11 @@ import { getJobSatisfaction } from "@/lib/data/jobs";
 import { setJobShowPrices, setJobCollectsBalance } from "./wo-actions";
 import { JobMeasurementUpload } from "./measurement-upload";
 import { requireProfile } from "@/lib/auth";
+import { RecordLifecycleMenu } from "@/components/record-lifecycle-menu";
 import { lineTotal } from "@/lib/estimate-calc";
 import { formatDate, formatMoney, to12 } from "@/lib/format";
 import { JobForm } from "../job-form";
 import {
-  deleteJob,
   emailJobSchedule,
   postJobToBoard,
   unpostJobFromBoard,
@@ -1761,20 +1761,13 @@ export default async function JobPage({
             ) : (
               <span />
             )}
-            <form action={deleteJob}>
-              <input type="hidden" name="id" value={job.id} />
-              <input type="hidden" name="customer_id" value={job.customer_id} />
-              <ConfirmButton
-                variant="destructive"
-                size="sm"
-                title={`Delete "${job.title || "this job"}"?`}
-                description="This permanently deletes the job and everything on it — photos, crew pay, and materials prep. This can't be undone."
-                confirmLabel="Delete job"
-                destructive
-              >
-                <Trash2 className="size-3.5" /> Delete job
-              </ConfirmButton>
-            </form>
+            <RecordLifecycleMenu
+              recordType="job"
+              recordId={job.id}
+              archivedAt={(job as { archived_at?: string | null }).archived_at}
+              allowArchive={profile.role === "admin" || profile.role === "office"}
+              allowDelete={profile.role === "admin"}
+            />
           </div>
         </>
       ) : null}

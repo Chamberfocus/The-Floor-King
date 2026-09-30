@@ -5,7 +5,10 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
-import { searchCatalog, productCount } from "@/lib/data/products";
+import { searchCatalog, listCatalogPage, productCount } from "@/lib/data/products";
+import { lifecycleSchemaReady } from "@/lib/record-lifecycle-db";
+import { parseLifecycleView } from "@/lib/record-lifecycle";
+import { LifecycleFilter } from "@/components/record-lifecycle-menu";
 import { getOrgSettings } from "@/lib/data/org";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { requireProfile } from "@/lib/auth";
@@ -19,11 +22,16 @@ const LIMIT = 300;
 export default async function CatalogPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; life?: string }>;
 }) {
-  const q = (await searchParams).q?.trim() ?? "";
+  const params = await searchParams;
+  const q = params.q?.trim() ?? "";
+  const lifecycle = parseLifecycleView(params.life);
+  const lifecycleReady = await lifecycleSchemaReady();
   const [products, total, profile, org, biz] = await Promise.all([
-    searchCatalog(q, { limit: LIMIT }),
+    lifecycleReady && lifecycle !== "active"
+      ? listCatalogPage(q, lifecycle, LIMIT)
+      : searchCatalog(q, { limit: LIMIT }),
     productCount(),
     requireProfile(),
     getOrgSettings(),
@@ -64,7 +72,20 @@ export default async function CatalogPage({
         </div>
       ) : null}
 
+      <LifecycleFilter
+        ready={lifecycleReady}
+        value={lifecycle}
+        makeHref={(next) => {
+          const search = new URLSearchParams();
+          if (q) search.set("q", q);
+          if (next !== "active") search.set("life", next);
+          const qs = search.toString();
+          return qs ? `/catalog?${qs}` : "/catalog";
+        }}
+      />
+
       <form method="get" className="mb-4 flex max-w-sm gap-2">
+        {lifecycle !== "active" ? <input type="hidden" name="life" value={lifecycle} /> : null}
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input

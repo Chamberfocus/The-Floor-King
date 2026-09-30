@@ -28,7 +28,10 @@ import {
 } from "@/lib/work-queues";
 import { optionTotals } from "@/lib/estimate-calc";
 import { formatMoney, formatDate } from "@/lib/format";
-import { DeleteEstimateButton, ClearDraftsButton } from "./estimate-list-actions";
+import { DeleteEstimateButton } from "./estimate-list-actions";
+import { lifecycleSchemaReady } from "@/lib/record-lifecycle-db";
+import { parseLifecycleView } from "@/lib/record-lifecycle";
+import { LifecycleFilter } from "@/components/record-lifecycle-menu";
 
 export const metadata: Metadata = { title: "Estimates" };
 
@@ -44,13 +47,15 @@ function headlineTotal(e: EstimateListRow): number {
 export default async function EstimatesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; view?: string; who?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; view?: string; who?: string; page?: string; life?: string }>;
 }) {
   const profile = await requireProfile();
   if (!roleSeesMoneyList(profile.role)) redirect("/");
   const sp = await searchParams;
   const q = sp.q?.trim() ?? "";
   const view = parseEstimateQueue(sp.view);
+  const lifecycleReady = await lifecycleSchemaReady();
+  const lifecycle = parseLifecycleView(sp.life);
   const mine = estimateQueueMine(sp.who, profile.role);
   let listError: string | null = null;
   let queue: Awaited<ReturnType<typeof listEstimatesQueue>> = {
@@ -66,6 +71,8 @@ export default async function EstimatesPage({
       search: q,
       page: parseListPage(sp.page),
       mineFor: mine ? profile.id : null,
+      lifecycle,
+      lifecycleReady,
     });
   } catch (error) {
     listError = queueFailureMessage(error);
@@ -93,12 +100,24 @@ export default async function EstimatesPage({
             in the app you could reach it. It's one of the four choices inside
             New estimate now, offered wherever you start one. */}
         <div className="flex items-center gap-2">
-          <ClearDraftsButton />
           <Link href="/estimates/start" className={buttonVariants({ size: "lg" })}>
             <Plus className="size-4" /> New estimate
           </Link>
         </div>
       </PageHeader>
+      <LifecycleFilter
+        ready={lifecycleReady}
+        value={lifecycle}
+        makeHref={(next) => {
+          const params = new URLSearchParams();
+          if (q) params.set("q", q);
+          if (sp.view) params.set("view", sp.view);
+          if (sp.who) params.set("who", sp.who);
+          if (next !== "active") params.set("life", next);
+          const qs = params.toString();
+          return qs ? `/estimates?${qs}` : "/estimates";
+        }}
+      />
 
       <WorkQueueBar
         action="/estimates"
@@ -156,7 +175,7 @@ export default async function EstimatesPage({
                   </div>
                 </Link>
                 <EstimateStatusBadge status={e.status} />
-                <DeleteEstimateButton id={e.id} />
+                <DeleteEstimateButton id={e.id} isAdmin={profile.role === "admin"} archivedAt={(e as { archived_at?: string | null }).archived_at} />
               </div>
               <div className="mt-1.5 flex flex-wrap items-baseline gap-x-3 text-xs text-muted-foreground">
                 <span className="font-medium text-foreground">{formatMoney(headlineTotal(e))}</span>
@@ -208,7 +227,7 @@ export default async function EstimatesPage({
                     {formatDate(e.created_at)}
                   </TableCell>
                   <TableCell className="text-right">
-                    <DeleteEstimateButton id={e.id} />
+                    <DeleteEstimateButton id={e.id} isAdmin={profile.role === "admin"} archivedAt={(e as { archived_at?: string | null }).archived_at} />
                   </TableCell>
                 </TableRow>
               ))}

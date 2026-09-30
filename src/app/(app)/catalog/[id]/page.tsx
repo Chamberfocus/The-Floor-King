@@ -1,17 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Trash2 } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { ConfirmButton } from "@/components/ui/confirm-button";
 import { PageHeader } from "@/components/page-header";
 import { getProduct } from "@/lib/data/products";
 import { listSuppliers } from "@/lib/data/suppliers";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { getOrgSettings } from "@/lib/data/org";
 import { ProductForm } from "../product-form";
-import { deleteProduct } from "../actions";
+import { requireProfile } from "@/lib/auth";
+import { RecordLifecycleMenu } from "@/components/record-lifecycle-menu";
 
 export async function generateMetadata({
   params,
@@ -29,6 +28,7 @@ export default async function EditProductPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const profile = await requireProfile();
   const product = await getProduct(id);
   if (!product) notFound();
   // All vendors (incl. inactive) so an existing product's vendor still shows.
@@ -55,19 +55,15 @@ export default async function EditProductPage({
         </CardContent>
       </Card>
 
-      <form action={deleteProduct} className="mt-4 flex justify-end">
-        <input type="hidden" name="id" value={product.id} />
-        <ConfirmButton
-          variant="destructive"
-          size="sm"
-          title={`Delete "${product.name}"?`}
-          description="Removes this product from the catalog. Existing estimates keep their copied prices. This can't be undone."
-          confirmLabel="Delete product"
-          destructive
-        >
-          <Trash2 className="size-3.5" /> Delete product
-        </ConfirmButton>
-      </form>
+      <div className="mt-4 flex justify-end">
+        <RecordLifecycleMenu
+          recordType="product"
+          recordId={product.id}
+          archivedAt={(product as { archived_at?: string | null }).archived_at}
+          allowArchive={profile.role === "admin" || profile.role === "office"}
+          allowDelete={profile.role === "admin"}
+        />
+      </div>
     </div>
   );
 }

@@ -17,6 +17,7 @@ import {
 } from "@/lib/types";
 import { formatMoney, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { RecordLifecycleMenu } from "@/components/record-lifecycle-menu";
 
 export const metadata: Metadata = { title: "Vendor" };
 export const dynamic = "force-dynamic";
@@ -54,6 +55,13 @@ export default async function VendorPage({ params }: { params: Promise<{ id: str
             Inactive
           </span>
         ) : null}
+        <RecordLifecycleMenu
+          recordType="supplier"
+          recordId={vendor.id}
+          archivedAt={(vendor as { archived_at?: string | null }).archived_at}
+          allowArchive
+          allowDelete
+        />
         <Link
           href={`/settings/suppliers/${vendor.id}/connect`}
           className={buttonVariants({ variant: "outline", size: "sm" })}

@@ -933,7 +933,13 @@ export default async function EstimatePage({
 
       {/* Danger zone */}
       <div className="mt-4 flex justify-end">
-        <DeleteEstimateButton id={estimate.id} customerId={estimate.customer_id} variant="full" />
+        <DeleteEstimateButton
+          id={estimate.id}
+          customerId={estimate.customer_id}
+          variant="full"
+          isAdmin={profile.role === "admin"}
+          archivedAt={(estimate as { archived_at?: string | null }).archived_at}
+        />
       </div>
       </div>
     </>

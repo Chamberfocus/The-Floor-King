@@ -137,6 +137,7 @@ import {
   TabCollapse,
 } from "./customer-tabs";
 import { CustomerSettingsMenu } from "./customer-settings-menu";
+import { RecordLifecycleMenu } from "@/components/record-lifecycle-menu";
 import { listLeadSources } from "@/lib/data/lead-sources";
 import { NewEstimate } from "@/components/new-estimate";
 import { QualifyDialog } from "./qualify-dialog";
@@ -1018,9 +1019,16 @@ export default async function CustomerPage({
               More actions
             </summary>
             <div className="mt-2 flex flex-wrap items-center gap-2">
+          <RecordLifecycleMenu
+            recordType="customer"
+            recordId={customer.id}
+            archivedAt={(customer as { archived_at?: string | null }).archived_at}
+            allowArchive={profile.role === "admin" || profile.role === "office"}
+            allowDelete={profile.role === "admin"}
+          />
           <CustomerSettingsMenu
             customer={customer}
-            canDelete={canDelete}
+            canDelete={false}
             portalUser={portalUser}
             defaultEmail={customer.email ?? ""}
             sources={leadSources}

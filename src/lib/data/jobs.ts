@@ -150,6 +150,8 @@ export async function listJobsQueue(args: {
   page?: number;
   assignedTo?: string;
   mineFor?: string;
+  lifecycle?: "active" | "archived" | "all";
+  lifecycleReady?: boolean;
 }): Promise<{
   rows: JobListRow[];
   total: number;
@@ -161,6 +163,31 @@ export async function listJobsQueue(args: {
 }> {
   const pageSize = WORK_QUEUE_PAGE_SIZE;
   const supabase = args.assignedTo ? createAdminClient() : await createClient();
+  const jobColumns = args.lifecycleReady ? `${JOB_LIST_COLUMNS}, archived_at` : JOB_LIST_COLUMNS;
+  if (args.lifecycleReady && args.lifecycle === "archived") {
+    const counted = await supabase
+      .from("jobs")
+      .select("id", { count: "exact", head: true })
+      .not("archived_at", "is", null);
+    const total = counted.count ?? 0;
+    const window = listPageWindow(args.page ?? 1, pageSize, total);
+    const { data } = await supabase
+      .from("jobs")
+      .select(jobColumns)
+      .not("archived_at", "is", null)
+      .order("created_at", { ascending: false })
+      .range(window.from, Math.max(window.from, window.to - 1));
+    const rows = shapeJobs(data);
+    return {
+      rows,
+      total,
+      page: window.page,
+      pageSize,
+      capped: false,
+      materialNeeds: new Map(),
+      serviceJobIds: new Set(),
+    };
+  }
   let crewIds: string[] = [];
   if (args.assignedTo) {
     const { data: crewRows } = await supabase
@@ -196,11 +223,14 @@ export async function listJobsQueue(args: {
       serviceJobIds: new Set(),
     };
   }
-  const { data } = await supabase.from("jobs").select(JOB_LIST_COLUMNS).in("id", found.ids);
+  const { data } = await supabase.from("jobs").select(jobColumns).in("id", found.ids);
   const order = new Map(found.ids.map((id, index) => [id, index]));
-  const rows = shapeJobs(data).sort(
-    (a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0),
-  );
+  const rows = shapeJobs(data)
+    .filter((row) => {
+      if (!args.lifecycleReady || args.lifecycle === "all") return true;
+      return !(row as Job & { archived_at?: string | null }).archived_at;
+    })
+    .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
   const [materialNeeds, serviceJobIds] = await Promise.all([
     listJobMaterialNeeds(rows.map((job) => job.id)),
     serviceIdsForJobs(rows.map((job) => job.id)),
