@@ -1,3 +1,5 @@
+import { lifecycleSchemaReady } from "@/lib/record-lifecycle-db";
+import type { LifecycleView } from "@/lib/record-lifecycle";
 import { createClient } from "@/lib/supabase/server";
 import { catalogUnitCost, hydrateCatalogPricing } from "@/lib/catalog-pricing";
 import { rankCatalogProducts } from "@/lib/catalog-search";
@@ -315,6 +317,8 @@ export interface CatalogSearchOpts {
   activeOnly?: boolean;
   limit?: number;
   includeLabor?: boolean;
+  /** Hide archived products. Set by searchCatalog once the lifecycle column exists. */
+  excludeArchived?: boolean;
   /**
    * When set, search these categories with equality — do not score the
    * whole catalog. Null/omitted keeps the unscoped search_products path.
@@ -324,11 +328,38 @@ export interface CatalogSearchOpts {
   browseTokens?: string[] | null;
 }
 
+export async function listCatalogPage(
+  query: string,
+  view: LifecycleView,
+  limit = 300,
+): Promise<Product[]> {
+  const supabase = await createClient();
+  const ready = await lifecycleSchemaReady(supabase);
+  let q = supabase
+    .from("products")
+    .select(CATALOG_PRODUCT_COLUMNS)
+    .order("name", { ascending: true })
+    .limit(limit);
+  const term = query.trim().replace(/[%_,]/g, "");
+  if (term) {
+    const pat = `%${term}%`;
+    q = q.or(`name.ilike.${pat},sku.ilike.${pat}`);
+  }
+  if (ready && view === "archived") q = q.not("archived_at", "is", null);
+  else if (ready && view !== "all") q = q.is("archived_at", null);
+  const { data } = await q;
+  return (data ?? []) as unknown as Product[];
+}
+
 export async function searchCatalog(
   query: string,
   opts: CatalogSearchOpts = {},
 ): Promise<Product[]> {
-  return searchCatalogWith(await createClient(), query, opts);
+  const ready = await lifecycleSchemaReady();
+  return searchCatalogWith(await createClient(), query, {
+    ...opts,
+    excludeArchived: opts.excludeArchived ?? ready,
+  });
 }
 
 /**
@@ -391,6 +422,7 @@ export async function searchCatalogWith(
                 .order("name", { ascending: true })
                 .limit(displayLimit * 4);
               if (opts.activeOnly !== false) cq = cq.eq("active", true);
+              if (opts.excludeArchived) cq = cq.is("archived_at", null);
               return cq;
             })()
           : Promise.resolve({ data: [], error: null }),
@@ -477,6 +509,7 @@ async function searchCatalogScoped(
     .order("name", { ascending: true })
     .limit(pool);
   if (opts.activeOnly !== false) q = q.eq("active", true);
+  if (opts.excludeArchived) q = q.is("archived_at", null);
   if (categories.length === 1) q = q.eq("category", categories[0]);
   else if (categories.length > 1) q = q.in("category", categories);
 

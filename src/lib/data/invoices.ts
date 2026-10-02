@@ -381,6 +381,8 @@ export async function listInvoicesQueue(args: {
   view: InvoiceQueueView;
   search?: string;
   page?: number;
+  lifecycle?: "active" | "archived" | "all";
+  lifecycleReady?: boolean;
 }): Promise<{ rows: InvoiceListRow[]; total: number; page: number; pageSize: number; capped: boolean }> {
   const pageSize = WORK_QUEUE_PAGE_SIZE;
   const supabase = await createClient();
@@ -391,6 +393,8 @@ export async function listInvoicesQueue(args: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const apply = (query: any) => {
     let next = query;
+    if (args.lifecycleReady && args.lifecycle === "archived") next = next.not("archived_at", "is", null);
+    else if (args.lifecycleReady && args.lifecycle !== "all") next = next.is("archived_at", null);
     if (statuses) next = next.in("status", statuses);
     if (args.view === "overdue") next = next.lt("due_date", today);
     return next;
@@ -407,7 +411,7 @@ export async function listInvoicesQueue(args: {
   let capped = false;
   let page = 1;
 
-  if (args.view === "overdue") {
+  if (args.view === "overdue" && (args.lifecycle ?? "active") === "active") {
     const found = await readQueueWindow(
       supabase,
       "invoice_overdue_page",
@@ -430,7 +434,7 @@ export async function listInvoicesQueue(args: {
       rows = shape(data).sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
       await attach(supabase, rows);
     }
-  } else if (safe.length >= 2) {
+  } else if (safe.length >= 2 && (args.lifecycle ?? "active") === "active") {
     const found = await readQueueWindow(
       supabase,
       "invoice_queue_page",

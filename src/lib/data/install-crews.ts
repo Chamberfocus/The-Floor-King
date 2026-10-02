@@ -1,4 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
+import { lifecycleSchemaReady } from "@/lib/record-lifecycle-db";
+import type { LifecycleView } from "@/lib/record-lifecycle";
 
 export interface InstallCrew {
   id: string;
@@ -14,6 +16,7 @@ export interface InstallCrew {
   profile_id: string | null;
   /** Material types this installer works on ('carpet' | 'hard'); [] = does all. */
   skills: string[];
+  archived_at?: string | null;
 }
 
 /**
@@ -22,29 +25,38 @@ export interface InstallCrew {
  * an empty list rather than crashing the page.
  */
 export async function listInstallCrews(
-  opts: { activeOnly?: boolean } = {},
+  opts: { activeOnly?: boolean; lifecycle?: LifecycleView } = {},
 ): Promise<InstallCrew[]> {
-  const run = async (withSkills: boolean) => {
-    const supabase = await createClient();
+  const lifecycle = opts.lifecycle ?? "active";
+  const supabase = await createClient();
+  const ready = await lifecycleSchemaReady(supabase);
+  const run = async (withSkills: boolean, withArchive: boolean) => {
     const base =
       "id, name, kind, phone, email, pay_basis, pay_rate, active, notes, profile_id";
+    const columns = [base, withSkills ? "skills" : null, withArchive ? "archived_at" : null]
+      .filter(Boolean)
+      .join(", ");
     let q = supabase
       .from("install_crews")
-      .select(withSkills ? `${base}, skills` : base)
+      .select(columns)
       .order("active", { ascending: false })
       .order("name", { ascending: true });
     if (opts.activeOnly) q = q.eq("active", true);
+    if (withArchive && lifecycle === "archived") q = q.not("archived_at", "is", null);
+    else if (withArchive && lifecycle !== "all") q = q.is("archived_at", null);
     return q;
   };
   try {
-    // `skills` (migration 0103) may not exist yet — fall back so the crew list
-    // never vanishes just because one column is missing.
-    let { data, error } = await run(true);
-    if (error) ({ data, error } = await run(false));
+    // `skills` (migration 0103) and `archived_at` (0480) may not exist yet.
+    let { data, error } = await run(true, ready);
+    if (error) ({ data, error } = await run(false, ready));
+    if (error && ready) ({ data, error } = await run(true, false));
+    if (error) ({ data, error } = await run(false, false));
     if (error) return [];
     return ((data ?? []) as Partial<InstallCrew>[]).map((c) => ({
       ...c,
       skills: c.skills ?? [],
+      archived_at: c.archived_at ?? null,
     })) as InstallCrew[];
   } catch {
     return [];

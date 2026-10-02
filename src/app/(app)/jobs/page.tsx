@@ -14,6 +14,9 @@ import { shopTodayYmd } from "@/lib/job-snapshot";
 import { cn } from "@/lib/utils";
 import type { Job } from "@/lib/types";
 import { QUEUE_LIST_UNAVAILABLE, queueFailureMessage } from "@/lib/ops-scale";
+import { lifecycleSchemaReady } from "@/lib/record-lifecycle-db";
+import { parseLifecycleView } from "@/lib/record-lifecycle";
+import { LifecycleFilter } from "@/components/record-lifecycle-menu";
 import {
   jobQueueEmpty,
   jobQueueFact,
@@ -41,10 +44,12 @@ const QUEUE_CHIPS: { view: JobQueueView; label: string }[] = [
 export default async function JobsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ who?: string; q?: string; view?: string; page?: string; day?: string }>;
+  searchParams: Promise<{ who?: string; q?: string; view?: string; page?: string; day?: string; life?: string }>;
 }) {
   const profile = await requireProfile();
   const sp = await searchParams;
+  const lifecycleReady = await lifecycleSchemaReady();
+  const lifecycle = parseLifecycleView(sp.life);
   const isStaff = profile.role === "admin" || profile.role === "office";
   const isCrew = profile.role === "crew";
   const q = sp.q?.trim() ?? "";
@@ -68,6 +73,8 @@ export default async function JobsPage({
         page: parseListPage(sp.page),
         assignedTo: isCrew ? profile.id : undefined,
         mineFor: !isCrew && mine ? profile.id : undefined,
+        lifecycle,
+        lifecycleReady,
       })
   ).then(
     (value) => ({ value, listError: null as string | null }),
@@ -180,6 +187,21 @@ export default async function JobsPage({
           </Link>
         ) : null}
       </PageHeader>
+      <LifecycleFilter
+        ready={lifecycleReady}
+        value={lifecycle}
+        makeHref={(next) => {
+          const params = new URLSearchParams();
+          if (q) params.set("q", q);
+          if (sp.view) params.set("view", sp.view);
+          if (sp.who) params.set("who", sp.who);
+          if (sp.day) params.set("day", sp.day);
+          if (next !== "active") params.set("life", next);
+          const qs = params.toString();
+          return qs ? `/jobs?${qs}` : "/jobs";
+        }}
+      />
+
 
       {!isCrew ? (
         <div className="mb-4 inline-flex rounded-lg border p-0.5">

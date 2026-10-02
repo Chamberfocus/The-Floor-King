@@ -1,14 +1,16 @@
 import { createClient } from "@/lib/supabase/server";
+import { applyArchivedFilter, lifecycleSchemaReady } from "@/lib/record-lifecycle-db";
+import type { LifecycleView } from "@/lib/record-lifecycle";
 import type { Supplier, SupplierKind } from "@/lib/types";
 
 type DB = Awaited<ReturnType<typeof createClient>>;
 
-export async function listSuppliers(): Promise<Supplier[]> {
+export async function listSuppliers(view: LifecycleView = "active"): Promise<Supplier[]> {
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("suppliers")
-    .select("*")
-    .order("name", { ascending: true });
+  const ready = await lifecycleSchemaReady(supabase);
+  let query = supabase.from("suppliers").select("*").order("name", { ascending: true });
+  query = applyArchivedFilter(query, view, ready);
+  const { data } = await query;
   return (data ?? []) as Supplier[];
 }
 

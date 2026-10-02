@@ -28,9 +28,10 @@ import { AutoPrint } from "@/components/auto-print";
 import {
   recordPayment,
   voidPayment,
-  deleteInvoice,
   emailInvoice,
 } from "../actions";
+import { RecordLifecycleMenu } from "@/components/record-lifecycle-menu";
+import { canArchiveRole, canDeleteForeverRole } from "@/lib/record-lifecycle";
 import { PaymentIdempotencyField } from "../payment-idempotency-field";
 import { applyCreditToInvoice, issueGoodwillCredit, writeOffInvoiceBalance } from "@/app/(app)/credits/actions";
 import { getCustomerCreditSummary, memoAvailable } from "@/lib/data/credits";
@@ -56,6 +57,8 @@ export default async function InvoicePage({
   const customer = await getCustomer(invoice.customer_id);
   const org = await getOrgSettings();
   const profile = await requireProfile();
+  const mayArchive = canArchiveRole(profile.role);
+  const mayDeleteForever = canDeleteForeverRole(profile.role);
   const invoiceScope = await getInvoiceScope(invoice);
   const paid = amountPaid(invoice);
   const credited = amountCredited(invoice);
@@ -517,24 +520,13 @@ export default async function InvoicePage({
 
       {!preview ? (
       <div className="mt-6 flex flex-col items-end gap-1.5 border-t pt-4 print:hidden">
-        <form action={deleteInvoice}>
-          <input type="hidden" name="id" value={invoice.id} />
-          <input type="hidden" name="customer_id" value={invoice.customer_id} />
-          <ConfirmButton
-            variant="outline"
-            size="sm"
-            title="Delete this invoice and all its payments?"
-            description="Permanently deletes the invoice, its line items, and every recorded payment. Any linked order is unlinked. This can't be undone."
-            confirmLabel="Delete invoice"
-            destructive
-          >
-            <Trash2 className="size-3.5 text-destructive" /> Delete invoice
-          </ConfirmButton>
-        </form>
-        <span className="max-w-xs text-right text-xs text-muted-foreground">
-          Permanently removes the invoice and its recorded payments — can&apos;t be
-          undone.
-        </span>
+        <RecordLifecycleMenu
+          recordType="invoice"
+          recordId={invoice.id}
+          archivedAt={(invoice as { archived_at?: string | null }).archived_at}
+          allowArchive={mayArchive}
+          allowDelete={mayDeleteForever}
+        />
       </div>
       ) : null}
     </div>

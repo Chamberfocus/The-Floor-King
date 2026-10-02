@@ -27,19 +27,26 @@ import {
 } from "@/lib/work-queues";
 import { formatDate, formatMoney } from "@/lib/format";
 import { DeleteInvoiceButton } from "./delete-invoice-button";
+import { lifecycleSchemaReady } from "@/lib/record-lifecycle-db";
+import { canArchiveRole, canDeleteForeverRole, parseLifecycleView } from "@/lib/record-lifecycle";
+import { LifecycleFilter } from "@/components/record-lifecycle-menu";
 
 export const metadata: Metadata = { title: "Invoices" };
 
 export default async function InvoicesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; view?: string; page?: string; aging?: string }>;
+  searchParams: Promise<{ q?: string; view?: string; page?: string; aging?: string; life?: string }>;
 }) {
   const profile = await requireProfile();
+  const mayArchive = canArchiveRole(profile.role);
+  const mayDeleteForever = canDeleteForeverRole(profile.role);
   if (!roleSeesMoneyList(profile.role)) redirect("/");
   const sp = await searchParams;
   const q = sp.q?.trim() ?? "";
   const view = parseInvoiceQueue(sp.view ?? (sp.aging === "overdue" ? "overdue" : undefined));
+  const lifecycleReady = await lifecycleSchemaReady();
+  const lifecycle = parseLifecycleView(sp.life);
   let listError: string | null = null;
   let queue: Awaited<ReturnType<typeof listInvoicesQueue>> = {
     rows: [],
@@ -53,6 +60,8 @@ export default async function InvoicesPage({
       view,
       search: q,
       page: parseListPage(sp.page),
+      lifecycle,
+      lifecycleReady,
     });
   } catch (error) {
     listError = queueFailureMessage(error);
@@ -77,6 +86,18 @@ export default async function InvoicesPage({
           <Zap className="size-4" /> Counter sale
         </Link>
       </PageHeader>
+      <LifecycleFilter
+        ready={lifecycleReady}
+        value={lifecycle}
+        makeHref={(next) => {
+          const params = new URLSearchParams();
+          if (q) params.set("q", q);
+          if (sp.view) params.set("view", sp.view);
+          if (next !== "active") params.set("life", next);
+          const qs = params.toString();
+          return qs ? `/invoices?${qs}` : "/invoices";
+        }}
+      />
 
       <WorkQueueBar
         action="/invoices"
@@ -142,6 +163,9 @@ export default async function InvoicesPage({
                   customerId={inv.customer_id}
                   label={inv.number || "this invoice"}
                   redirectTo="/invoices"
+                  canArchive={mayArchive}
+                  isAdmin={mayDeleteForever}
+                  archivedAt={(inv as { archived_at?: string | null }).archived_at}
                 />
               </div>
             );
@@ -195,6 +219,9 @@ export default async function InvoicesPage({
                         customerId={inv.customer_id}
                         label={inv.number || "this invoice"}
                         redirectTo="/invoices"
+                        canArchive={mayArchive}
+                        isAdmin={mayDeleteForever}
+                        archivedAt={(inv as { archived_at?: string | null }).archived_at}
                       />
                     </TableCell>
                   </TableRow>

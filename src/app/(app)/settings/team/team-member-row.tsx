@@ -23,6 +23,7 @@ import {
   setMemberPhonePin,
   setMemberSkills,
 } from "./actions";
+import { RecordLifecycleMenu } from "@/components/record-lifecycle-menu";
 
 export interface TeamMemberRowData {
   id: string;
@@ -55,6 +56,9 @@ export function TeamMemberRow({
   canRemove,
   isCrew,
   skills,
+  crewRecord = null,
+  allowArchive = false,
+  allowDelete = false,
 }: {
   member: TeamMemberRowData;
   isMe: boolean;
@@ -62,6 +66,9 @@ export function TeamMemberRow({
   canRemove: boolean;
   isCrew: boolean;
   skills: string[];
+  crewRecord?: { id: string; archivedAt: string | null } | null;
+  allowArchive?: boolean;
+  allowDelete?: boolean;
 }) {
   const name = m.full_name || m.email;
   const initials = (m.full_name || m.email || "?")
@@ -93,6 +100,11 @@ export function TeamMemberRow({
             {!m.active ? (
               <span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600">
                 Deactivated
+              </span>
+            ) : null}
+            {crewRecord?.archivedAt ? (
+              <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900">
+                Archived
               </span>
             ) : null}
           </span>
@@ -197,6 +209,22 @@ export function TeamMemberRow({
             </Button>
           </form>
         </Section>
+
+        {crewRecord ? (
+          <Section label="Crew record">
+            <p className="text-xs text-muted-foreground">
+              Archive keeps this installer&apos;s jobs and labor. Delete forever is only available
+              when no job, labor, or labor bill is attached.
+            </p>
+            <RecordLifecycleMenu
+              recordType="installer"
+              recordId={crewRecord.id}
+              archivedAt={crewRecord.archivedAt}
+              allowArchive={allowArchive}
+              allowDelete={allowDelete}
+            />
+          </Section>
+        ) : null}
 
         {isCrew ? (
           <Section label="Installs (controls their Job Board)">
