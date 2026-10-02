@@ -11,7 +11,424 @@
 -- estimate approval snapshots, purchase-order receipts, or inventory quantities.
 -- Does NOT post a journal entry when commission is marked paid.
 --
--- Apply later in the Supabase SQL editor. Do not run this from the app deploy.
+-- Apply the whole file once, as one transaction, in the Supabase SQL editor.
+-- This file has no BEGIN and no COMMIT. A COMMIT here would end the editor
+-- transaction early, and later statements would not roll back with the rest.
+-- Preflight raises before any true-up DDL. A preflight failure, or any later
+-- failure inside that one transaction, leaves no partial true-up schema.
+--
+-- Installing this file does not insert commission rows and does not backfill
+-- historical jobs. A completed job may later appear in the needs-true-up
+-- queue as a read. A ledger row exists only after an explicit approval.
+
+-- ---------------------------------------------------------------------------
+-- Preflight. Read-only. Does not repair, coerce, delete, or update data.
+-- ---------------------------------------------------------------------------
+
+do $preflight$
+declare
+  v_rel text;
+  v_spec text;
+  v_table text;
+  v_column text;
+  v_type text;
+  v_actual text;
+  v_def text;
+  v_label text;
+  v_n int;
+begin
+  foreach v_rel in array array[
+    'accounting_settings',
+    'credit_applications',
+    'credit_memos',
+    'customers',
+    'estimate_approval_snapshots',
+    'expenses',
+    'installer_bills',
+    'invoice_write_offs',
+    'invoices',
+    'job_issues',
+    'job_labor',
+    'jobs',
+    'org_settings',
+    'payments',
+    'po_items',
+    'products',
+    'profiles',
+    'purchase_orders',
+    'refunds',
+    'stock_movements'
+  ]
+  loop
+    if to_regclass('public.' || v_rel) is null then
+      raise exception '0481 preflight: required relation public.% is missing', v_rel;
+    end if;
+    if (
+      select c.relkind
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relname = v_rel
+    ) not in ('r', 'p') then
+      raise exception '0481 preflight: public.% is not a table', v_rel;
+    end if;
+  end loop;
+
+  if to_regclass('auth.users') is null then
+    raise exception '0481 preflight: required relation auth.users is missing';
+  end if;
+
+  foreach v_spec in array array[
+    'jobs|id|pg_catalog.uuid',
+    'jobs|status|public.job_status',
+    'jobs|customer_id|pg_catalog.uuid',
+    'jobs|estimate_id|pg_catalog.uuid',
+    'jobs|estimated_material_cost|pg_catalog.numeric',
+    'jobs|estimated_labor_cost|pg_catalog.numeric',
+    'jobs|assigned_to|pg_catalog.uuid',
+    'jobs|assigned_crew_id|pg_catalog.uuid',
+    'jobs|completed_at|pg_catalog.timestamptz',
+    'customers|id|pg_catalog.uuid',
+    'customers|assigned_to|pg_catalog.uuid',
+    'profiles|id|pg_catalog.uuid',
+    'profiles|role|public.user_role',
+    'org_settings|freight_markup_pct|pg_catalog.numeric',
+    'estimate_approval_snapshots|estimate_id|pg_catalog.uuid',
+    'estimate_approval_snapshots|version|pg_catalog.int4',
+    'estimate_approval_snapshots|payload|pg_catalog.jsonb',
+    'invoices|id|pg_catalog.uuid',
+    'invoices|job_id|pg_catalog.uuid',
+    'invoices|status|public.invoice_status',
+    'invoices|commercial_kind|pg_catalog.text',
+    'credit_applications|invoice_id|pg_catalog.uuid',
+    'credit_applications|amount|pg_catalog.numeric',
+    'credit_applications|status|pg_catalog.text',
+    'invoice_write_offs|invoice_id|pg_catalog.uuid',
+    'invoice_write_offs|amount|pg_catalog.numeric',
+    'invoice_write_offs|status|pg_catalog.text',
+    'credit_memos|id|pg_catalog.uuid',
+    'refunds|credit_memo_id|pg_catalog.uuid',
+    'payments|invoice_id|pg_catalog.uuid',
+    'stock_movements|job_id|pg_catalog.uuid',
+    'stock_movements|product_id|pg_catalog.uuid',
+    'stock_movements|kind|pg_catalog.text',
+    'stock_movements|source_type|pg_catalog.text',
+    'stock_movements|voided_at|pg_catalog.timestamptz',
+    'stock_movements|qty|pg_catalog.numeric',
+    'stock_movements|unit_cost|pg_catalog.numeric',
+    'stock_movements|extended_cost|pg_catalog.numeric',
+    'po_items|po_id|pg_catalog.uuid',
+    'po_items|product_id|pg_catalog.uuid',
+    'po_items|for_job_id|pg_catalog.uuid',
+    'po_items|description|pg_catalog.text',
+    'po_items|quantity|pg_catalog.numeric',
+    'po_items|received_qty|pg_catalog.numeric',
+    'po_items|unit_cost|pg_catalog.numeric',
+    'purchase_orders|id|pg_catalog.uuid',
+    'purchase_orders|job_id|pg_catalog.uuid',
+    'purchase_orders|status|public.po_status',
+    'products|id|pg_catalog.uuid',
+    'products|track_stock|pg_catalog.bool',
+    'installer_bills|job_id|pg_catalog.uuid',
+    'installer_bills|status|pg_catalog.text',
+    'installer_bills|total|pg_catalog.numeric',
+    'installer_bills|legacy_display_only|pg_catalog.bool',
+    'job_labor|job_id|pg_catalog.uuid',
+    'job_labor|amount|pg_catalog.numeric',
+    'expenses|job_id|pg_catalog.uuid',
+    'expenses|category|public.expense_category',
+    'expenses|amount|pg_catalog.numeric',
+    'job_issues|job_id|pg_catalog.uuid',
+    'job_issues|cost_impact|pg_catalog.numeric',
+    'accounting_settings|posting_enabled|pg_catalog.bool',
+    'accounting_settings|books_of_record|pg_catalog.bool',
+    'accounting_settings|backup_pitr_confirmed_at|pg_catalog.timestamptz',
+    'auth.users|id|pg_catalog.uuid'
+  ]
+  loop
+    v_table := split_part(v_spec, '|', 1);
+    v_column := split_part(v_spec, '|', 2);
+    v_type := split_part(v_spec, '|', 3);
+    select n.nspname || '.' || t.typname
+      into v_actual
+    from pg_attribute a
+    join pg_class c on c.oid = a.attrelid
+    join pg_type t on t.oid = a.atttypid
+    join pg_namespace n on n.oid = t.typnamespace
+    where c.oid = v_table::regclass
+      and a.attname = v_column
+      and a.attnum > 0
+      and not a.attisdropped;
+    if v_actual is null then
+      raise exception '0481 preflight: required column %.% is missing', v_table, v_column;
+    end if;
+    if v_actual is distinct from v_type then
+      raise exception '0481 preflight: %.% type is incompatible', v_table, v_column;
+    end if;
+  end loop;
+
+  foreach v_spec in array array[
+    'job_status|completed',
+    'job_status|cancelled',
+    'job_status|unscheduled',
+    'job_status|scheduled',
+    'job_status|in_progress',
+    'invoice_status|draft',
+    'invoice_status|sent',
+    'invoice_status|partial',
+    'invoice_status|paid',
+    'invoice_status|void',
+    'po_status|draft',
+    'po_status|ordered',
+    'po_status|received',
+    'po_status|closed',
+    'po_status|cancelled',
+    'po_status|void',
+    'expense_category|materials',
+    'expense_category|tools',
+    'expense_category|other',
+    'expense_category|subcontractor',
+    'expense_category|labor',
+    'user_role|admin',
+    'user_role|office',
+    'user_role|salesman',
+    'user_role|sales_manager',
+    'user_role|scheduler',
+    'user_role|warehouse',
+    'user_role|crew',
+    'user_role|customer'
+  ]
+  loop
+    v_type := split_part(v_spec, '|', 1);
+    v_label := split_part(v_spec, '|', 2);
+    if not exists (
+      select 1
+      from pg_enum e
+      join pg_type t on t.oid = e.enumtypid
+      join pg_namespace n on n.oid = t.typnamespace
+      where n.nspname = 'public'
+        and t.typname = v_type
+        and e.enumlabel = v_label
+    ) then
+      raise exception '0481 preflight: % is missing %', v_type, v_label;
+    end if;
+  end loop;
+
+  select string_agg(pg_get_constraintdef(oid), ' ')
+    into v_def
+  from pg_constraint
+  where conrelid = 'public.installer_bills'::regclass
+    and contype = 'c';
+  if v_def is null
+     or position('''draft''' in v_def) = 0
+     or position('''approved''' in v_def) = 0
+     or position('''paid''' in v_def) = 0 then
+    raise exception '0481 preflight: installer bill status is missing draft, approved, or paid';
+  end if;
+
+  select string_agg(pg_get_constraintdef(oid), ' ')
+    into v_def
+  from pg_constraint
+  where conrelid = 'public.stock_movements'::regclass
+    and contype = 'c';
+  if v_def is null
+     or position('''job_return''' in v_def) = 0
+     or position('''vendor_return''' in v_def) = 0
+     or position('''job_pull''' in v_def) = 0 then
+    raise exception '0481 preflight: stock movement source_type is missing job_return';
+  end if;
+
+  select string_agg(pg_get_constraintdef(oid), ' ')
+    into v_def
+  from pg_constraint
+  where conrelid = 'public.credit_applications'::regclass
+    and contype = 'c';
+  if v_def is null or position('''active''' in v_def) = 0 or position('''void''' in v_def) = 0 then
+    raise exception '0481 preflight: credit application status is missing active or void';
+  end if;
+
+  select string_agg(pg_get_constraintdef(oid), ' ')
+    into v_def
+  from pg_constraint
+  where conrelid = 'public.invoice_write_offs'::regclass
+    and contype = 'c';
+  if v_def is null or position('''active''' in v_def) = 0 or position('''void''' in v_def) = 0 then
+    raise exception '0481 preflight: write-off status is missing active or void';
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint c
+    join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any (c.conkey)
+    where c.contype = 'f'
+      and c.conrelid = 'public.customers'::regclass
+      and a.attname = 'assigned_to'
+      and c.confrelid = 'auth.users'::regclass
+  ) then
+    raise exception '0481 preflight: customers.assigned_to must reference auth.users';
+  end if;
+  if not exists (
+    select 1 from pg_constraint c
+    join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any (c.conkey)
+    where c.contype = 'f'
+      and c.conrelid = 'public.profiles'::regclass
+      and a.attname = 'id'
+      and c.confrelid = 'auth.users'::regclass
+  ) then
+    raise exception '0481 preflight: profiles.id must reference auth.users';
+  end if;
+  if not exists (
+    select 1 from pg_constraint c
+    join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any (c.conkey)
+    where c.contype = 'f'
+      and c.conrelid = 'public.jobs'::regclass
+      and a.attname = 'customer_id'
+      and c.confrelid = 'public.customers'::regclass
+  ) then
+    raise exception '0481 preflight: jobs.customer_id must reference customers';
+  end if;
+  if not exists (
+    select 1 from pg_constraint c
+    join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any (c.conkey)
+    where c.contype = 'f'
+      and c.conrelid = 'public.invoices'::regclass
+      and a.attname = 'job_id'
+      and c.confrelid = 'public.jobs'::regclass
+  ) then
+    raise exception '0481 preflight: invoices.job_id must reference jobs';
+  end if;
+  if not exists (
+    select 1 from pg_constraint c
+    join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any (c.conkey)
+    where c.contype = 'f'
+      and c.conrelid = 'public.payments'::regclass
+      and a.attname = 'invoice_id'
+      and c.confrelid = 'public.invoices'::regclass
+  ) then
+    raise exception '0481 preflight: payments.invoice_id must reference invoices';
+  end if;
+  if not exists (
+    select 1 from pg_constraint c
+    join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any (c.conkey)
+    where c.contype = 'f'
+      and c.conrelid = 'public.refunds'::regclass
+      and a.attname = 'credit_memo_id'
+      and c.confrelid = 'public.credit_memos'::regclass
+  ) then
+    raise exception '0481 preflight: refunds.credit_memo_id must reference credit_memos';
+  end if;
+  if not exists (
+    select 1 from pg_constraint c
+    join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any (c.conkey)
+    where c.contype = 'f'
+      and c.conrelid = 'public.credit_applications'::regclass
+      and a.attname = 'invoice_id'
+      and c.confrelid = 'public.invoices'::regclass
+  ) then
+    raise exception '0481 preflight: credit_applications.invoice_id must reference invoices';
+  end if;
+  if not exists (
+    select 1 from pg_constraint c
+    join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any (c.conkey)
+    where c.contype = 'f'
+      and c.conrelid = 'public.po_items'::regclass
+      and a.attname = 'po_id'
+      and c.confrelid = 'public.purchase_orders'::regclass
+  ) then
+    raise exception '0481 preflight: po_items.po_id must reference purchase_orders';
+  end if;
+  if not exists (
+    select 1 from pg_constraint c
+    join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any (c.conkey)
+    where c.contype = 'f'
+      and c.conrelid = 'public.po_items'::regclass
+      and a.attname = 'product_id'
+      and c.confrelid = 'public.products'::regclass
+  ) then
+    raise exception '0481 preflight: po_items.product_id must reference products';
+  end if;
+  if not exists (
+    select 1 from pg_constraint c
+    join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any (c.conkey)
+    where c.contype = 'f'
+      and c.conrelid = 'public.stock_movements'::regclass
+      and a.attname = 'job_id'
+      and c.confrelid = 'public.jobs'::regclass
+  ) then
+    raise exception '0481 preflight: stock_movements.job_id must reference jobs';
+  end if;
+
+  select count(*) into v_n
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'my_role';
+  if v_n <> 1 then
+    raise exception '0481 preflight: my_role must already exist as one function';
+  end if;
+  if pg_get_function_identity_arguments('public.my_role()'::regprocedure) <> ''
+     or pg_get_function_result('public.my_role()'::regprocedure) <> 'text' then
+    raise exception '0481 preflight: my_role() signature is unexpected';
+  end if;
+
+  select count(*) into v_n
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'is_staff';
+  if v_n <> 1 then
+    raise exception '0481 preflight: is_staff must already exist as one function';
+  end if;
+  v_def := pg_get_functiondef('public.is_staff()'::regprocedure);
+  if position('in (''admin'', ''office'')' in v_def) = 0 then
+    raise exception '0481 preflight: is_staff() is not limited to administrator and office';
+  end if;
+
+  select count(*) into v_n
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'is_admin';
+  if v_n <> 1 or pg_get_function_result('public.is_admin()'::regprocedure) <> 'boolean' then
+    raise exception '0481 preflight: is_admin() signature is unexpected';
+  end if;
+
+  select count(*) into v_n
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'user_role';
+  if v_n <> 1
+     or pg_get_function_identity_arguments('public.user_role(uuid)'::regprocedure) <> 'uid uuid' then
+    raise exception '0481 preflight: user_role(uuid) signature is unexpected';
+  end if;
+
+  select count(*) into v_n
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'invoice_open_ar_balance';
+  if v_n <> 1 then
+    raise exception '0481 preflight: invoice_open_ar_balance must already exist as one function';
+  end if;
+  if pg_get_function_identity_arguments('public.invoice_open_ar_balance(uuid)'::regprocedure) <> 'p_invoice_id uuid'
+     or pg_get_function_result('public.invoice_open_ar_balance(uuid)'::regprocedure) <> 'numeric' then
+    raise exception '0481 preflight: invoice_open_ar_balance signature is unexpected';
+  end if;
+
+  select count(*) into v_n
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'invoice_commercial_total';
+  if v_n <> 1 then
+    raise exception '0481 preflight: invoice_commercial_total must already exist as one function';
+  end if;
+  if pg_get_function_identity_arguments('public.invoice_commercial_total(uuid)'::regprocedure) <> 'p_invoice_id uuid'
+     or position('subtotal' in pg_get_function_result('public.invoice_commercial_total(uuid)'::regprocedure)) = 0 then
+    raise exception '0481 preflight: invoice_commercial_total signature is unexpected';
+  end if;
+
+  if to_regprocedure('auth.uid()') is null then
+    raise exception '0481 preflight: auth.uid() is missing';
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'authenticated') then
+    raise exception '0481 preflight: role authenticated is missing';
+  end if;
+end
+$preflight$;
 
 -- ---------------------------------------------------------------------------
 -- Tables
@@ -667,26 +1084,26 @@ begin
     and v_rev_known;
 
   if v_job.status::text <> 'completed' then
-    v_blockers := v_blockers || 'Job is not completed.';
+    v_blockers := v_blockers || 'Job is not completed.'::text;
   end if;
   if not v_complete then
-    v_blockers := v_blockers || 'Required actual costs are still missing.';
+    v_blockers := v_blockers || 'Required actual costs are still missing.'::text;
   end if;
   if not v_rev_known then
-    v_blockers := v_blockers || 'Final revenue is not on an active invoice.';
+    v_blockers := v_blockers || 'Final revenue is not on an active invoice.'::text;
   end if;
   if v_dup > 0 then
-    v_blockers := v_blockers || 'Duplicate original invoices must be voided before approval.';
-    v_flags := v_flags || 'A duplicate original invoice was excluded from revenue.';
+    v_blockers := v_blockers || 'Duplicate original invoices must be voided before approval.'::text;
+    v_flags := v_flags || 'A duplicate original invoice was excluded from revenue.'::text;
   end if;
   if v_rev_known and v_act_rev <= 0 and (not v_has_true or v_true.zero_revenue_ack_at is null) then
-    v_blockers := v_blockers || 'Zero or negative revenue requires an admin review acknowledgement.';
+    v_blockers := v_blockers || 'Zero or negative revenue requires an admin review acknowledgement.'::text;
   end if;
   if v_sales is null then
-    v_blockers := v_blockers || 'Assign a salesperson before approval.';
+    v_blockers := v_blockers || 'Assign a salesperson before approval.'::text;
   end if;
   if v_labor_state = 'incomplete' then
-    v_blockers := v_blockers || 'LABOR COST INCOMPLETE';
+    v_blockers := v_blockers || 'LABOR COST INCOMPLETE'::text;
   end if;
 
   if v_est_mat is null or v_est_labor is null or v_est_freight is null or v_est_rev is null then
@@ -721,7 +1138,7 @@ begin
     v_comm := greatest(v_true.amount_override_cents, 0);
   end if;
   if v_gp is not null and v_gp <= 0 then
-    v_flags := v_flags || 'NO COMMISSION — JOB HAS NO POSITIVE GROSS PROFIT';
+    v_flags := v_flags || 'NO COMMISSION — JOB HAS NO POSITIVE GROSS PROFIT'::text;
     if (not v_has_true) or (v_true.amount_override_cents is null and v_true.rate_override_bps is null) then
       v_comm := 0;
       v_rate := 0;
