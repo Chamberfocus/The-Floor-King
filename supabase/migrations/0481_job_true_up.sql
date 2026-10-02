@@ -274,6 +274,8 @@ declare
   v_other bigint := 0;
   v_other_state text := 'unknown';
   v_pull bigint := 0;
+  v_job_return bigint := 0;
+  v_missing_cost int := 0;
   v_drop bigint := 0;
   v_po_open int := 0;
   v_freight_open int := 0;
@@ -405,31 +407,73 @@ begin
 
   v_rev_known := v_invoice_n > 0;
 
+  -- Job material matches inv_job_net_material_actual: non-void pulls minus
+  -- non-void job returns. A blank unit cost is incomplete, not $0.
+  -- vendor_return is inventory, not a reduction of this job.
+  select count(*) into v_missing_cost
+  from public.stock_movements sm
+  where sm.job_id = p_job_id
+    and sm.voided_at is null
+    and (
+      sm.kind = 'pull'
+      or (sm.kind = 'return' and sm.source_type = 'job_return')
+    )
+    and sm.extended_cost is null
+    and sm.unit_cost is null;
+
   select coalesce(sum(
     case
       when sm.extended_cost is not null then public.fk_true_up_cents(sm.extended_cost)
-      else public.fk_true_up_cents(abs(sm.qty) * coalesce(sm.unit_cost, 0))
+      else public.fk_true_up_cents(abs(sm.qty) * sm.unit_cost)
     end
   ), 0)
   into v_pull
   from public.stock_movements sm
   where sm.job_id = p_job_id
-    and sm.kind = 'pull';
+    and sm.kind = 'pull'
+    and sm.voided_at is null
+    and (sm.extended_cost is not null or sm.unit_cost is not null);
 
+  select coalesce(sum(
+    case
+      when sm.extended_cost is not null then public.fk_true_up_cents(sm.extended_cost)
+      else public.fk_true_up_cents(abs(sm.qty) * sm.unit_cost)
+    end
+  ), 0)
+  into v_job_return
+  from public.stock_movements sm
+  where sm.job_id = p_job_id
+    and sm.kind = 'return'
+    and sm.source_type = 'job_return'
+    and sm.voided_at is null
+    and (sm.extended_cost is not null or sm.unit_cost is not null);
+
+  v_pull := v_pull - v_job_return;
+
+  -- Drop-ship / untracked lines supplement cost only when fully received,
+  -- priced, and not already represented by a pull. Tracked receipts are inventory.
   select coalesce(sum(public.fk_true_up_cents(pi.received_qty * pi.unit_cost)), 0)
   into v_drop
   from public.po_items pi
   join public.purchase_orders po on po.id = pi.po_id
+  left join public.products p on p.id = pi.product_id
   where po.status::text in ('ordered', 'received', 'closed')
     and (po.job_id = p_job_id or pi.for_job_id = p_job_id)
     and coalesce(pi.received_qty, 0) > 0
+    and pi.unit_cost is not null
+    and coalesce(pi.quantity, 0) <= coalesce(pi.received_qty, 0)
     and pi.description !~* '\m(freight|shipping|delivery)\M'
+    and (
+      pi.product_id is null
+      or (p.id is not null and p.track_stock = false)
+    )
     and (
       pi.product_id is null
       or not exists (
         select 1 from public.stock_movements sm
         where sm.job_id = p_job_id
           and sm.kind = 'pull'
+          and sm.voided_at is null
           and sm.product_id = pi.product_id
       )
     );
@@ -437,24 +481,65 @@ begin
   select count(*) into v_po_open
   from public.po_items pi
   join public.purchase_orders po on po.id = pi.po_id
+  left join public.products p on p.id = pi.product_id
   where po.status::text in ('ordered', 'received', 'closed')
     and (po.job_id = p_job_id or pi.for_job_id = p_job_id)
     and pi.description !~* '\m(freight|shipping|delivery)\M'
-    and coalesce(pi.received_qty, 0) <= 0
-    and coalesce(pi.quantity, 0) > 0
     and (
-      pi.product_id is null
-      or not exists (
-        select 1 from public.stock_movements sm
-        where sm.job_id = p_job_id and sm.kind = 'pull' and sm.product_id = pi.product_id
+      (
+        (pi.product_id is null or (p.id is not null and p.track_stock = false))
+        and (
+          (coalesce(pi.quantity, 0) > 0 and coalesce(pi.received_qty, 0) < coalesce(pi.quantity, 0))
+          or (coalesce(pi.received_qty, 0) > 0 and pi.unit_cost is null)
+        )
+      )
+      or (
+        pi.product_id is not null
+        and (p.id is null or p.track_stock = true)
+        and coalesce(pi.quantity, 0) > 0
+        and coalesce(pi.received_qty, 0) < coalesce(pi.quantity, 0)
+      )
+      or (
+        pi.product_id is not null
+        and (p.id is null or p.track_stock = true)
+        and coalesce(pi.received_qty, 0) > 0
+        and coalesce(pi.received_qty, 0) >= coalesce(pi.quantity, 0)
+        and not exists (
+          select 1 from public.stock_movements sm
+          where sm.job_id = p_job_id
+            and sm.kind = 'pull'
+            and sm.voided_at is null
+            and sm.product_id = pi.product_id
+        )
       )
     );
 
-  if v_po_open > 0 then
+  if v_missing_cost > 0 or v_po_open > 0 then
     v_mat_state := 'incomplete';
   elsif v_pull <> 0 or v_drop <> 0 or exists (
     select 1 from public.stock_movements sm
-    where sm.job_id = p_job_id and sm.kind = 'pull'
+    where sm.job_id = p_job_id
+      and sm.voided_at is null
+      and (
+        sm.kind = 'pull'
+        or (sm.kind = 'return' and sm.source_type = 'job_return')
+      )
+      and (sm.extended_cost is not null or sm.unit_cost is not null)
+  ) or exists (
+    select 1
+    from public.po_items pi
+    join public.purchase_orders po on po.id = pi.po_id
+    left join public.products p on p.id = pi.product_id
+    where po.status::text in ('ordered', 'received', 'closed')
+      and (po.job_id = p_job_id or pi.for_job_id = p_job_id)
+      and pi.description !~* '\m(freight|shipping|delivery)\M'
+      and coalesce(pi.received_qty, 0) > 0
+      and pi.unit_cost is not null
+      and coalesce(pi.quantity, 0) <= coalesce(pi.received_qty, 0)
+      and (
+        pi.product_id is null
+        or (p.id is not null and p.track_stock = false)
+      )
   ) then
     v_mat := v_pull + v_drop;
     v_mat_state := 'auto';
@@ -488,7 +573,9 @@ begin
   where po.status::text in ('ordered', 'received', 'closed')
     and (po.job_id = p_job_id or pi.for_job_id = p_job_id)
     and pi.description ~* '\m(freight|shipping|delivery)\M'
-    and coalesce(pi.received_qty, 0) > 0;
+    and coalesce(pi.received_qty, 0) > 0
+    and pi.unit_cost is not null
+    and coalesce(pi.quantity, 0) <= coalesce(pi.received_qty, 0);
 
   select count(*) into v_freight_open
   from public.po_items pi
@@ -496,7 +583,10 @@ begin
   where po.status::text in ('ordered', 'received', 'closed')
     and (po.job_id = p_job_id or pi.for_job_id = p_job_id)
     and pi.description ~* '\m(freight|shipping|delivery)\M'
-    and coalesce(pi.received_qty, 0) <= 0;
+    and (
+      (coalesce(pi.quantity, 0) > 0 and coalesce(pi.received_qty, 0) < coalesce(pi.quantity, 0))
+      or (coalesce(pi.received_qty, 0) > 0 and pi.unit_cost is null)
+    );
 
   if v_freight_open > 0 then
     v_freight_state := 'incomplete';
@@ -509,6 +599,8 @@ begin
       and (po.job_id = p_job_id or pi.for_job_id = p_job_id)
       and pi.description ~* '\m(freight|shipping|delivery)\M'
       and coalesce(pi.received_qty, 0) > 0
+      and pi.unit_cost is not null
+      and coalesce(pi.quantity, 0) <= coalesce(pi.received_qty, 0)
   ) then
     v_freight_state := 'auto';
   end if;
@@ -529,10 +621,19 @@ begin
   into v_issues
   from public.job_issues ji
   where ji.job_id = p_job_id
-    and coalesce(ji.cost_impact, 0) > 0;
+    and coalesce(ji.cost_impact, 0) <> 0;
 
-  if v_exp <> 0 or v_issues <> 0 or (v_bill_any = 0 and v_sub_exp <> 0) then
-    v_other := v_exp + v_issues + case when v_bill_any = 0 then v_sub_exp else 0 end;
+  v_other := v_exp + v_issues + case when v_bill_any = 0 then v_sub_exp else 0 end;
+  if exists (
+    select 1 from public.expenses e
+    where e.job_id = p_job_id
+      and e.category::text in ('materials', 'tools', 'other')
+  ) or v_issues <> 0 or (
+    v_bill_any = 0 and exists (
+      select 1 from public.expenses e
+      where e.job_id = p_job_id and e.category::text = 'subcontractor'
+    )
+  ) then
     v_other_state := 'auto';
   end if;
 

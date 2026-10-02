@@ -431,6 +431,10 @@ export interface PullFact {
   qty?: number | string | null;
   unitCost?: number | string | null;
   extendedCost?: number | string | null;
+  /** Default pull. A job return is kind "return" with sourceType "job_return". */
+  kind?: string | null;
+  sourceType?: string | null;
+  voided?: boolean;
 }
 
 export interface PoLineFact {
@@ -440,6 +444,13 @@ export interface PoLineFact {
   quantity?: number | string | null;
   receivedQty?: number | string | null;
   unitCost?: number | string | null;
+  /**
+   * products.track_stock. True means the receipt entered inventory and is not
+   * job cost. False, or a line with no product, is drop-ship / special order.
+   * Null means the product exists but stock tracking is unknown: do not charge
+   * the receipt.
+   */
+  trackStock?: boolean | null;
 }
 
 export interface ManualCostEntry {
@@ -463,10 +474,23 @@ function latestManual(entries: ManualCostEntry[], category: CostCategory): Manua
   return rows.length ? rows[rows.length - 1]! : null;
 }
 
-function pullCents(p: PullFact): bigint {
-  if (p.extendedCost != null && p.extendedCost !== "") {
-    return moneyToCents(p.extendedCost) ?? BigInt(0);
+function hasMoney(value: number | string | null | undefined): boolean {
+  if (value == null) return false;
+  return String(value).trim() !== "";
+}
+
+function qtyMicros(value: number | string | null | undefined): bigint | null {
+  if (!hasMoney(value)) return null;
+  return toMicros(value);
+}
+
+/** Extended cost wins. A blank unit cost is missing, not $0. Explicit 0 is a real zero. */
+function movementCostCents(p: PullFact): bigint | null {
+  if (hasMoney(p.extendedCost)) {
+    const extended = moneyToCents(p.extendedCost);
+    if (extended != null) return extended;
   }
+  if (!hasMoney(p.unitCost) || !hasMoney(p.qty)) return null;
   const qty = toMicros(p.qty);
   const absQty = qty < BigInt(0) ? -qty : qty;
   const cost = toMicros(p.unitCost);
@@ -474,12 +498,26 @@ function pullCents(p: PullFact): bigint {
   return (micros + BigInt(5000)) / BigInt(10000);
 }
 
-function receivedMaterialCents(line: PoLineFact): bigint | null {
-  const recv = moneyToCents(line.receivedQty ?? null);
-  if (recv == null || recv <= BigInt(0)) return null;
-  const unit = moneyToCents(line.unitCost ?? null);
-  if (unit == null) return null;
-  return lineAmountCents(line.receivedQty ?? 0, line.unitCost ?? 0);
+function isJobPull(p: PullFact): boolean {
+  return (p.kind ?? "pull").toLowerCase() === "pull";
+}
+
+/** vendor_return stays on inventory. Only a job return reduces this job. */
+function isJobReturn(p: PullFact): boolean {
+  if ((p.kind ?? "").toLowerCase() !== "return") return false;
+  return (p.sourceType ?? "job_return").toLowerCase() === "job_return";
+}
+
+function isDropShipLine(line: PoLineFact): boolean {
+  if (!line.productId) return true;
+  return line.trackStock === false;
+}
+
+function receiptIsShort(line: PoLineFact): boolean {
+  const ordered = qtyMicros(line.quantity);
+  if (ordered == null || ordered <= BigInt(0)) return false;
+  const received = qtyMicros(line.receivedQty) ?? BigInt(0);
+  return received < ordered;
 }
 
 export function resolveMaterial(args: {
@@ -488,32 +526,59 @@ export function resolveMaterial(args: {
   entries: ManualCostEntry[];
 }): CategoryResolution {
   const manual = latestManual(args.entries, "material");
+  const active = args.pulls.filter((p) => p.voided !== true);
   const pulledProducts = new Set(
-    args.pulls.map((p) => p.productId).filter((id): id is string => !!id),
+    active.filter(isJobPull).map((p) => p.productId).filter((id): id is string => !!id),
   );
   let auto = BigInt(0);
   let sawAuto = false;
   let incomplete: string | null = null;
 
-  for (const p of args.pulls) {
-    auto += pullCents(p);
+  for (const p of active) {
+    const pull = isJobPull(p);
+    const jobReturn = isJobReturn(p);
+    if (!pull && !jobReturn) continue;
+    const cents = movementCostCents(p);
+    if (cents == null) {
+      incomplete = "Material movement is missing a unit cost";
+      continue;
+    }
     sawAuto = true;
+    auto += jobReturn ? -cents : cents;
   }
 
   for (const line of args.poLines) {
     if (!isCommittedPoStatus(line.poStatus)) continue;
     if (isFreightDescription(line.description)) continue;
-    const received = receivedMaterialCents(line);
+    const ordered = qtyMicros(line.quantity);
+    const received = qtyMicros(line.receivedQty) ?? BigInt(0);
+    if ((ordered == null || ordered <= BigInt(0)) && received <= BigInt(0)) continue;
     const pulled = !!line.productId && pulledProducts.has(line.productId);
-    if (pulled) continue;
-    if (received != null) {
-      auto += received;
+    const short = receiptIsShort(line);
+
+    if (isDropShipLine(line)) {
+      if (short || received <= BigInt(0)) {
+        incomplete = "PO exists but no final material cost";
+        continue;
+      }
+      if (!hasMoney(line.unitCost) || moneyToCents(line.unitCost) == null) {
+        incomplete = "Received material is missing a unit cost";
+        continue;
+      }
+      if (pulled) continue;
+      auto += lineAmountCents(line.receivedQty ?? 0, line.unitCost ?? 0);
       sawAuto = true;
       continue;
     }
-    const ordered = moneyToCents(line.quantity ?? null);
-    if (ordered != null && ordered > BigInt(0)) {
+
+    // Tracked stock, or a product whose tracking is unknown: the receipt is
+    // inventory. The job is charged only for what was pulled.
+    if (short) {
       incomplete = "PO exists but no final material cost";
+      continue;
+    }
+    if (!pulled && received > BigInt(0)) {
+      incomplete = "Received stock has not been pulled to the job";
     }
   }
 
@@ -549,7 +614,12 @@ export function resolveMaterial(args: {
   if (sawAuto) {
     return {
       category: "material",
-      resolution: { state: "auto", cents: auto, source: "Stock pulls plus received drop-ship lines. Receipts that were also pulled are not added twice." },
+      resolution: {
+        state: "auto",
+        cents: auto,
+        source:
+          "Net stock pulls minus job returns, plus fully received drop-ship lines that were not pulled. Tracked receipts stay inventory until pulled and are not added again.",
+      },
       calculatedCents: auto,
       calculatedState,
       hint: null,
@@ -569,6 +639,8 @@ export function resolveLabor(args: {
   jobId: string;
   installerAssigned: boolean;
   legacyLaborRows: number;
+  /** Display only. job_labor dollars are never added to actual labor. */
+  legacyLaborCents?: bigint | null;
   entries: ManualCostEntry[];
 }): CategoryResolution {
   const manual = latestManual(args.entries, "labor");
@@ -580,6 +652,9 @@ export function resolveLabor(args: {
   let hint: string | null = null;
   if (committed > BigInt(0)) hint = LABOR_INCOMPLETE;
   else if (!approved && (args.installerAssigned || args.legacyLaborRows > 0)) hint = LABOR_INCOMPLETE;
+  if (!approved && args.legacyLaborRows > 0 && args.legacyLaborCents != null) {
+    hint = `${LABOR_INCOMPLETE}. Legacy job_labor shows ${formatCents(args.legacyLaborCents)} and is not actual labor cost.`;
+  }
 
   const calculatedState = hint ? "incomplete" : approved ? "auto" : "unknown";
   const calculatedCents = calculatedState === "auto" ? actual : null;
@@ -644,13 +719,17 @@ export function resolveFreight(args: {
   for (const line of args.poLines) {
     if (!isCommittedPoStatus(line.poStatus)) continue;
     if (!isFreightDescription(line.description)) continue;
-    const received = receivedMaterialCents(line);
-    if (received != null) {
-      auto += received;
-      saw = true;
-    } else {
-      incomplete = "Supplier/order indicates freight but no freight amount exists";
+    const ordered = qtyMicros(line.quantity);
+    const received = qtyMicros(line.receivedQty) ?? BigInt(0);
+    const short = receiptIsShort(line);
+    if (short || received <= BigInt(0) || !hasMoney(line.unitCost) || moneyToCents(line.unitCost) == null) {
+      if ((ordered != null && ordered > BigInt(0)) || received > BigInt(0)) {
+        incomplete = "Supplier/order indicates freight but no freight amount exists";
+      }
+      continue;
     }
+    auto += lineAmountCents(line.receivedQty ?? 0, line.unitCost ?? 0);
+    saw = true;
   }
   const calculatedState = incomplete ? "incomplete" : saw ? "auto" : "unknown";
   const calculatedCents = calculatedState === "auto" ? auto : null;
@@ -739,11 +818,11 @@ export function resolveOther(args: {
     auto += exp.amountCents;
     saw = true;
   }
-  if (args.issueCostCents > BigInt(0)) {
+  if (args.issueCostCents !== BigInt(0)) {
     auto += args.issueCostCents;
     saw = true;
   }
-  if (!args.hasInstallerBills && args.subcontractorExpenseCents > BigInt(0)) {
+  if (!args.hasInstallerBills && args.subcontractorExpenseCents !== BigInt(0)) {
     auto += args.subcontractorExpenseCents;
     saw = true;
   }
@@ -1105,6 +1184,8 @@ export function lateCostAdjustment(args: {
   rateOverrideBps?: bigint | null;
   amountOverrideCents?: bigint | null;
   alreadyPaidCents: bigint;
+  /** Adjustments already on the ledger. The new line is only the remaining gap. */
+  priorAdjustmentCents?: bigint;
 }): LateAdjustment {
   let revised = BigInt(0);
   if (args.amountOverrideCents != null) {
@@ -1116,7 +1197,8 @@ export function lateCostAdjustment(args: {
   } else {
     revised = commissionAmountCents(args.revisedGpCents, args.revisedRevenueCents);
   }
-  const adjustment = revised - args.approvedCommissionCents;
+  const booked = args.approvedCommissionCents + (args.priorAdjustmentCents ?? BigInt(0));
+  const adjustment = revised - booked;
   if (adjustment === BigInt(0)) {
     return { revisedCommissionCents: revised, adjustmentCents: BigInt(0), timing: "none" };
   }

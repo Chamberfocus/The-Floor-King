@@ -80,7 +80,7 @@ export async function loadJobTrueUp(
   const customer = (Array.isArray(job.customer) ? job.customer[0] : job.customer) as Row | null;
   const estimateId = str(job.estimate_id);
 
-  const [snapshotsRes, orgRes, invoicesRes, pullsRes, billsRes, laborCount, expensesRes, issuesRes, trueUpRes, peopleRes] =
+  const [snapshotsRes, orgRes, invoicesRes, pullsRes, billsRes, laborRes, expensesRes, issuesRes, trueUpRes, peopleRes] =
     await Promise.all([
       estimateId
         ? supabase
@@ -96,14 +96,14 @@ export async function loadJobTrueUp(
         .eq("job_id", jobId),
       supabase
         .from("stock_movements")
-        .select("product_id, qty, unit_cost, extended_cost, kind")
+        .select("product_id, qty, unit_cost, extended_cost, kind, source_type, voided_at")
         .eq("job_id", jobId)
-        .eq("kind", "pull"),
+        .in("kind", ["pull", "return"]),
       supabase
         .from("installer_bills")
         .select("id, job_id, status, total, legacy_display_only")
         .eq("job_id", jobId),
-      supabase.from("job_labor").select("id", { count: "exact", head: true }).eq("job_id", jobId),
+      supabase.from("job_labor").select("amount").eq("job_id", jobId),
       supabase.from("expenses").select("category, amount").eq("job_id", jobId),
       supabase.from("job_issues").select("cost_impact").eq("job_id", jobId),
       supabase.from("job_true_ups").select("*").eq("job_id", jobId).maybeSingle(),
@@ -144,11 +144,11 @@ export async function loadJobTrueUp(
     supabase.from("credit_memos").select("id, amount, status").eq("job_id", jobId).eq("status", "issued"),
     supabase
       .from("purchase_orders")
-      .select("id, status, po_items(id, product_id, description, quantity, received_qty, unit_cost, for_job_id)")
+      .select("id, status, po_items(id, product_id, description, quantity, received_qty, unit_cost, for_job_id, product:products(track_stock))")
       .eq("job_id", jobId),
     supabase
       .from("po_items")
-      .select("id, product_id, description, quantity, received_qty, unit_cost, for_job_id, po:purchase_orders(status, job_id)")
+      .select("id, product_id, description, quantity, received_qty, unit_cost, for_job_id, product:products(track_stock), po:purchase_orders(status, job_id)")
       .eq("for_job_id", jobId),
   ]);
 
@@ -253,7 +253,12 @@ export async function loadJobTrueUp(
     qty: num(p.qty),
     unitCost: num(p.unit_cost),
     extendedCost: num(p.extended_cost),
+    kind: str(p.kind) ?? "pull",
+    sourceType: str(p.source_type),
+    voided: p.voided_at != null,
   }));
+  const legacyLabor = ((laborRes.data ?? []) as Row[]).map((row) => moneyToCents(num(row.amount)) ?? BigInt(0));
+  const legacyLaborCents = legacyLabor.reduce((sum, cents) => sum + cents, BigInt(0));
 
   const bills = ((billsRes.data ?? []) as Row[]).map(
     (b): InstallerBillLike => ({
@@ -323,13 +328,14 @@ export async function loadJobTrueUp(
       bills,
       jobId,
       installerAssigned: !!(job.assigned_to || job.assigned_crew_id),
-      legacyLaborRows: laborCount.count ?? 0,
+      legacyLaborRows: legacyLabor.length,
+      legacyLaborCents: legacyLabor.length ? legacyLaborCents : null,
       entries: manual,
     }),
     freight: resolveFreight({ poLines, entries: manual }),
     other: resolveOther({
       expenses,
-      issueCostCents: issueCost > BigInt(0) ? issueCost : BigInt(0),
+      issueCostCents: issueCost,
       hasInstallerBills: bills.some((b) => !b.legacy_display_only),
       subcontractorExpenseCents: subcontractor,
       entries: manual,
@@ -403,6 +409,12 @@ function sumBy(rows: unknown[], key: string): Map<string, bigint> {
   return map;
 }
 
+function embeddedTrackStock(item: Row): boolean | null {
+  const product = (Array.isArray(item.product) ? item.product[0] : item.product) as Row | null | undefined;
+  if (!product || typeof product.track_stock !== "boolean") return null;
+  return product.track_stock;
+}
+
 function collectPoLines(jobId: string, byJob: Row[], byItem: Row[]) {
   const seen = new Set<string>();
   const lines: {
@@ -412,6 +424,7 @@ function collectPoLines(jobId: string, byJob: Row[], byItem: Row[]) {
     quantity: number | string | null;
     receivedQty: number | string | null;
     unitCost: number | string | null;
+    trackStock: boolean | null;
   }[] = [];
   const push = (status: string, item: Row) => {
     const id = String(item.id ?? `${item.description}-${item.product_id}`);
@@ -424,6 +437,7 @@ function collectPoLines(jobId: string, byJob: Row[], byItem: Row[]) {
       quantity: num(item.quantity),
       receivedQty: num(item.received_qty),
       unitCost: num(item.unit_cost),
+      trackStock: embeddedTrackStock(item),
     });
   };
   for (const po of byJob) {
