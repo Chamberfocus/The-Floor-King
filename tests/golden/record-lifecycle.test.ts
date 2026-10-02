@@ -287,6 +287,29 @@ describe("lifecycle authorization and schema guards", () => {
     expect(sql).toContain("from public.installer_bills where crew_id = p_id");
   });
 
+  it("fails closed before lifecycle changes when the schema is not compatible", () => {
+    expect(sql).toContain("do $fk0480mig$");
+    expect(sql).toContain("0480 preflight: required relation public.% is missing");
+    expect(sql).toContain("0480 preflight: required column public.%.% is missing");
+    expect(sql).toContain("0480 preflight: public.%.% type is incompatible");
+    expect(sql).toContain("0480 preflight: unexpected foreign key %.% referencing %.%");
+    expect(sql).toContain("0480 preflight: estimate_queue_page signature is unexpected");
+    expect(sql).toContain("0480 preflight: invoice_queue_page signature is unexpected");
+    expect(sql).toContain("0480 preflight: search_products signature is unexpected");
+    expect(sql).toContain("0480 preflight: is_staff() is not limited to administrator and office");
+    expect(sql).toContain("0480 preflight: authenticated can read product valuation columns");
+    expect(sql).toContain("0480 preflight: migration % is not recorded");
+    expect(sql).toContain(
+      "migration history table is absent; 0477, 0478, and 0479 are not rerun",
+    );
+    expect(sql).not.toMatch(/^\s*begin\s*;/im);
+    expect(sql).not.toMatch(/^\s*commit\s*;/im);
+    const preflightAt = sql.indexOf("0480 preflight:");
+    const alterAt = sql.indexOf("alter table public.customers");
+    expect(preflightAt).toBeGreaterThan(-1);
+    expect(alterAt).toBeGreaterThan(preflightAt);
+  });
+
   it("does not delete existing rows when the migration is applied", () => {
     const commitAt = sql.indexOf("create or replace function public.lifecycle_commit_delete");
     const firstDelete = sql.toLowerCase().indexOf("delete from");
