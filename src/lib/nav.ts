@@ -169,6 +169,8 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: Wallet,
     items: [
       { label: "Invoices", href: "/invoices", icon: Receipt, roles: SALES },
+      { label: "True-up", href: "/commissions", icon: BarChart3, roles: OFFICE_PLUS },
+      { label: "My commission", href: "/commissions/statement", icon: Receipt, roles: ["salesman"] },
       { label: "Bills (A/P)", href: "/bills", icon: Wallet, roles: OFFICE_PLUS },
       {
         label: "Accounting",
@@ -365,6 +367,8 @@ const SHELL_BLUEPRINT: {
     items: [
       { href: "/invoices" },
       { href: "/bills", label: "Bills" },
+      { href: "/commissions", label: "True-up" },
+      { href: "/commissions/statement", label: "My commission" },
       { href: "/pulse", label: "Business pulse" },
     ],
   },
