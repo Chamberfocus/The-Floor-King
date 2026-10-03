@@ -110,7 +110,7 @@ export async function getCustomerRowContexts(
       null;
 
     const appts = [...(apptsBy.get(id) ?? [])].sort((a, b) =>
-      (a.starts_at as string).localeCompare(b.starts_at as string),
+      String(a.starts_at ?? "").localeCompare(String(b.starts_at ?? "")),
     );
     const upcoming = appts.find((a) => (a.starts_at as string) >= nowIso);
     const ap = upcoming ?? appts[appts.length - 1] ?? null;
