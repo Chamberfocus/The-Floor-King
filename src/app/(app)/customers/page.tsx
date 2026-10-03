@@ -11,8 +11,9 @@ import { QUEUE_LIST_UNAVAILABLE, queueFailureMessage } from "@/lib/ops-scale";
 import { WorkQueuePager } from "@/components/work-queue-bar";
 import { parseListPage, resultCountLabel } from "@/lib/work-queues";
 import { listWorkflowStages, listHandoffMembers } from "@/lib/data/workflow";
-import { getSchedulingSettings } from "@/lib/data/scheduling";
+import { getSchedulingSettings, SCHEDULING_DEFAULTS } from "@/lib/data/scheduling";
 import { getUserPreferences } from "@/lib/data/preferences";
+import { DEFAULT_PREFERENCES } from "@/lib/preferences";
 import { requireProfile } from "@/lib/auth";
 import { SALES_ROLES, INSTALL_ROLES } from "@/lib/types";
 import { parseArrivalWindows } from "@/lib/format";
@@ -105,13 +106,23 @@ export default async function CustomersPage({
   const customerPages = Math.max(1, Math.ceil(listed.total / listed.pageSize));
 
   // Shared data for per-row quick actions — fetched once for the whole list.
-  const [members, schedSettings, prefs, contexts, activity] = await Promise.all([
-    listHandoffMembers(),
-    getSchedulingSettings(),
-    getUserPreferences(),
-    getCustomerRowContexts(customers.map((c) => c.id)),
-    getCustomerListActivity(customers.map((c) => c.id)),
-  ]);
+  // A failure here must not take down the page. Rows already loaded stay visible.
+  let members: Awaited<ReturnType<typeof listHandoffMembers>> = [];
+  let schedSettings = SCHEDULING_DEFAULTS;
+  let prefs = DEFAULT_PREFERENCES;
+  let contexts: Awaited<ReturnType<typeof getCustomerRowContexts>> = {};
+  let activity: Awaited<ReturnType<typeof getCustomerListActivity>> = {};
+  try {
+    [members, schedSettings, prefs, contexts, activity] = await Promise.all([
+      listHandoffMembers(),
+      getSchedulingSettings(),
+      getUserPreferences(),
+      getCustomerRowContexts(customers.map((c) => c.id)),
+      getCustomerListActivity(customers.map((c) => c.id)),
+    ]);
+  } catch {
+    if (!customers.length) listError = QUEUE_LIST_UNAVAILABLE;
+  }
   const shared: ListShared = {
     stages: stages.map((s) => ({
       id: s.id,
@@ -133,7 +144,11 @@ export default async function CustomersPage({
     installOptions: members
       .filter((m) => (INSTALL_ROLES as string[]).includes(m.role))
       .map((m) => ({ id: m.id, name: m.name })),
-    arrivalWindows: parseArrivalWindows(schedSettings.arrival_windows),
+    arrivalWindows: parseArrivalWindows(
+      typeof schedSettings.arrival_windows === "string"
+        ? schedSettings.arrival_windows
+        : null,
+    ),
     listActions: prefs.listActions,
     // Same roles the close-out page itself requires — showing the button to
     // anyone else would only hand them a permission error.

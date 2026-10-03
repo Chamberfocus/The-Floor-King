@@ -64,9 +64,10 @@ export function SearchPicker({
 
   const matches = useMemo(() => {
     const term = q.trim().toLowerCase();
+    const text = (value: unknown) => (typeof value === "string" ? value : "");
     if (!term) return options.slice(0, 50);
     return options
-      .filter((o) => `${o.label} ${o.hint ?? ""}`.toLowerCase().includes(term))
+      .filter((o) => `${text(o.label)} ${text(o.hint)}`.toLowerCase().includes(term))
       .slice(0, 50);
   }, [options, q]);
 
@@ -90,7 +91,9 @@ export function SearchPicker({
           !selected && "text-muted-foreground",
         )}
       >
-        <span className="truncate">{selected ? selected.label : placeholder}</span>
+        <span className="truncate">
+          {selected ? (typeof selected.label === "string" ? selected.label : "") : placeholder}
+        </span>
         <span className="flex items-center gap-1">
           {allowClear && selected ? (
             <X
@@ -148,8 +151,8 @@ export function SearchPicker({
                     o.value === current && "font-medium",
                   )}
                 >
-                  <span className="truncate">{o.label}</span>
-                  {o.hint ? (
+                  <span className="truncate">{typeof o.label === "string" ? o.label : ""}</span>
+                  {typeof o.hint === "string" && o.hint ? (
                     <span className="shrink-0 text-xs text-muted-foreground">{o.hint}</span>
                   ) : null}
                 </button>
