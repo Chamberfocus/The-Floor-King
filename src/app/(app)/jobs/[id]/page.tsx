@@ -675,6 +675,14 @@ export default async function JobPage({
         </div>
         {/* Quick actions — the assigned installer or staff. On phones the two
             on-site actions go big and full-width; Print tucks to the side. */}
+        {profile.role === "salesman" ? (
+          <Link
+            href={`/jobs/${id}/true-up`}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            My commission
+          </Link>
+        ) : null}
         {isStaff || isAssignedToMe ? (
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             {isStaff ? (
@@ -694,6 +702,12 @@ export default async function JobPage({
                 >
                   <Scale className="size-4" />
                   {job.closed_out_at ? "Costs" : "Close out"}
+                </Link>
+                <Link
+                  href={`/jobs/${id}/true-up`}
+                  className={buttonVariants({ variant: "outline", size: "sm" })}
+                >
+                  True-up
                 </Link>
               </>
             ) : null}

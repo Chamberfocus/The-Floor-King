@@ -170,11 +170,16 @@ describe("Phase A shell grouping", () => {
     expect(money?.items.map((item) => item.href)).not.toContain("/purchase-orders");
     expect(money?.items.map((item) => item.href)).not.toContain("/accounting");
     expect(more?.items.map((item) => item.href)).toEqual([
+      "/commissions",
       "/dashboard",
       "/reports",
       "/accounting",
       "/settings",
     ]);
+    expect(more?.items.find((item) => item.href === "/commissions")?.label).toBe("True-up");
+    const jobs = sections.find((section) => section.id === "jobs");
+    expect(jobs?.items.find((item) => item.href === "/commissions")?.label).toBe("True-up");
+    expect(money?.items.map((item) => item.href)).not.toContain("/commissions");
   });
 
   it("uses employee-facing labels without changing the route", () => {
@@ -259,6 +264,9 @@ describe("Phase A active navigation", () => {
       ["/inventory", "inventory"],
       ["/warehouse", "inventory"],
       ["/purchase-orders", "inventory"],
+      ["/commissions", "jobs"],
+      ["/commissions/statement", "jobs"],
+      ["/commissions/profitability", "jobs"],
       ["/dashboard", "more"],
       ["/reports", "more"],
       ["/accounting", "more"],
