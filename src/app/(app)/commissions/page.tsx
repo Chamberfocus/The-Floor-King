@@ -18,6 +18,16 @@ const BUCKETS = [
   ["commission_paid", "Commission paid"],
 ] as const;
 
+const DESTINATIONS = [
+  { id: "needs_true_up", label: "Needs true-up", href: "/commissions?bucket=needs_true_up" },
+  { id: "in_progress", label: "In progress", href: "/commissions?bucket=in_progress" },
+  { id: "approved", label: "Approved", href: "/commissions?bucket=approved" },
+  { id: "statements", label: "Statements", href: "/commissions/statement" },
+  { id: "profitability", label: "Profitability", href: "/commissions/profitability" },
+] as const;
+
+type QueueRow = { job_id: string; job_title: string; customer_name: string; status: string };
+
 export default async function CommissionsPage({
   searchParams,
 }: {
@@ -26,25 +36,64 @@ export default async function CommissionsPage({
   const profile = await requireProfile();
   if (!trueUpAccess(profile.role).viewAll) notFound();
   const sp = await searchParams;
-  const bucket = BUCKETS.some(([id]) => id === sp.bucket) ? sp.bucket! : "needs_true_up";
+  const bucket =
+    sp.bucket === "in_progress" || BUCKETS.some(([id]) => id === sp.bucket) ? sp.bucket! : "needs_true_up";
   const page = Math.max(1, Number(sp.page) || 1);
   const limit = 25;
   const offset = (page - 1) * limit;
   const supabase = await createClient();
-  const [dash, list, count] = await Promise.all([
+  const inProgress = bucket === "in_progress";
+  const [dash, list, count, readyList, readyCount] = await Promise.all([
     supabase.rpc("job_true_up_dashboard"),
-    supabase.rpc("list_job_true_up_queue", { p_bucket: bucket, p_limit: limit, p_offset: offset }),
-    supabase.rpc("count_job_true_up_queue", { p_bucket: bucket }),
+    supabase.rpc("list_job_true_up_queue", {
+      p_bucket: inProgress ? "missing_costs" : bucket,
+      p_limit: limit,
+      p_offset: offset,
+    }),
+    supabase.rpc("count_job_true_up_queue", { p_bucket: inProgress ? "missing_costs" : bucket }),
+    inProgress
+      ? supabase.rpc("list_job_true_up_queue", {
+          p_bucket: "ready_for_review",
+          p_limit: limit,
+          p_offset: offset,
+        })
+      : Promise.resolve({ data: null, error: null }),
+    inProgress
+      ? supabase.rpc("count_job_true_up_queue", { p_bucket: "ready_for_review" })
+      : Promise.resolve({ data: null, error: null }),
   ]);
-  const missing = [dash.error, list.error, count.error].find((e) => e && /does not exist|schema cache|42883/i.test(e.message));
+  const missing = [dash.error, list.error, count.error, readyList.error, readyCount.error].find(
+    (e) => e && /does not exist|schema cache|42883/i.test(e.message),
+  );
+  const rows = (list.data ?? []) as QueueRow[];
+  const readyRows = (readyList.data ?? []) as QueueRow[];
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6">
-      <PageHeader title="Job true-up" description="Actual profitability and salesperson commission. Accounting stays off.">
-        <Link href="/commissions/statement" className="text-sm underline">Statements</Link>
-        <Link href="/commissions/profitability" className="text-sm underline">Profitability</Link>
-        <Link href="/commissions/performance" className="text-sm underline">Salespeople</Link>
-      </PageHeader>
+      <PageHeader
+        title="Job true-up"
+        description="Actual profitability and salesperson commission. Accounting stays off."
+      />
+      <nav aria-label="True-up" className="grid gap-2 sm:grid-cols-5">
+        {DESTINATIONS.map((item) => {
+          const active =
+            item.id === "in_progress"
+              ? bucket === "in_progress" || bucket === "missing_costs" || bucket === "ready_for_review"
+              : item.id === bucket;
+          return (
+            <Link
+              key={item.id}
+              href={item.href}
+              aria-current={active ? "page" : undefined}
+              className={`inline-flex min-h-11 items-center justify-center rounded-xl border px-3 text-center text-sm font-semibold ${
+                active ? "bg-primary text-primary-foreground" : "hover:bg-muted/40"
+              }`}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
       {missing ? (
         <p className="rounded-xl border p-4 text-sm">
           Apply supabase/migrations/0481_job_true_up.sql in the Supabase SQL editor before this queue can read or write true-ups. The migration has not been applied from this change.
@@ -61,9 +110,38 @@ export default async function CommissionsPage({
             {label}
           </Link>
         ))}
+        <Link href="/commissions/performance" className="inline-flex h-11 items-center rounded-full border px-4 text-sm">
+          Salespeople
+        </Link>
       </div>
+      {inProgress ? (
+        <div className="grid gap-6">
+          <Queue title={`Missing costs (${Number(count.data ?? 0)})`} rows={rows} />
+          <Queue title={`Ready for review (${Number(readyCount.data ?? 0)})`} rows={readyRows} />
+        </div>
+      ) : (
+        <Queue rows={rows} />
+      )}
+      <Pager
+        page={page}
+        total={
+          inProgress
+            ? Math.max(Number(count.data ?? 0), Number(readyCount.data ?? 0))
+            : Number(count.data ?? 0)
+        }
+        limit={limit}
+        bucket={bucket}
+      />
+    </div>
+  );
+}
+
+function Queue({ title, rows }: { title?: string; rows: QueueRow[] }) {
+  return (
+    <section className="grid gap-2">
+      {title ? <h2 className="text-base font-semibold">{title}</h2> : null}
       <ul className="grid gap-2">
-        {((list.data ?? []) as { job_id: string; job_title: string; customer_name: string; status: string }[]).map((row) => (
+        {rows.map((row) => (
           <li key={row.job_id}>
             <Link href={`/jobs/${row.job_id}/true-up`} className="flex items-center justify-between rounded-xl border p-4 hover:bg-muted/40">
               <span>
@@ -74,10 +152,9 @@ export default async function CommissionsPage({
             </Link>
           </li>
         ))}
-        {!list.data?.length ? <li className="text-sm text-muted-foreground">Nothing in this list.</li> : null}
+        {!rows.length ? <li className="text-sm text-muted-foreground">Nothing in this list.</li> : null}
       </ul>
-      <Pager page={page} total={Number(count.data ?? 0)} limit={limit} bucket={bucket} />
-    </div>
+    </section>
   );
 }
 

@@ -346,6 +346,7 @@ const SHELL_BLUEPRINT: {
     label: "Jobs",
     items: [
       { href: "/jobs" },
+      { href: "/commissions", label: "True-up" },
       { href: "/tasks" },
       { href: "/service" },
       { href: "/board", label: "Job board" },
@@ -367,7 +368,6 @@ const SHELL_BLUEPRINT: {
     items: [
       { href: "/invoices" },
       { href: "/bills", label: "Bills" },
-      { href: "/commissions", label: "True-up" },
       { href: "/commissions/statement", label: "My commission" },
       { href: "/pulse", label: "Business pulse" },
     ],
@@ -387,6 +387,7 @@ const SHELL_BLUEPRINT: {
     id: "more",
     label: "More",
     items: [
+      { href: "/commissions", label: "True-up" },
       { href: "/dashboard" },
       { href: "/reports" },
       { href: "/accounting" },
