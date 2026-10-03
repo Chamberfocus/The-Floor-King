@@ -9,7 +9,7 @@ import {
   correctSalesperson,
   overrideCollection,
   overrideCommission,
-  recordLateAdjustment,
+  reopenTrueUp,
   saveTrueUpCost,
 } from "./actions";
 
@@ -28,6 +28,7 @@ export function TrueUpPanel({
   canCollection,
   canSalesperson,
   approved,
+  revisionOpen,
   salespeople,
 }: {
   jobId: string;
@@ -37,6 +38,7 @@ export function TrueUpPanel({
   canCollection: boolean;
   canSalesperson: boolean;
   approved: boolean;
+  revisionOpen: boolean;
   salespeople: { id: string; name: string }[];
 }) {
   const [pending, start] = useTransition();
@@ -54,10 +56,11 @@ export function TrueUpPanel({
   };
 
   if (!canEnter && !canApprove && !canOverride) return null;
+  const costsOpen = !approved || revisionOpen;
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      {canEnter ? (
+      {canEnter && costsOpen ? (
         <section className="rounded-xl border bg-card p-4">
           <h2 className="text-base font-semibold">Actual cost</h2>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -138,22 +141,22 @@ export function TrueUpPanel({
       <section className="rounded-xl border bg-card p-4">
         <h2 className="text-base font-semibold">Approval and commission</h2>
         <div className="mt-3 flex flex-col gap-3">
-          {canApprove && !approved ? (
+          {canApprove && (!approved || revisionOpen) ? (
             <Button type="button" className="h-11" disabled={pending} onClick={() => run(() => approveTrueUp(jobId))}>
-              Approve true-up
+              {revisionOpen ? "Approve revised calculation" : "Approve true-up"}
             </Button>
           ) : null}
-          {canEnter && approved ? (
+          {canApprove && approved && !revisionOpen ? (
             <div className="grid gap-2">
-              <Input className="h-11" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why the cost changed after approval" />
+              <Input className="h-11" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why this true-up needs another look" />
               <Button
                 type="button"
                 variant="outline"
                 className="h-11"
                 disabled={pending}
-                onClick={() => run(() => recordLateAdjustment(jobId, note))}
+                onClick={() => run(() => reopenTrueUp(jobId, reason))}
               >
-                Record late-cost adjustment
+                Reopen for revision
               </Button>
             </div>
           ) : null}
@@ -173,7 +176,7 @@ export function TrueUpPanel({
               onSave={(why) => run(() => overrideCollection(jobId, why))}
             />
           ) : null}
-          {canOverride ? (
+          {canOverride && costsOpen ? (
             <div className="grid gap-2 rounded-lg border p-3">
               <p className="text-sm font-medium">Administrator commission override</p>
               <OverrideRow

@@ -64,6 +64,19 @@ export async function approveTrueUp(jobId: string): Promise<ActionResult> {
   return result;
 }
 
+export async function reopenTrueUp(jobId: string, reason: string): Promise<ActionResult> {
+  const profile = await assertRole(["admin", "office"]);
+  assertTrueUpCapability(profile.role, "approve");
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("reopen_job_true_up", {
+    p_job_id: jobId,
+    p_reason: reason,
+  });
+  const result = fail(error, "Could not reopen the true-up.");
+  if (result.ok) revalidatePath(`/jobs/${jobId}/true-up`);
+  return result;
+}
+
 export async function recordLateAdjustment(jobId: string, note: string): Promise<ActionResult> {
   await staff();
   const supabase = await createClient();

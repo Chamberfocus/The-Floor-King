@@ -86,7 +86,7 @@ funcs_left() {
         'fk_true_up_cents','fk_commission_rate_bps','fk_commission_amount_cents',
         'fk_margin_hundredths','fk_true_up_assert_staff','fk_true_up_assert_admin',
         'job_true_up_calculate','ensure_job_true_up','record_true_up_entry',
-        'approve_job_true_up','refresh_true_up_collection','record_late_true_up_adjustment',
+        'approve_job_true_up','reopen_job_true_up','refresh_true_up_collection','record_late_true_up_adjustment',
         'set_true_up_collection_override','set_true_up_commission_override',
         'set_true_up_salesperson','mark_commission_lines_paid','list_job_true_up_queue',
         'count_job_true_up_queue','job_true_up_dashboard','job_commission_statement',
@@ -448,16 +448,24 @@ if [[ "$earned_refresh" != "1" ]]; then
 fi
 log "PASS refresh does not create a commission"
 
-psql_db fk481_ok -c "SELECT public.fk481_query('a0000000-0000-0000-0000-000000000002', \$q\$SELECT public.record_true_up_entry('c0000000-0000-0000-0000-000000000001', 'labor', 'manual_amount', 5000, 'Synthetic late labor', 'vendor bill')::text\$q\$);" >/dev/null
-late1="$(psql_db fk481_ok -At -c "SELECT public.fk481_query('a0000000-0000-0000-0000-000000000002', \$q\$SELECT (public.record_late_true_up_adjustment('c0000000-0000-0000-0000-000000000001', 'Synthetic late labor')->>'adjustment_cents')\$q\$);")"
-late2="$(psql_db fk481_ok -At -c "SELECT public.fk481_query('a0000000-0000-0000-0000-000000000002', \$q\$SELECT (public.record_late_true_up_adjustment('c0000000-0000-0000-0000-000000000001', 'Synthetic late labor retry')->>'adjustment_cents')\$q\$);")"
-adj_n="$(psql_db fk481_ok -At -c "SELECT count(*) FROM public.job_commission_ledger WHERE kind = 'adjustment';")"
-log "late1=${late1} late2=${late2} adjustment_rows=${adj_n}"
-if [[ "$late1" != "-400" || "$late2" != "0" || "$adj_n" != "1" ]]; then
-  log "FAIL late-cost idempotency"
+blocked="$(psql_db fk481_ok -At -c "SELECT public.fk481_query('a0000000-0000-0000-0000-000000000002', \$q\$SELECT public.record_true_up_entry('c0000000-0000-0000-0000-000000000001', 'labor', 'manual_amount', 5000, 'Synthetic late labor', 'vendor bill')::text\$q\$);")"
+log "blocked_cost_edit=${blocked}"
+if [[ "$blocked" != *"Reopen the true-up"* ]]; then
+  log "FAIL approved costs were editable without a reopen"
   exit 1
 fi
-log "PASS late-cost recalculation does not duplicate the adjustment"
+reopen="$(psql_db fk481_ok -At -c "SELECT public.fk481_exec('a0000000-0000-0000-0000-000000000002', \$q\$SELECT public.reopen_job_true_up('c0000000-0000-0000-0000-000000000001', 'Synthetic late labor')\$q\$);")"
+entry="$(psql_db fk481_ok -At -c "SELECT public.fk481_query('a0000000-0000-0000-0000-000000000002', \$q\$SELECT public.record_true_up_entry('c0000000-0000-0000-0000-000000000001', 'labor', 'manual_amount', 5000, 'Synthetic late labor', 'vendor bill')::text\$q\$);")"
+revised="$(psql_db fk481_ok -At -c "SELECT public.fk481_query('a0000000-0000-0000-0000-000000000002', \$q\$SELECT (public.approve_job_true_up('c0000000-0000-0000-0000-000000000001')->>'commission_cents')\$q\$);")"
+again="$(psql_db fk481_ok -At -c "SELECT public.fk481_query('a0000000-0000-0000-0000-000000000002', \$q\$SELECT (public.approve_job_true_up('c0000000-0000-0000-0000-000000000001')->>'commission_cents')\$q\$);")"
+versions="$(psql_db fk481_ok -At -c "SELECT string_agg(version::text || ':' || (payload->>'commission_cents'), ',' ORDER BY version) FROM public.job_true_up_snapshots;")"
+adj_n="$(psql_db fk481_ok -At -c "SELECT count(*) FROM public.job_commission_ledger WHERE kind = 'adjustment';")"
+log "reopen=${reopen} entry=${entry} revised=${revised} again=${again} versions=${versions} adjustments=${adj_n}"
+if [[ "$reopen" != "ok" || "$revised" != "400" || "$again" != *"already approved"* || "$versions" != "1:800,2:400" || "$adj_n" != "1" ]]; then
+  log "FAIL revision did not keep the original snapshot and add one new calculation"
+  exit 1
+fi
+log "PASS reopen writes a new approved calculation and leaves version 1 unchanged"
 
 office_override="$(psql_db fk481_ok -At -c "SELECT public.fk481_exec('a0000000-0000-0000-0000-000000000002', \$q\$SELECT public.set_true_up_collection_override('c0000000-0000-0000-0000-000000000001', 'office should not')\$q\$);")"
 office_amount="$(psql_db fk481_ok -At -c "SELECT public.fk481_exec('a0000000-0000-0000-0000-000000000002', \$q\$SELECT public.set_true_up_commission_override('c0000000-0000-0000-0000-000000000001', 'amount', 1, 'office should not')\$q\$);")"
@@ -528,7 +536,7 @@ for role in scheduler warehouse crew customer sales_manager; do
   esac
   calc="$(psql_db fk481_ok -At -c "SELECT public.fk481_query('${uid}', \$q\$SELECT public.job_true_up_calculate('c0000000-0000-0000-0000-000000000001')::text\$q\$);")"
   stmt="$(psql_db fk481_ok -At -c "SELECT public.fk481_query('${uid}', \$q\$SELECT public.job_commission_statement('a0000000-0000-0000-0000-000000000003', null, null, 'all', 25, 0)::text\$q\$);")"
-  prof="$(psql_db fk481_ok -At -c "SELECT public.fk481_query('${uid}', \$q\$SELECT public.job_true_up_profitability(null, null, null, 25, 0)::text\$q\$);")"
+  prof="$(psql_db fk481_ok -At -c "SELECT public.fk481_query('${uid}', \$q\$SELECT public.job_true_up_profitability(null, null, null, 25, 0, null, null)::text\$q\$);")"
   perf="$(psql_db fk481_ok -At -c "SELECT public.fk481_query('${uid}', \$q\$SELECT public.job_true_up_performance(null, null, 25, 0)::text\$q\$);")"
   rows="$(psql_db fk481_ok -At -c "SELECT public.fk481_query('${uid}', \$q\$SELECT (SELECT count(*) FROM public.job_commission_ledger)::text\$q\$);")"
   trueups="$(psql_db fk481_ok -At -c "SELECT public.fk481_query('${uid}', \$q\$SELECT (SELECT count(*) FROM public.job_true_ups)::text\$q\$);")"
@@ -565,5 +573,21 @@ if [[ "$insert_msg" != *"permission denied"* ]]; then
   exit 1
 fi
 log "PASS direct ledger insert is denied for authenticated, including admin"
+
+# A second revision must book only the new gap. Paid lines stay paid.
+reopen2="$(psql_db fk481_ok -At -c "SELECT public.fk481_exec('a0000000-0000-0000-0000-000000000002', \$q\$SELECT public.reopen_job_true_up('c0000000-0000-0000-0000-000000000001', 'Synthetic second labor change')\$q\$);")"
+entry2="$(psql_db fk481_ok -At -c "SELECT public.fk481_query('a0000000-0000-0000-0000-000000000002', \$q\$SELECT public.record_true_up_entry('c0000000-0000-0000-0000-000000000001', 'labor', 'manual_amount', 7500, 'Synthetic second labor change', 'later bill')::text\$q\$);")"
+revised2="$(psql_db fk481_ok -At -c "SELECT public.fk481_query('a0000000-0000-0000-0000-000000000002', \$q\$SELECT (public.approve_job_true_up('c0000000-0000-0000-0000-000000000001')->>'commission_cents')\$q\$);")"
+versions2="$(psql_db fk481_ok -At -c "SELECT string_agg(version::text || ':' || (payload->>'commission_cents'), ',' ORDER BY version) FROM public.job_true_up_snapshots;")"
+ledger_sum="$(psql_db fk481_ok -At -c "SELECT coalesce(sum(amount_cents),0) FROM public.job_commission_ledger;")"
+paid_sum="$(psql_db fk481_ok -At -c "SELECT coalesce(sum(amount_cents),0) FROM public.job_commission_ledger WHERE status = 'paid';")"
+owed_sum="$(psql_db fk481_ok -At -c "SELECT coalesce(sum(amount_cents),0) FROM public.job_commission_ledger WHERE status <> 'paid';")"
+earned_n="$(psql_db fk481_ok -At -c "SELECT count(*) FROM public.job_commission_ledger WHERE kind = 'earned';")"
+log "reopen2=${reopen2} entry2=${entry2} revised2=${revised2} versions2=${versions2} ledger=${ledger_sum} paid=${paid_sum} owed=${owed_sum} earned=${earned_n}"
+if [[ "$reopen2" != "ok" || "$revised2" != "63" || "$versions2" != "1:800,2:400,3:63" || "$ledger_sum" != "63" || "$paid_sum" != "400" || "$owed_sum" != "-337" || "$earned_n" != "1" ]]; then
+  log "FAIL second revision rewrote history or booked the wrong commission gap"
+  exit 1
+fi
+log "PASS second revision keeps both earlier calculations and books only the new gap"
 
 log "PROOF COMPLETE"

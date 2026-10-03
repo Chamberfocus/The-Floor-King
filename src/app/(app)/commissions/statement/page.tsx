@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { COMPANY_NAME } from "@/lib/nav";
-import { formatCents, formatMarginHundredths, marginHundredths, trueUpAccess } from "@/lib/job-true-up";
+import { formatCents, formatMarginHundredths, formatRateBps, marginHundredths, trueUpAccess } from "@/lib/job-true-up";
 import { PrintButton } from "@/components/print-button";
 import { PayBatch } from "../pay-batch";
 
@@ -104,7 +104,7 @@ export default async function StatementPage({
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="border-b">
-                {["Job", "Customer", "Completed", "Revenue", "Cost", "GP", "Commission", "Adjustment", "Paid", "Owed"].map((h) => (
+                {["Job", "Customer", "Completed", "Final sale", "Actual cost", "GP $", "PM %", "Commission %", "Commission $", "Approval", "Payment", "Paid", "Owed"].map((h) => (
                   <th key={h} className="px-2 py-2">{h}</th>
                 ))}
               </tr>
@@ -120,8 +120,11 @@ export default async function StatementPage({
                     <td className="px-2 py-2">{money(payload.actual_revenue_cents)}</td>
                     <td className="px-2 py-2">{money(payload.actual_direct_cents)}</td>
                     <td className="px-2 py-2">{money(payload.actual_gp_cents)}</td>
-                    <td className="px-2 py-2">{money(row.earned_cents)}</td>
-                    <td className="px-2 py-2">{money(row.adjustment_cents)}</td>
+                    <td className="px-2 py-2">{formatMarginHundredths(asBig(payload.actual_margin_hundredths))}</td>
+                    <td className="px-2 py-2">{rate(payload.rate_bps)}</td>
+                    <td className="px-2 py-2">{money(payload.commission_cents)}</td>
+                    <td className="px-2 py-2">{String(row.approval_status ?? "").replaceAll("_", " ")}</td>
+                    <td className="px-2 py-2">{String(row.payment_status ?? "").replaceAll("_", " ")}</td>
                     <td className="px-2 py-2">{money(row.paid_cents)}</td>
                     <td className="px-2 py-2">{money(row.owed_cents)}</td>
                   </tr>
@@ -156,6 +159,20 @@ function Stat({ label, value }: { label: string; value: string }) {
       <dd className="text-lg font-semibold">{value}</dd>
     </div>
   );
+}
+
+function rate(value: unknown): string {
+  const bps = asBig(value);
+  return bps == null ? "—" : formatRateBps(bps);
+}
+
+function asBig(value: unknown): bigint | null {
+  if (value == null) return null;
+  try {
+    return BigInt(value as string | number);
+  } catch {
+    return null;
+  }
 }
 
 function money(value: unknown): string {

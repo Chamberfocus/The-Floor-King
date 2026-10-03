@@ -468,9 +468,13 @@ create table if not exists public.job_true_ups (
   zero_revenue_ack_reason text,
   zero_revenue_ack_by uuid references public.profiles (id) on delete set null,
   zero_revenue_ack_at timestamptz,
+  revision_open boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.job_true_ups
+  add column if not exists revision_open boolean not null default false;
 
 create index if not exists job_true_ups_status_idx on public.job_true_ups (status, updated_at desc);
 create index if not exists job_true_ups_salesperson_idx on public.job_true_ups (salesperson_id);
@@ -1190,7 +1194,7 @@ begin
     'duplicate_originals', v_dup,
     'blockers', to_jsonb(v_blockers),
     'flags', to_jsonb(v_flags),
-    'can_approve', cardinality(v_blockers) = 0 and (not v_has_true or v_true.approved_at is null)
+    'can_approve', cardinality(v_blockers) = 0 and (not v_has_true or v_true.approved_at is null or v_true.revision_open)
   );
 end;
 $$;
@@ -1271,6 +1275,13 @@ begin
   v_id := public.ensure_job_true_up(p_job_id);
   perform 1 from public.job_true_ups where id = v_id for update;
 
+  if exists (
+    select 1 from public.job_true_ups
+    where id = v_id and approved_at is not null and revision_open = false
+  ) then
+    raise exception 'Reopen the true-up before changing an approved calculation.';
+  end if;
+
   insert into public.job_true_up_entries (
     true_up_id, category, kind, amount_cents, reason, note, entered_by
   ) values (
@@ -1302,6 +1313,37 @@ begin
 end;
 $$;
 
+create or replace function public.reopen_job_true_up(
+  p_job_id uuid,
+  p_reason text
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_row public.job_true_ups%rowtype;
+begin
+  perform public.fk_true_up_assert_staff();
+  if p_reason is null or length(btrim(p_reason)) = 0 then
+    raise exception 'A reason is required.';
+  end if;
+  select * into v_row from public.job_true_ups where job_id = p_job_id for update;
+  if not found or v_row.approved_at is null then
+    raise exception 'Approve the true-up before reopening it.';
+  end if;
+  if v_row.revision_open then
+    raise exception 'This true-up is already open for revision.';
+  end if;
+  update public.job_true_ups
+    set revision_open = true, updated_at = now()
+    where id = v_row.id;
+  insert into public.job_true_up_audit (true_up_id, job_id, action, reason, actor_id)
+  values (v_row.id, p_job_id, 'reopen', btrim(p_reason), auth.uid());
+end;
+$$;
+
 create or replace function public.approve_job_true_up(p_job_id uuid)
 returns jsonb
 language plpgsql
@@ -1310,6 +1352,7 @@ set search_path = public
 as $$
 declare
   v_id uuid;
+  v_row public.job_true_ups%rowtype;
   v_calc jsonb;
   v_version int;
   v_snap uuid;
@@ -1319,12 +1362,14 @@ declare
   v_collected boolean;
   v_status text;
   v_key text;
+  v_late jsonb;
 begin
   perform public.fk_true_up_assert_staff();
   v_id := public.ensure_job_true_up(p_job_id);
-  perform 1 from public.job_true_ups where id = v_id for update;
+  select * into v_row from public.job_true_ups where id = v_id for update;
 
-  if exists (select 1 from public.job_true_up_snapshots where true_up_id = v_id) then
+  if exists (select 1 from public.job_true_up_snapshots where true_up_id = v_id)
+     and v_row.revision_open is distinct from true then
     raise exception 'This true-up is already approved.';
   end if;
 
@@ -1344,6 +1389,29 @@ begin
   v_collected := coalesce((v_calc->>'collection_override')::boolean, false) or v_open <= 0;
   v_status := case when v_collected then 'commission_payable' else 'approved' end;
   v_key := 'earned:' || v_id::text || ':v' || v_version::text;
+
+  if v_version > 1 then
+    v_late := public.record_late_true_up_adjustment(p_job_id, 'Approved revised calculation');
+    insert into public.job_true_up_snapshots (
+      true_up_id, job_id, version, salesperson_id, approved_by, formula_version, payload
+    ) values (
+      v_id, p_job_id, v_version, v_sales, auth.uid(), 1, v_calc
+    )
+    returning id into v_snap;
+
+    update public.job_true_ups
+      set status = v_status,
+          salesperson_id = v_sales,
+          approved_at = now(),
+          revision_open = false,
+          updated_at = now()
+      where id = v_id;
+
+    insert into public.job_true_up_audit (true_up_id, job_id, action, actor_id, after)
+    values (v_id, p_job_id, 'revise', auth.uid(), v_calc || jsonb_build_object('late', v_late));
+
+    return v_calc || jsonb_build_object('snapshot_id', v_snap, 'status', v_status, 'revision', true);
+  end if;
 
   insert into public.job_true_up_snapshots (
     true_up_id, job_id, version, salesperson_id, approved_by, formula_version, payload
@@ -1369,6 +1437,7 @@ begin
     set status = v_status,
         salesperson_id = v_sales,
         approved_at = now(),
+        revision_open = false,
         updated_at = now()
     where id = v_id;
 
@@ -1463,19 +1532,29 @@ begin
   if not found or v_row.approved_at is null then
     raise exception 'Approve the true-up before recording a late-cost adjustment.';
   end if;
+  if v_row.revision_open is distinct from true then
+    raise exception 'Reopen the true-up and approve the revised calculation.';
+  end if;
   select * into v_snap
   from public.job_true_up_snapshots
   where true_up_id = v_row.id
   order by version desc
   limit 1;
 
+  -- Original approved commission, not the latest snapshot. Later revisions already
+  -- sit in adjustment rows, so using the latest snapshot would count them twice.
+  select coalesce((payload->>'commission_cents')::bigint, 0) into v_approved
+  from public.job_true_up_snapshots
+  where true_up_id = v_row.id
+  order by version asc
+  limit 1;
+
   v_calc := public.job_true_up_calculate(p_job_id);
-  v_approved := coalesce((v_snap.payload->>'commission_cents')::bigint, 0);
   v_revised := coalesce((v_calc->>'commission_cents')::bigint, 0);
   select coalesce(sum(amount_cents), 0) into v_delta
   from public.job_commission_ledger
   where true_up_id = v_row.id and kind = 'adjustment';
-  -- Target ledger = revised commission. Existing earned + adjustments should move by the gap.
+  -- Target ledger = revised commission. Original earned plus every prior adjustment moves by the gap.
   v_delta := v_revised - (v_approved + v_delta);
   if v_delta = 0 then
     return jsonb_build_object('adjustment_cents', 0, 'timing', 'none');
@@ -1578,6 +1657,12 @@ begin
     raise exception 'Unknown override.';
   end if;
   v_id := public.ensure_job_true_up(p_job_id);
+  if exists (
+    select 1 from public.job_true_ups
+    where id = v_id and approved_at is not null and revision_open = false
+  ) then
+    raise exception 'Reopen the true-up before changing an approved commission.';
+  end if;
   if p_field = 'gp' then
     update public.job_true_ups
       set gp_override_cents = p_value, gp_override_reason = btrim(p_reason),
@@ -2022,6 +2107,7 @@ revoke all on function public.job_true_up_calculate(uuid) from public, anon;
 revoke all on function public.ensure_job_true_up(uuid) from public, anon;
 revoke all on function public.record_true_up_entry(uuid, text, text, bigint, text, text) from public, anon;
 revoke all on function public.approve_job_true_up(uuid) from public, anon;
+revoke all on function public.reopen_job_true_up(uuid, text) from public, anon;
 revoke all on function public.refresh_true_up_collection(uuid) from public, anon;
 revoke all on function public.record_late_true_up_adjustment(uuid, text) from public, anon;
 revoke all on function public.set_true_up_collection_override(uuid, text) from public, anon;
@@ -2038,6 +2124,7 @@ grant execute on function public.job_true_up_calculate(uuid) to authenticated;
 grant execute on function public.ensure_job_true_up(uuid) to authenticated;
 grant execute on function public.record_true_up_entry(uuid, text, text, bigint, text, text) to authenticated;
 grant execute on function public.approve_job_true_up(uuid) to authenticated;
+grant execute on function public.reopen_job_true_up(uuid, text) to authenticated;
 grant execute on function public.refresh_true_up_collection(uuid) to authenticated;
 grant execute on function public.record_late_true_up_adjustment(uuid, text) to authenticated;
 grant execute on function public.set_true_up_collection_override(uuid, text) to authenticated;
@@ -2115,10 +2202,17 @@ begin
       j.title,
       j.completed_at,
       c.full_name as customer_name,
-      s.payload
+      s.payload,
+      t.status as approval_status,
+      case
+        when coalesce(f.owed_cents, 0) = 0 and coalesce(f.paid_cents, 0) <> 0 then 'paid'
+        when coalesce(f.any_payable, false) then 'owed'
+        else 'not_payable'
+      end as payment_status
     from filtered f
     join public.jobs j on j.id = f.job_id
     join public.customers c on c.id = j.customer_id
+    left join public.job_true_ups t on t.job_id = f.job_id
     left join lateral (
       select payload
       from public.job_true_up_snapshots snap
@@ -2189,12 +2283,17 @@ begin
 end;
 $$;
 
+drop function if exists public.job_true_up_profitability(date, date, uuid, int, int);
+drop function if exists public.job_true_up_profitability(date, date, uuid, int, int, text, text);
+
 create or replace function public.job_true_up_profitability(
   p_from date,
   p_to date,
   p_salesperson uuid,
   p_limit int,
-  p_offset int
+  p_offset int,
+  p_status text,
+  p_query text
 )
 returns jsonb
 language plpgsql
@@ -2207,6 +2306,7 @@ declare
   v_offset int := greatest(coalesce(p_offset, 0), 0);
   v_rows jsonb;
   v_totals jsonb;
+  v_q text := nullif(btrim(coalesce(p_query, '')), '');
 begin
   perform public.fk_true_up_assert_staff();
   with snaps as (
@@ -2219,6 +2319,13 @@ begin
     where (p_from is null or j.completed_at::date >= p_from)
       and (p_to is null or j.completed_at::date <= p_to)
       and (p_salesperson is null or s.salesperson_id = p_salesperson)
+      and (p_status is null or btrim(p_status) = '' or t.status = p_status)
+      and (
+        v_q is null
+        or j.title ilike '%' || v_q || '%'
+        or c.full_name ilike '%' || v_q || '%'
+        or j.id::text = v_q
+      )
     order by s.job_id, s.version desc
   )
   select coalesce(jsonb_agg(to_jsonb(page_row)), '[]'::jsonb)
@@ -2231,12 +2338,21 @@ begin
 
   with snaps as (
     select distinct on (s.job_id)
-      s.payload, s.salesperson_id
+      s.job_id, s.payload, s.salesperson_id
     from public.job_true_up_snapshots s
     join public.jobs j on j.id = s.job_id
+    join public.customers c on c.id = j.customer_id
+    join public.job_true_ups t on t.id = s.true_up_id
     where (p_from is null or j.completed_at::date >= p_from)
       and (p_to is null or j.completed_at::date <= p_to)
       and (p_salesperson is null or s.salesperson_id = p_salesperson)
+      and (p_status is null or btrim(p_status) = '' or t.status = p_status)
+      and (
+        v_q is null
+        or j.title ilike '%' || v_q || '%'
+        or c.full_name ilike '%' || v_q || '%'
+        or j.id::text = v_q
+      )
     order by s.job_id, s.version desc
   )
   select jsonb_build_object(
@@ -2246,7 +2362,15 @@ begin
     'actual_cost_cents', coalesce(sum((payload->>'actual_direct_cents')::bigint), 0),
     'estimated_gp_cents', coalesce(sum((payload->>'estimated_gp_cents')::bigint), 0),
     'actual_gp_cents', coalesce(sum((payload->>'actual_gp_cents')::bigint), 0),
-    'commission_cents', coalesce(sum((payload->>'commission_cents')::bigint), 0)
+    'commission_cents', coalesce(sum((payload->>'commission_cents')::bigint), 0),
+    'paid_cents', coalesce((
+      select sum(l.amount_cents) from public.job_commission_ledger l
+      where l.job_id in (select job_id from snaps) and l.status = 'paid'
+    ), 0),
+    'owed_cents', coalesce((
+      select sum(l.amount_cents) from public.job_commission_ledger l
+      where l.job_id in (select job_id from snaps) and l.status <> 'paid'
+    ), 0)
   )
   into v_totals
   from snaps;
@@ -2254,7 +2378,11 @@ begin
   return jsonb_build_object(
     'totals', v_totals || jsonb_build_object(
       'net_after_commission_cents',
-      coalesce((v_totals->>'actual_gp_cents')::bigint, 0) - coalesce((v_totals->>'commission_cents')::bigint, 0)
+      coalesce((v_totals->>'actual_gp_cents')::bigint, 0) - coalesce((v_totals->>'commission_cents')::bigint, 0),
+      'weighted_margin_hundredths', public.fk_margin_hundredths(
+        coalesce((v_totals->>'actual_gp_cents')::bigint, 0),
+        coalesce((v_totals->>'revenue_cents')::bigint, 0)
+      )
     ),
     'rows', v_rows,
     'total_rows', coalesce((v_totals->>'jobs')::bigint, 0)
@@ -2351,9 +2479,9 @@ begin
 end;
 $$;
 
-revoke all on function public.job_true_up_profitability(date, date, uuid, int, int) from public, anon;
+revoke all on function public.job_true_up_profitability(date, date, uuid, int, int, text, text) from public, anon;
 revoke all on function public.job_true_up_performance(date, date, int, int) from public, anon;
-grant execute on function public.job_true_up_profitability(date, date, uuid, int, int) to authenticated;
+grant execute on function public.job_true_up_profitability(date, date, uuid, int, int, text, text) to authenticated;
 grant execute on function public.job_true_up_performance(date, date, int, int) to authenticated;
 
 revoke all on function public.job_commission_statement(uuid, date, date, text, int, int) from public, anon;

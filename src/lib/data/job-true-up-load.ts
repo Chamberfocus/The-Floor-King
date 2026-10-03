@@ -54,6 +54,7 @@ export interface LoadedTrueUp {
     enteredAt: string;
   }[];
   snapshot: { version: number; approvedAt: string; payload: Row; salespersonId: string | null } | null;
+  revisionOpen: boolean;
   overrides: {
     collection: { on: boolean; reason: string | null; at: string | null } | null;
     gp: { cents: bigint; reason: string | null; at: string | null } | null;
@@ -359,6 +360,7 @@ export async function loadJobTrueUp(
     result: buildTrueUp(facts),
     entries,
     snapshot,
+    revisionOpen: trueUp?.revision_open === true,
     overrides: {
       collection: trueUp?.collection_override
         ? { on: true, reason: str(trueUp.collection_override_reason), at: str(trueUp.collection_override_at) }

@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 export default async function ProfitabilityPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string; salesperson?: string; page?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; salesperson?: string; status?: string; q?: string; page?: string }>;
 }) {
   const profile = await requireProfile();
   if (!trueUpAccess(profile.role).ownerReport) notFound();
@@ -20,12 +20,15 @@ export default async function ProfitabilityPage({
   const page = Math.max(1, Number(sp.page) || 1);
   const limit = 25;
   const supabase = await createClient();
+  const { data: people } = await supabase.from("profiles").select("id, full_name").eq("role", "salesman").order("full_name");
   const { data, error } = await supabase.rpc("job_true_up_profitability", {
     p_from: sp.from || null,
     p_to: sp.to || null,
     p_salesperson: sp.salesperson || null,
     p_limit: limit,
     p_offset: (page - 1) * limit,
+    p_status: sp.status || null,
+    p_query: sp.q || null,
   });
   const body = (data ?? {}) as { totals?: Record<string, number>; rows?: Record<string, unknown>[]; total_rows?: number };
   const totals = body.totals ?? {};
@@ -38,7 +41,19 @@ export default async function ProfitabilityPage({
       <form className="flex flex-wrap gap-2" action="/commissions/profitability">
         <input className="h-11 rounded-lg border px-3" type="date" name="from" defaultValue={sp.from ?? ""} />
         <input className="h-11 rounded-lg border px-3" type="date" name="to" defaultValue={sp.to ?? ""} />
-        <input className="h-11 rounded-lg border px-3" name="salesperson" defaultValue={sp.salesperson ?? ""} placeholder="Salesperson id" />
+        <select name="salesperson" defaultValue={sp.salesperson ?? ""} className="h-11 rounded-lg border bg-transparent px-3">
+          <option value="">All salespeople</option>
+          {(people ?? []).map((p) => (
+            <option key={p.id} value={p.id}>{p.full_name}</option>
+          ))}
+        </select>
+        <select name="status" defaultValue={sp.status ?? ""} className="h-11 rounded-lg border bg-transparent px-3">
+          <option value="">Any status</option>
+          <option value="approved">Approved</option>
+          <option value="commission_payable">Commission owed</option>
+          <option value="commission_paid">Commission paid</option>
+        </select>
+        <input className="h-11 rounded-lg border px-3" name="q" defaultValue={sp.q ?? ""} placeholder="Job or customer" />
         <button className="h-11 rounded-lg border px-4" type="submit">Apply</button>
       </form>
       <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
@@ -48,6 +63,8 @@ export default async function ProfitabilityPage({
         <Item label="Estimated GP" value={money(totals.estimated_gp_cents)} />
         <Item label="Actual GP" value={money(totals.actual_gp_cents)} />
         <Item label="Commission" value={money(totals.commission_cents)} />
+        <Item label="Paid commissions" value={money(totals.paid_cents)} />
+        <Item label="Commissions still owed" value={money(totals.owed_cents)} />
         <Item label="GP after commission" value={money(totals.net_after_commission_cents)} />
         <Item
           label="Weighted actual margin"

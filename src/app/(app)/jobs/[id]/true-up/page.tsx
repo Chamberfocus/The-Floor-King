@@ -155,8 +155,12 @@ export default async function JobTrueUpPage({
 
           {loaded.snapshot ? (
             <p className="text-sm text-muted-foreground">
-              Approved snapshot version {loaded.snapshot.version} is kept. Later costs create an adjustment and do not rewrite it.
-              Calculated commission on that snapshot: {formatCents(bigintFrom(loaded.snapshot.payload.commission_cents))}.
+              Approved calculation version {loaded.snapshot.version} stays on record
+              {loaded.snapshot.approvedAt ? ` (${loaded.snapshot.approvedAt.slice(0, 16).replace("T", " ")})` : ""}.
+              Commission on that calculation: {formatCents(bigintFrom(loaded.snapshot.payload.commission_cents))}.
+              {loaded.revisionOpen
+                ? " A revision is open. Approving it saves a new calculation and leaves this one unchanged."
+                : " Reopen the true-up before changing costs or commission. That writes a new approved calculation."}
             </p>
           ) : null}
 
@@ -176,6 +180,7 @@ export default async function JobTrueUpPage({
             canCollection={access.overrideCollection}
             canSalesperson={access.correctSalesperson}
             approved={!!loaded.snapshot}
+            revisionOpen={loaded.revisionOpen}
             salespeople={loaded.salespeople}
           />
         </>
