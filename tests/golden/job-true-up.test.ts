@@ -578,5 +578,9 @@ describe("true-up security", () => {
     expect(sql).not.toContain("my_role() = 'warehouse'");
     expect(readFileSync("src/app/portal/layout.tsx", "utf8")).not.toContain("job-true-up");
     expect(readFileSync("src/lib/nav.ts", "utf8")).toContain('href: "/commissions"');
+    const statement = readFileSync("src/app/(app)/commissions/statement/page.tsx", "utf8");
+    for (const label of ["Material", "Labor", "Freight", "Other", "Still owed", "Adjustments"]) {
+      expect(statement).toContain(label);
+    }
   });
 });

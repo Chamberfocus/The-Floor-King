@@ -104,8 +104,26 @@ export default async function StatementPage({
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="border-b">
-                {["Job", "Customer", "Completed", "Final sale", "Actual cost", "GP $", "PM %", "Commission %", "Commission $", "Approval", "Payment", "Paid", "Owed"].map((h) => (
-                  <th key={h} className="px-2 py-2">{h}</th>
+                {[
+                  "Customer",
+                  "Job",
+                  "Completed",
+                  "Final sale",
+                  "Material",
+                  "Labor",
+                  "Freight",
+                  "Other",
+                  "Total cost",
+                  "Gross profit",
+                  "Margin",
+                  "Commission %",
+                  "Earned",
+                  "Adjustments",
+                  "Paid",
+                  "Still owed",
+                  "Approval",
+                ].map((h) => (
+                  <th key={h} className="px-2 py-2 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -114,19 +132,23 @@ export default async function StatementPage({
                 const payload = (row.payload ?? {}) as Record<string, unknown>;
                 return (
                   <tr key={String(row.job_id)} className="border-b">
-                    <td className="px-2 py-2">{String(row.title ?? "")}</td>
                     <td className="px-2 py-2">{String(row.customer_name ?? "")}</td>
+                    <td className="px-2 py-2">{String(row.title ?? "")}</td>
                     <td className="px-2 py-2">{String(row.completed_at ?? "").slice(0, 10)}</td>
                     <td className="px-2 py-2">{money(payload.actual_revenue_cents)}</td>
+                    <td className="px-2 py-2">{money(payload.actual_material_cents)}</td>
+                    <td className="px-2 py-2">{money(payload.actual_labor_cents)}</td>
+                    <td className="px-2 py-2">{money(payload.actual_freight_cents)}</td>
+                    <td className="px-2 py-2">{money(payload.actual_other_cents)}</td>
                     <td className="px-2 py-2">{money(payload.actual_direct_cents)}</td>
                     <td className="px-2 py-2">{money(payload.actual_gp_cents)}</td>
                     <td className="px-2 py-2">{formatMarginHundredths(asBig(payload.actual_margin_hundredths))}</td>
                     <td className="px-2 py-2">{rate(payload.rate_bps)}</td>
-                    <td className="px-2 py-2">{money(payload.commission_cents)}</td>
-                    <td className="px-2 py-2">{String(row.approval_status ?? "").replaceAll("_", " ")}</td>
-                    <td className="px-2 py-2">{String(row.payment_status ?? "").replaceAll("_", " ")}</td>
+                    <td className="px-2 py-2">{money(row.earned_cents)}</td>
+                    <td className="px-2 py-2">{money(row.adjustment_cents)}</td>
                     <td className="px-2 py-2">{money(row.paid_cents)}</td>
                     <td className="px-2 py-2">{money(row.owed_cents)}</td>
+                    <td className="px-2 py-2">{String(row.approval_status ?? "").replaceAll("_", " ")}</td>
                   </tr>
                 );
               })}

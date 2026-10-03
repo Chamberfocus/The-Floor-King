@@ -25,7 +25,7 @@ export function PayBatch({
     <div className="grid gap-2 rounded-xl border p-4 print:hidden">
       <h2 className="font-semibold">Mark this statement paid</h2>
       <p className="text-sm text-muted-foreground">
-        Pays each selected line in full. This is an internal commission record. It does not create an accounting entry.
+        Marks every payable commission on this statement as paid. Paying the same commissions again is refused. This does not create an accounting entry.
       </p>
       <Input className="h-11" type="date" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
       <Input className="h-11" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Check or reference" />
