@@ -19,20 +19,13 @@ export async function getProfile(): Promise<Profile | null> {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  // Do not couple authentication to a hard-coded list of profile columns.
-  // Production can legitimately lag an optional profile-column migration; when
-  // that happens PostgREST rejects the entire explicit select and every page
-  // using requireProfile/requireRole fails during server render. Selecting the
-  // caller's own row keeps the auth/role guard intact while tolerating additive
-  // schema drift. RLS still limits which profile row the signed-in user can read.
-  const { data, error } = await supabase
+  const { data } = await supabase
     .from("profiles")
-    .select("*")
+    .select("id, email, full_name, phone, title, role, customer_id, created_at")
     .eq("id", user.id)
-    .maybeSingle();
+    .single();
 
-  if (error || !data) return null;
-  return data as Profile;
+  return (data as Profile) ?? null;
 }
 
 /**
