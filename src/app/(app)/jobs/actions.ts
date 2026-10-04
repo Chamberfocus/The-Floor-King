@@ -2410,65 +2410,14 @@ export async function setDeliveryType(formData: FormData): Promise<void> {
   revalidatePath(`/jobs/${id}`);
 }
 
-export async function deleteJob(formData: FormData): Promise<void> {
-  const id = str(formData.get("id"));
-  const customerId = str(formData.get("customer_id"));
-  if (!id) return;
-  await assertRole(["admin", "office"]);
-
-  const supabase = await createClient();
-  // MUST happen before the delete. stock_movements.job_id is ON DELETE SET
-  // NULL, and releaseJobReservations derives the amount to give back from
-  // exactly those rows — once the job is gone they're orphaned and the
-  // reserved quantity is stuck on the product forever with nothing to
-  // reconcile against.
-  await releaseJobReservations(supabase, [id]);
-
-  /**
-   * Everything hanging off this job that Postgres will NOT cascade.
-   *
-   * Same trap deleting an estimate fell into: these all reference jobs with
-   * `on delete set null`, so the row outlives the job with its link quietly
-   * blanked — an invoice with no job, purchase orders no one can trace, photos
-   * still in the customer's files. Service role so the cleanup can't be
-   * half-blocked by row-level security.
-   */
-  let admin;
-  try {
-    admin = createAdminClient();
-  } catch {
-    admin = supabase; // fall back (may leave orphans under RLS)
-  }
-  const { data: docs } = await admin.from("documents").select("path").eq("job_id", id);
-  const paths = (docs ?? []).map((d) => d.path as string).filter(Boolean);
-  if (paths.length) {
-    try {
-      await admin.storage.from("documents").remove(paths);
-    } catch {
-      // A missing object must not stop the rows from going.
-    }
-  }
-  for (const table of [
-    "invoices",         // invoice items + payments cascade from it
-    "purchase_orders",  // PO items cascade
-    "documents",
-    "expenses",
-    "bills",
-    "orders",
-    "stock_movements",
-    "stock_rolls",
-  ]) {
-    await admin.from(table).delete().eq("job_id", id);
-  }
-
-  await admin.from("jobs").delete().eq("id", id);
-
-  revalidateJobEverywhere(id, customerId || null);
-  // Land back where the delete was pressed. From a customer's job list that's
-  // the customer file; from the job page itself, the jobs board.
-  if (customerId) redirect(`/customers/${customerId}`);
-  redirect("/jobs");
+export async function deleteJob(_formData: FormData): Promise<void> {
+  await assertRole(["admin"]);
+  throw new Error(
+    "Permanent job deletion must use Delete forever after the impact preview. Nothing was deleted.",
+  );
 }
+
+
 
 // --- Subcontractor / crew payouts (the real labor cost per job) -------------
 

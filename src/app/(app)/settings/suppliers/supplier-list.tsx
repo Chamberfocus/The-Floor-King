@@ -172,6 +172,11 @@ function VendorRow({ s }: { s: Supplier }) {
           <Link href={`/settings/suppliers/${s.id}`} className="font-medium hover:underline">
             {s.name}
           </Link>
+          {"archived_at" in s && (s as Supplier & { archived_at?: string | null }).archived_at ? (
+            <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-900">
+              Archived
+            </span>
+          ) : null}
           <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             {SUPPLIER_KIND_LABELS[s.kind]}
           </span>

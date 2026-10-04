@@ -31,12 +31,10 @@ import { cn } from "@/lib/utils";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import {
   declineOrder,
-  deleteOrder,
   reportOrderStock,
   notifyCustomerStock,
   createInvoiceFromOrder,
 } from "./actions";
-import { Trash2 } from "lucide-react";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { OrderLinkCard } from "@/components/order-link-card";
 import { CutList } from "@/components/cut-list";
@@ -304,30 +302,9 @@ export default async function OrdersPage({
             <p className="border-t pt-3 text-sm text-muted-foreground">Declined: {o.decline_reason}</p>
           ) : null}
 
-          {/* Remove an unwanted order from the tab (two-step, so it's deliberate). */}
-          <details className="ml-auto w-fit text-right">
-            <summary className="cursor-pointer list-none text-xs text-muted-foreground hover:text-destructive [&::-webkit-details-marker]:hidden">
-              Delete order
-            </summary>
-            <form action={deleteOrder} className="mt-2 flex flex-col items-end gap-2">
-              <input type="hidden" name="order_id" value={o.id} />
-              <span className="max-w-xs text-right text-xs text-muted-foreground">
-                Permanently delete this order and everything it created —
-                {o.job_id ? " its warehouse job," : ""} its invoice &amp; payments,
-                and any purchase orders. This can&apos;t be undone.
-              </span>
-              <ConfirmButton
-                size="sm"
-                variant="destructive"
-                title={`Delete ${who}'s order and everything it created?`}
-                description="Permanently deletes the order, its warehouse job, its invoice & payments, and any purchase orders raised for it. This can't be undone."
-                confirmLabel="Delete order"
-                destructive
-              >
-                <Trash2 className="size-3.5" /> Delete everything
-              </ConfirmButton>
-            </form>
-          </details>
+          <p className="ml-auto max-w-xs text-right text-xs text-muted-foreground">
+            This order is kept. Decline a request that should not proceed. Jobs and invoices are handled on their own pages.
+          </p>
         </CardContent>
       </Card>
     );

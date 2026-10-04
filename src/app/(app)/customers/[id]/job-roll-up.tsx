@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, MapPin, Wrench, FileText, Trash2 } from "lucide-react";
-import { ConfirmButton } from "@/components/ui/confirm-button";
-import { deleteJob } from "@/app/(app)/jobs/actions";
+import { ArrowRight, Check, MapPin, Wrench, FileText } from "lucide-react";
+import { RecordLifecycleMenu } from "@/components/record-lifecycle-menu";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/format";
 import { buttonVariants } from "@/components/ui/button";
@@ -26,6 +25,7 @@ export function JobRollUp({
   ownerName,
   actionSlots,
   canOverride = false,
+  canArchive = false,
   jobStageNames,
   materialByJob,
 }: {
@@ -40,6 +40,8 @@ export function JobRollUp({
   actionSlots?: Record<string, ReactNode>;
   /** Whether this viewer may mark a step done without the record behind it. */
   canOverride?: boolean;
+  /** Administrator or office. Blank-job archive uses the same rule as every other record. */
+  canArchive?: boolean;
   /** Each job's OWN stage name, by job id. The account-level `stageName` above
    *  is the pre-job position and is wrong for a multi-job account — a finished
    *  kitchen and an unmeasured basement are not at the same stage. */
@@ -198,19 +200,12 @@ export function JobRollUp({
                       attached to it, and no estimate delete can ever remove it
                       because it was never tied to one. Let it go from here. */}
                   {j.isBlank && j.jobId ? (
-                    <form action={deleteJob}>
-                      <input type="hidden" name="id" value={j.jobId} />
-                      <input type="hidden" name="customer_id" value={customerId} />
-                      <ConfirmButton
-                        size="sm"
-                        variant="ghost"
-                        title="Remove this empty job?"
-                        description="Nothing is attached to it — no estimate, no invoice, no purchase order, no date."
-                        confirmLabel="Remove it"
-                      >
-                        <Trash2 className="size-3.5" /> Remove
-                      </ConfirmButton>
-                    </form>
+                    <RecordLifecycleMenu
+                      recordType="job"
+                      recordId={j.jobId}
+                      allowArchive={canArchive}
+                      allowDelete={false}
+                    />
                   ) : null}
                   {href ? (
                     <Link

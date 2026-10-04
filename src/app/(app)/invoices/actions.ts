@@ -1552,76 +1552,15 @@ export async function emailInvoice(formData: FormData): Promise<void> {
 }
 
 /**
- * Permanently delete an invoice and everything attached to it: its line items
- * and ALL recorded payments (both cascade via their foreign keys). Any order
- * that pointed at it is unlinked automatically, and the linked job's balance,
- * the customer file, and the money views are all refreshed so the whole app
- * reflects the removal. Staff only; runs with the service role so it can never
- * silently fail on RLS.
+ * Issued invoices cannot be deleted.
+ * An eligible unissued draft is erased only by Delete forever, after the server
+ * recalculates the impact. This action deletes nothing.
  */
-export async function deleteInvoice(formData: FormData): Promise<void> {
-  const id = str(formData.get("id"));
-  let customerId = str(formData.get("customer_id"));
-  if (!id) return;
-
-  await assertRole(INVOICE_DELETE_ROLES);
-
-  const admin = createAdminClient();
-  const fail = (msg: string): never => {
-    redirect(
-      customerId
-        ? `/customers/${customerId}?invoice_error=${encodeURIComponent(msg)}`
-        : `/invoices/${id}?invoice_error=${encodeURIComponent(msg)}`,
-    );
-  };
-
-  const { data: inv } = await admin
-    .from("invoices")
-    .select("customer_id, job_id, status")
-    .eq("id", id)
-    .maybeSingle();
-  if (inv) {
-    if (!customerId) customerId = (inv.customer_id as string | null) ?? "";
-    const jobId = (inv.job_id as string | null) ?? null;
-    const status = (inv.status as string) ?? "draft";
-    if (status !== "draft") {
-      fail("Issued invoices cannot be deleted. Void the invoice to cancel it.");
-    }
-    const { data: pays } = await admin
-      .from("payments")
-      .select("id")
-      .eq("invoice_id", id);
-    if ((pays ?? []).length) {
-      fail(
-        "This invoice has payment history and can’t be deleted. Void only if unpaid, or keep it for history.",
-      );
-    }
-    const [{ data: apps }, { data: depApps }, { data: writeOffs }] =
-      await Promise.all([
-        admin
-          .from("credit_applications")
-          .select("id")
-          .eq("invoice_id", id),
-        admin
-          .from("customer_deposit_applications")
-          .select("id")
-          .eq("invoice_id", id),
-        admin.from("invoice_write_offs").select("id").eq("invoice_id", id),
-      ]);
-    if ((apps ?? []).length) {
-      fail("This invoice has credit applications and can’t be deleted. Void instead.");
-    }
-    if ((depApps ?? []).length || (writeOffs ?? []).length) {
-      fail("This invoice has deposits or write-offs and can’t be deleted. Void instead.");
-    }
-    await admin.from("invoices").delete().eq("id", id);
-    if (jobId) revalidatePath(`/jobs/${jobId}`);
-  }
-
-  refreshMoneyViews();
-  revalidatePath("/orders");
-  revalidatePath("/invoices");
-  if (customerId) revalidatePath(`/customers/${customerId}`);
-  const redirectTo = str(formData.get("redirect_to"));
-  redirect(redirectTo || (customerId ? `/customers/${customerId}` : "/invoices"));
+export async function deleteInvoice(_formData: FormData): Promise<void> {
+  await assertRole(["admin"]);
+  throw new Error(
+    "Issued invoices cannot be deleted. Permanent invoice deletion must use Delete forever after the impact preview. Nothing was deleted.",
+  );
 }
+
+

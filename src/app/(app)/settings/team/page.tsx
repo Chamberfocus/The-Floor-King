@@ -17,13 +17,24 @@ import { getBusinessSettings } from "@/lib/data/business-settings";
 import { InviteTeamForm } from "./invite-form";
 import { TeamMemberRow } from "./team-member-row";
 import { InstallCrewsManager } from "../install-crews/install-crews-manager";
+import { LifecycleFilter } from "@/components/record-lifecycle-menu";
+import { lifecycleSchemaReady } from "@/lib/record-lifecycle-db";
+import { canArchiveRole, canDeleteForeverRole, parseLifecycleView } from "@/lib/record-lifecycle";
 import { setInstallerCollects } from "./actions";
 
 export const metadata: Metadata = { title: "Team" };
 
-export default async function TeamPage() {
+export default async function TeamPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ life?: string }>;
+}) {
   const me = await requireProfile();
+  const mayArchive = canArchiveRole(me.role);
+  const mayDeleteForever = canDeleteForeverRole(me.role);
   if (me.role !== "admin") redirect("/");
+  const lifecycle = parseLifecycleView((await searchParams).life);
+  const lifecycleReady = await lifecycleSchemaReady();
   const members = await listTeamMembers();
   const adminCount = members.filter((m) => m.role === "admin").length;
   const settings = await getBusinessSettings();
@@ -35,17 +46,32 @@ export default async function TeamPage() {
     members.map((m) => (m.full_name ?? "").trim().toLowerCase()),
   );
   const [allCrews, payouts] = await Promise.all([
-    listInstallCrews(),
+    listInstallCrews({ lifecycle: "all" }),
     getCrewPayoutTotals(),
   ]);
-  const subCrews = allCrews.filter(
-    (c) => !memberNames.has((c.name ?? "").trim().toLowerCase()),
-  );
+  const subCrews = allCrews.filter((c) => {
+    if (memberNames.has((c.name ?? "").trim().toLowerCase())) return false;
+    if (!lifecycleReady || lifecycle === "all") return true;
+    const archived = Boolean(c.archived_at);
+    return lifecycle === "archived" ? archived : !archived;
+  });
   // Skills live on an installer's crew row (the Job Board reads them by
   // profile_id); map them by profile so each installer row can show/set them.
   const skillsByProfile = new Map<string, string[]>();
+  const crewByProfile = new Map<string, { id: string; archivedAt: string | null }>();
   for (const c of allCrews) {
-    if (c.profile_id) skillsByProfile.set(c.profile_id, c.skills ?? []);
+    if (c.profile_id) {
+      skillsByProfile.set(c.profile_id, c.skills ?? []);
+      crewByProfile.set(c.profile_id, { id: c.id, archivedAt: c.archived_at ?? null });
+    }
+  }
+  for (const member of members) {
+    if (crewByProfile.has(member.id)) continue;
+    const named = allCrews.find(
+      (c) => (c.name ?? "").trim().toLowerCase() === (member.full_name ?? "").trim().toLowerCase(),
+    );
+    if (!named || !(member.full_name ?? "").trim()) continue;
+    crewByProfile.set(member.id, { id: named.id, archivedAt: named.archived_at ?? null });
   }
 
   return (
@@ -109,6 +135,9 @@ export default async function TeamPage() {
                   canRemove={m.id !== me.id && !(m.role === "admin" && adminCount <= 1)}
                   isCrew={m.role === "crew"}
                   skills={skillsByProfile.get(m.id) ?? []}
+                  crewRecord={crewByProfile.get(m.id) ?? null}
+                  allowArchive={mayArchive}
+                  allowDelete={mayDeleteForever}
                 />
               ))}
             </ul>
@@ -142,9 +171,20 @@ export default async function TeamPage() {
         <h2 className="mb-1 text-lg font-bold">Subcontractor installers</h2>
         <p className="mb-3 text-sm text-muted-foreground">
           Crews you assign jobs to that don&apos;t have an app login. People above
-          with a login don&apos;t need one here.
+          with a login don&apos;t need one here. Archive hides a crew from new
+          assignments and keeps its job history.
         </p>
-        <InstallCrewsManager initial={subCrews} payouts={payouts} />
+        <LifecycleFilter
+          ready={lifecycleReady}
+          value={lifecycle}
+          makeHref={(next) => (next === "active" ? "/settings/team" : `/settings/team?life=${next}`)}
+        />
+        <InstallCrewsManager
+          initial={subCrews}
+          payouts={payouts}
+          allowArchive={mayArchive}
+          allowDelete={mayDeleteForever}
+        />
       </div>
     </div>
   );

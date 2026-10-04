@@ -81,16 +81,21 @@ export interface EstimateRowData {
   lines: { id: string; label: string; amount: number | null }[];
   /** Which property, on accounts that have more than one. */
   siteLabel?: string | null;
+  archivedAt?: string | null;
 }
 
 export function EstimateRow({
   e,
   customerId,
   customerName,
+  canArchive = false,
+  canDelete = false,
 }: {
   e: EstimateRowData;
   customerId: string;
   customerName?: string;
+  canArchive?: boolean;
+  canDelete?: boolean;
 }) {
   return (
     <ExpandRow
@@ -124,6 +129,9 @@ export function EstimateRow({
           id={e.id}
           customerId={customerId}
           customerName={customerName}
+          archivedAt={e.archivedAt}
+          canArchive={canArchive}
+          isAdmin={canDelete}
         />
       }
     >
@@ -221,14 +229,19 @@ export interface InvoiceRowData {
   total: number;
   paid: number;
   lines: { id: string; label: string; amount: number }[];
+  archivedAt?: string | null;
 }
 
 export function InvoiceRow({
   inv,
   customerId,
+  canArchive = false,
+  canDelete = false,
 }: {
   inv: InvoiceRowData;
   customerId?: string;
+  canArchive?: boolean;
+  canDelete?: boolean;
 }) {
   return (
     <ExpandRow
@@ -279,6 +292,9 @@ export function InvoiceRow({
           customerId={customerId ?? null}
           label={inv.number || "this invoice"}
           size="sm"
+          archivedAt={inv.archivedAt}
+          canArchive={canArchive}
+          isAdmin={canDelete}
         />
       </div>
     </ExpandRow>

@@ -17,6 +17,9 @@ import { requireProfile } from "@/lib/auth";
 import { SALES_ROLES, INSTALL_ROLES } from "@/lib/types";
 import { parseArrivalWindows } from "@/lib/format";
 import { CustomerList, type ListShared } from "./customer-list";
+import { lifecycleSchemaReady } from "@/lib/record-lifecycle-db";
+import { parseLifecycleView } from "@/lib/record-lifecycle";
+import { LifecycleFilter } from "@/components/record-lifecycle-menu";
 
 export const metadata: Metadata = { title: "Customers" };
 
@@ -30,10 +33,13 @@ export default async function CustomersPage({
     stuck?: string;
     view?: string;
     page?: string;
+    life?: string;
   }>;
 }) {
   const sp = await searchParams;
   const q = sp.q?.trim() ?? "";
+  const lifecycleReady = await lifecycleSchemaReady();
+  const lifecycle = parseLifecycleView(sp.life);
   // The stage filter is now a detailed workflow stage id (the 13-stage builder),
   // not the collapsed 6-bucket lead stage.
   const stage = sp.stage?.trim() || undefined;
@@ -97,6 +103,8 @@ export default async function CustomersPage({
       cancelledOnly: view === "cancelled" && !q,
       excludeCancelled: !q && (view === "active" || view === "closed"),
       page: parseListPage(sp.page),
+      lifecycle,
+      lifecycleReady,
     });
   } catch (error) {
     listError = queueFailureMessage(error);
@@ -209,6 +217,22 @@ export default async function CustomersPage({
       </PageHeader>
 
       {/* Active | Closed | Cancelled | All */}
+      <LifecycleFilter
+        ready={lifecycleReady}
+        value={lifecycle}
+        makeHref={(next) => {
+          const params = new URLSearchParams();
+          if (q) params.set("q", q);
+          if (stage) params.set("stage", stage);
+          if (owner) params.set("owner", owner);
+          if (stuck) params.set("stuck", "1");
+          if (view !== "active") params.set("view", view);
+          if (next !== "active") params.set("life", next);
+          const qs = params.toString();
+          return qs ? `/customers?${qs}` : "/customers";
+        }}
+      />
+
       <div data-tour="manage-customers" className="mb-4 inline-flex rounded-lg border p-0.5">
         {VIEWS.map((t) => (
           <Link

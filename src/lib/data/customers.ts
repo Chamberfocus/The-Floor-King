@@ -349,6 +349,9 @@ type CustomerListOpts = {
   cancelledOnly?: boolean;
   /** Hide cancelled jobs (keeps the active/closed lists clean). */
   excludeCancelled?: boolean;
+  /** Record lifecycle. Omitted until archived_at exists. */
+  lifecycle?: "active" | "archived" | "all";
+  lifecycleReady?: boolean;
 };
 
 function applyCustomerListFilters(
@@ -374,6 +377,8 @@ function applyCustomerListFilters(
   if (opts.stages?.length) q = q.in("stage", opts.stages);
   if (opts.unassignedOnly) q = q.is("assigned_to", null);
   else if (opts.assignedTo) q = q.eq("assigned_to", opts.assignedTo);
+  if (opts.lifecycleReady && opts.lifecycle === "archived") q = q.not("archived_at", "is", null);
+  else if (opts.lifecycleReady && opts.lifecycle !== "all") q = q.is("archived_at", null);
   if (opts.stuckOnly)
     q = q
       .not("next_action_due", "is", null)
@@ -477,7 +482,8 @@ export async function listCustomersPage(
   opts: CustomerListOpts & { page?: number; pageSize?: number },
 ): Promise<{ rows: Customer[]; total: number; page: number; pageSize: number }> {
   const pageSize = opts.pageSize ?? WORK_QUEUE_PAGE_SIZE;
-  if (opts.search?.trim()) {
+  const lifecycle = opts.lifecycle ?? "active";
+  if (opts.search?.trim() && lifecycle === "active") {
     const supabase = await createClient();
     const safe = sanitize(opts.search);
     const digits = opts.search.replace(/\D/g, "");
@@ -509,9 +515,13 @@ export async function listCustomersPage(
       throw new Error(QUEUE_LIST_UNAVAILABLE);
     }
     const order = new Map(found.ids.map((id, index) => [id, index]));
-    const rows = uniqueCustomersById((data ?? []) as Customer[]).sort(
-      (a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0),
-    );
+    const rows = uniqueCustomersById((data ?? []) as Customer[])
+      .filter((row) => {
+        if (!opts.lifecycleReady || opts.lifecycle === "all") return true;
+        const archived = Boolean((row as Customer & { archived_at?: string | null }).archived_at);
+        return opts.lifecycle === "archived" ? archived : !archived;
+      })
+      .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
     return { rows, total: found.total, page: found.page, pageSize };
   }
   const supabase = await createClient();
@@ -521,12 +531,24 @@ export async function listCustomersPage(
   );
   const total = (counted.count as number | null) ?? 0;
   const window = listPageWindow(opts.page ?? 1, pageSize, total);
-  const { data, error } = await applyCustomerListFilters(
+  let pageQuery = applyCustomerListFilters(
     supabase.from("customers").select("*") as never,
     opts,
-  )
-    .order("updated_at", { ascending: false })
-    .range(window.from, Math.max(window.from, window.to - 1));
+  ).order("updated_at", { ascending: false });
+  const searchText = opts.search?.trim() ?? "";
+  if (searchText) {
+    const like = `%${sanitize(searchText)}%`;
+    pageQuery = pageQuery.or(
+      [
+        `full_name.ilike.${like}`,
+        `company.ilike.${like}`,
+        `email.ilike.${like}`,
+        `phone.ilike.${like}`,
+        `city.ilike.${like}`,
+      ].join(","),
+    );
+  }
+  const { data, error } = await pageQuery.range(window.from, Math.max(window.from, window.to - 1));
   if (error) throw error;
   return {
     rows: uniqueCustomersById((data ?? []) as Customer[]),

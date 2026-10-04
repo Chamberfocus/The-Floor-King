@@ -672,11 +672,11 @@ export async function clearCatalog(): Promise<{
   return { error: null, removed };
 }
 
-export async function deleteProduct(formData: FormData): Promise<void> {
-  const id = str(formData.get("id"));
-  if (!id) return;
-  const supabase = await createClient();
-  await supabase.from("products").delete().eq("id", id);
-  revalidatePath("/catalog");
-  redirect("/catalog");
+export async function deleteProduct(_formData: FormData): Promise<void> {
+  await assertRole(["admin"]);
+  throw new Error(
+    "Permanent product deletion must use Delete forever after the impact preview. Nothing was deleted.",
+  );
 }
+
+

@@ -11,6 +11,7 @@ import { PhoneInput } from "@/components/ui/phone-input";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import type { InstallCrew, CrewPayout } from "@/lib/data/install-crews";
+import { RecordLifecycleMenu } from "@/components/record-lifecycle-menu";
 import { saveInstallCrew, setInstallCrewActive } from "./actions";
 
 const BASIS_LABEL: Record<string, string> = {
@@ -23,9 +24,13 @@ const BASIS_LABEL: Record<string, string> = {
 export function InstallCrewsManager({
   initial,
   payouts = {},
+  allowArchive,
+  allowDelete,
 }: {
   initial: InstallCrew[];
   payouts?: Record<string, CrewPayout>;
+  allowArchive: boolean;
+  allowDelete: boolean;
 }) {
   const [editing, setEditing] = useState<InstallCrew | "new" | null>(null);
   const [pending, start] = useTransition();
@@ -146,7 +151,14 @@ export function InstallCrewsManager({
                   </div>
                 ) : null}
               </div>
-              <div className="flex items-center gap-1.5">
+              <div className="flex flex-wrap items-center justify-end gap-1.5">
+                <RecordLifecycleMenu
+                  recordType="installer"
+                  recordId={c.id}
+                  archivedAt={c.archived_at}
+                  allowArchive={allowArchive}
+                  allowDelete={allowDelete}
+                />
                 <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(c)}>
                   <Pencil className="size-3.5" /> Edit
                 </Button>

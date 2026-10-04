@@ -849,13 +849,11 @@ export async function createEstimateFromWizard(
 
 /** Delete every DRAFT estimate (fast cleanup of test/unsent quotes). */
 export async function deleteAllDraftEstimates(): Promise<void> {
-  const supabase = await createClient();
-  await supabase.from("estimates").delete().eq("status", "draft");
-  revalidatePath("/estimates");
-  revalidatePath("/dashboard");
-  revalidatePath("/pulse");
-  redirect("/estimates");
+  await assertRole(["admin"]);
+  throw new Error("Bulk permanent deletion is disabled. Archive records, or delete one eligible draft at a time.");
 }
+
+
 
 export interface EstimateDeleteImpact {
   jobs: number; // work orders
@@ -1094,6 +1092,14 @@ export async function unapproveEstimate(
 
   const jobIds = (jobs ?? []).map((j) => j.id as string);
 
+  if (jobIds.length) {
+    redirect(
+      `/estimates/${id}?undo=blocked&why=${encodeURIComponent(
+        "a job was created from this estimate. Archive that job, or have an administrator delete it if it has no work history. Approval was not changed.",
+      )}`,
+    );
+  }
+
   // Give back anything the approval reserved, and drop the POs it auto-raised.
   // Only DRAFTS — an issued PO has a number the supplier has seen, and voiding
   // that is a deliberate act, not a side effect of undoing a click.
@@ -1110,7 +1116,6 @@ export async function unapproveEstimate(
     await supabase.from("purchase_orders").delete().in("id", ids);
     releasedPos = ids.length;
   }
-  if (jobIds.length) await supabase.from("jobs").delete().in("id", jobIds);
 
   await supabase
     .from("estimates")
@@ -1172,200 +1177,14 @@ export async function unapproveEstimate(
   redirect(`/estimates/${id}?undo=ok`);
 }
 
-export async function deleteEstimate(formData: FormData): Promise<void> {
-  const id = str(formData.get("id"));
-  let customerId = str(formData.get("customer_id"));
-  if (!id) return;
-  // requireProfile only proves you are SIGNED IN — it returns any role,
-  // including a portal customer. This function then elevates to the service
-  // role and cascade-deletes invoices AND their payments, which is the
-  // accounting history. It must be office-and-above, matching the is_staff()
-  // policy the service role is bypassing.
-  await assertRole(["admin", "office"]);
-
-  // Cascade EVERYTHING tied to this estimate. Jobs/POs/invoices reference the
-  // estimate with `on delete set null`, so deleting the estimate alone would
-  // orphan them — instead we delete them (their children cascade), then the
-  // estimate (its options + line items cascade). Service-role client so the
-  // cleanup can't be half-blocked by row-level security.
-  let admin;
-  try {
-    admin = createAdminClient();
-  } catch {
-    admin = await createClient(); // fall back (may leave orphans under RLS)
-  }
-
-  // Read the estimate ONCE, before anything is removed: the customer (some
-  // delete buttons don't pass it), the title for the log, and whether this was
-  // the approved one — none of which can be looked up afterwards.
-  const { data: estRow } = await admin
-    .from("estimates")
-    .select("customer_id, title, status")
-    .eq("id", id)
-    .maybeSingle();
-  if (!customerId) customerId = (estRow?.customer_id as string) || "";
-  const estTitle = (estRow?.title as string) || "";
-  const wasApproved = estRow?.status === "approved";
-
-  const { data: jobRows } = await admin.from("jobs").select("id").eq("estimate_id", id);
-  const jobIds = (jobRows ?? []).map((j) => j.id as string);
-
-  /**
-   * Give back whatever the estimate reserved BEFORE its jobs disappear.
-   *
-   * Approving an estimate reserves stock against its jobs. Deleting the
-   * estimate dropped the jobs without ever releasing that hold, so the material
-   * stayed reserved to a work order that no longer existed — invisible, and
-   * only findable by counting the shelf. unapproveEstimate has always done
-   * this; delete never did.
-   */
-  if (jobIds.length) {
-    try {
-      await releaseJobReservations(admin as never, jobIds);
-    } catch {
-      // Reservations are best-effort — never block the delete on them.
-    }
-  }
-
-  const del = async (table: string) => {
-    // Delete rows tied directly to the estimate…
-    await admin.from(table).delete().eq("estimate_id", id);
-    // …and rows tied to any of this estimate's work orders.
-    if (jobIds.length) await admin.from(table).delete().in("job_id", jobIds);
-  };
-
-  /**
-   * Everything that hangs off this estimate's work orders but is NOT set to
-   * cascade.
-   *
-   * Postgres only cascades where the migration said so. These seven all use
-   * `on delete set null`, which means the row SURVIVES the job with its link
-   * quietly blanked: job photos still in the customer's files, stock movements
-   * still holding inventory down, expenses and supplier bills still on the
-   * books against work that no longer exists. Deleting the estimate looked
-   * clean and wasn't.
-   *
-   * po_items is deliberately absent: a line on a SHARED purchase order can
-   * belong to another customer entirely, and its `for_job_id` going null is the
-   * correct outcome — the order stands, only the attribution goes.
-   */
-  const JOB_SCOPED = [
-    "documents",       // job photos and site files
-    "expenses",        // money out against the job
-    "bills",           // supplier bills
-    "orders",          // material orders
-    "stock_movements", // inventory pulled for the job
-    "stock_rolls",     // rolls allocated to the job
-  ];
-  const removed: Record<string, number> = {};
-  if (jobIds.length) {
-    for (const table of JOB_SCOPED) {
-      // Storage objects have to go with their rows or the files are orphaned
-      // in the bucket with nothing left pointing at them.
-      if (table === "documents") {
-        const { data: docs } = await admin
-          .from("documents")
-          .select("id, path")
-          .in("job_id", jobIds);
-        const paths = (docs ?? []).map((d) => d.path as string).filter(Boolean);
-        if (paths.length) {
-          try {
-            await admin.storage.from("documents").remove(paths);
-          } catch {
-            // A missing object must not stop the row from going.
-          }
-        }
-      }
-      const { count, error } = await admin
-        .from(table)
-        .delete({ count: "exact" })
-        .in("job_id", jobIds);
-      // A table that isn't there yet is fine; anything else is worth knowing.
-      if (!error && count) removed[table] = count;
-    }
-  }
-
-  // The measure visit booked for this estimate goes with it.
-  await admin.from("appointments").delete().eq("estimate_id", id);
-
-  await del("purchase_orders"); // PO items cascade
-  await del("invoices"); // invoice items + payments cascade
-  // Work orders — their labor, materials, stock movements, satisfaction, photos
-  // cascade / detach on delete.
-  await admin.from("jobs").delete().eq("estimate_id", id);
-  // Finally the estimate itself (options + line items cascade).
-  await admin.from("estimates").delete().eq("id", id);
-
-  /**
-   * Put the customer back where they belong.
-   *
-   * Deleting the estimate that WON the job left the customer parked on "Won —
-   * Collect Deposit" with a checklist showing progress toward work that no
-   * longer exists. Same rule unapproveEstimate uses: only walk them back if
-   * nothing else of theirs is still sold.
-   */
-  if (customerId && wasApproved) {
-    const { count: stillSold } = await admin
-      .from("estimates")
-      .select("id", { count: "exact", head: true })
-      .eq("customer_id", customerId)
-      .eq("status", "approved");
-    if (!stillSold) {
-      const { data: stages } = await admin
-        .from("workflow_stages")
-        .select("id, name, position")
-        .order("position");
-      const back = (stages ?? []).find((s) =>
-        /awaiting customer|customer response/i.test((s.name as string) ?? ""),
-      );
-      const patch: Record<string, unknown> = { stage: "quoted" };
-      if (back) patch.workflow_stage_id = back.id;
-      await admin.from("customers").update(patch).eq("id", customerId);
-    }
-  }
-
-  // Say what went, so a delete is never silent about the records it took with
-  // it — money rows especially.
-  if (customerId) {
-    const extras = Object.entries(removed)
-      .map(([k, v]) => `${v} ${k.replace(/_/g, " ")}`)
-      .join(", ");
-    await admin.from("activities").insert({
-      customer_id: customerId,
-      type: "system",
-      body: `Estimate deleted${estTitle ? ` — "${estTitle}"` : ""}.${
-        jobIds.length ? ` ${jobIds.length} work order(s) removed.` : ""
-      }${extras ? ` Also removed: ${extras}.` : ""}${
-        wasApproved ? " The customer was moved back off the won stage." : ""
-      }`,
-    });
-  }
-
-  // Start-clean: wipe this customer's questionnaire state so a NEW guided estimate
-  // begins completely blank — both any leftover in-progress answers (draft) and
-  // the saved measured rooms that would otherwise pre-fill. (Confirmed behavior:
-  // deleting an estimate resets the customer to a clean slate.)
-  if (customerId) {
-    await admin.from("estimate_drafts").delete().eq("customer_id", customerId);
-    await admin.from("customer_areas").delete().eq("customer_id", customerId);
-  }
-
-  // An estimate drives pipeline value & quoted-revenue forecasts — refresh the
-  // money views so they don't show a deleted estimate's numbers.
-  revalidatePath("/estimates");
-  revalidatePath("/jobs");
-  revalidatePath("/purchase-orders");
-  revalidatePath("/invoices");
-  revalidatePath("/pulse");
-  revalidatePath("/financials");
-  revalidatePath("/reports");
-  revalidatePath("/dashboard");
-  if (customerId) {
-    revalidatePath(`/customers/${customerId}`);
-    redirect(`/customers/${customerId}`);
-  }
-  redirect("/estimates");
+export async function deleteEstimate(_formData: FormData): Promise<void> {
+  await assertRole(["admin"]);
+  throw new Error(
+    "Permanent estimate deletion must use Delete forever after the impact preview. Nothing was deleted.",
+  );
 }
+
+
 
 // --- Builder auto-save: one in-progress draft per estimate --------------------
 // Best-effort (no-op if the drafts table isn't there yet). Fire-and-forget from

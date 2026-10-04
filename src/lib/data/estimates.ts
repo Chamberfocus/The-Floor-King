@@ -163,6 +163,8 @@ export async function listEstimatesQueue(args: {
   search?: string;
   page?: number;
   mineFor?: string | null;
+  lifecycle?: "active" | "archived" | "all";
+  lifecycleReady?: boolean;
 }): Promise<{ rows: EstimateListRow[]; total: number; page: number; pageSize: number; capped: boolean }> {
   const pageSize = WORK_QUEUE_PAGE_SIZE;
   const supabase = await createClient();
@@ -185,6 +187,8 @@ export async function listEstimatesQueue(args: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const apply = (query: any) => {
     let next = query;
+    if (args.lifecycleReady && args.lifecycle === "archived") next = next.not("archived_at", "is", null);
+    else if (args.lifecycleReady && args.lifecycle !== "all") next = next.is("archived_at", null);
     if (status) next = next.eq("status", status);
     if (followupBefore) next = next.lt("sent_at", followupBefore);
     if (args.mineFor) next = next.eq("customer.assigned_to", args.mineFor);
@@ -200,7 +204,7 @@ export async function listEstimatesQueue(args: {
   let capped = false;
   let page = 1;
 
-  if (safe.length >= 2) {
+  if (safe.length >= 2 && (args.lifecycle ?? "active") === "active") {
     const found = await readQueueWindow(
       supabase,
       "estimate_queue_page",
