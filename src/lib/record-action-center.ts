@@ -137,6 +137,7 @@ export function buildCustomerActionCenter(input: {
   now: Date;
   role: UserRole;
   customerId: string;
+  archivedAt?: string | null;
   stageName?: string | null;
   stageAction?: string | null;
   nextAction?: string | null;
@@ -151,6 +152,13 @@ export function buildCustomerActionCenter(input: {
 }): RecordActionCenterModel {
   if (input.role === "customer" || input.role === "crew" || input.role === "warehouse") {
     return { ...EMPTY, quiet: "This record is not part of your work." };
+  }
+  if (input.archivedAt) {
+    return {
+      ...EMPTY,
+      situation: ["Archived"],
+      quiet: "This customer is archived. Sales and installation follow-up are paused.",
+    };
   }
   const today = input.now.toISOString().slice(0, 10);
   const seeMoney = money(input.role);
@@ -330,6 +338,7 @@ export function buildEstimateActionCenter(input: {
   role: UserRole;
   estimateId: string;
   customerId: string | null;
+  customerArchivedAt?: string | null;
   status: string;
   sentAt?: string | null;
   approvedAt?: string | null;
@@ -342,6 +351,13 @@ export function buildEstimateActionCenter(input: {
 }): RecordActionCenterModel {
   if (input.role === "customer" || input.role === "crew" || input.role === "warehouse") {
     return { ...EMPTY, quiet: "This estimate is not part of your work." };
+  }
+  if (input.customerArchivedAt) {
+    return {
+      ...EMPTY,
+      situation: ["Customer archived"],
+      quiet: "Sales and installation follow-up are paused for this archived customer.",
+    };
   }
   if (!KNOWN_ESTIMATE.has(input.status)) {
     return {
