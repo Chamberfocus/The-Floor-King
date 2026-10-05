@@ -20,6 +20,9 @@ function refresh() {
   revalidatePath("/customer-records");
   revalidatePath("/customers");
   revalidatePath("/home");
+  revalidatePath("/dashboard");
+  revalidatePath("/tasks");
+  revalidatePath("/jobs");
 }
 
 export async function archiveCustomerRecord(
@@ -45,6 +48,21 @@ export async function archiveCustomerRecord(
       error: employeeDbError(error.message, "This customer could not be archived."),
     };
   }
+
+  // Archiving is an operational stop, not a financial erase. Cancel only
+  // automated sales/install progression tasks. Collections and service work
+  // remain visible because those can still be real obligations.
+  await supabase
+    .from("office_tasks")
+    .update({
+      status: "cancelled",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("customer_id", id)
+    .eq("source", "automation")
+    .in("status", ["open", "in_progress"])
+    .or("source_key.like.estimate_followup:%,source_key.like.deposit_due:%");
+
   refresh();
   return { ok: true };
 }
