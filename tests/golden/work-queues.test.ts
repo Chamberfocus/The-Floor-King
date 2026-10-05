@@ -161,7 +161,7 @@ describe("list pages stay role-scoped and bounded", () => {
     expect(orders).toContain("listOrdersQueue");
     expect(orders).not.toContain("listOrders(");
     expect(orders).toContain('!["admin", "office"].includes(profile.role)');
-    expect(src("src/lib/data/orders.ts")).toContain(".range(");
+    expect(src("src/lib/data/orders.ts")).toContain("order_queue_page");
     expect(src("src/lib/data/orders.ts")).toContain("focusId");
     expect(src("src/app/(app)/search/actions.ts")).toContain("/orders?focus=");
 
@@ -201,7 +201,8 @@ describe("list pages stay role-scoped and bounded", () => {
     expect(tasks).toContain("seeAll");
     expect(tasks).toContain('profile.role === "salesman"');
     expect(tasks).not.toContain("formatMoney");
-    expect(src("src/lib/data/ops-glue.ts")).toContain('.eq("assigned_to", args.userId)');
+    expect(src("src/lib/data/ops-glue.ts")).toContain("p_user: args.userId");
+    expect(src("supabase/migrations/0479_ops_search_page.sql")).toContain("t.assigned_to = p_user");
     expect(src("src/lib/nav.ts")).toContain('href: "/tasks"');
     expect(src("src/components/work-queue-bar.tsx")).toContain("min-h-11");
   });

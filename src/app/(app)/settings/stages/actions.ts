@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { deriveLeadStage } from "@/lib/workflow-engine";
+import { stageNameMeansLost } from "@/lib/customer-lifecycle";
 
 export interface StageFormState {
   error: string | null;
@@ -69,9 +70,7 @@ export async function resyncAllStages(): Promise<{
     name: (s.name as string) ?? null,
   }));
   const byAuto = (aa: string) => stages.find((s) => s.auto_action === aa);
-  const lostStage = stages.find((s) =>
-    /lost|declin|dead|cancel/.test(((s.name as string) || "").toLowerCase()),
-  );
+  const lostStage = stages.find((s) => stageNameMeansLost(s.name as string));
   const first = stages[0];
   // Reverse map: a customer with no workflow stage is placed by its legacy stage.
   const targetFor = (leg: string | null) => {

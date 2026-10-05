@@ -1,3 +1,5 @@
+import { stageNameMeansLost, stageNameMeansParked } from "@/lib/customer-lifecycle";
+
 // The ONE shared model of "where is this job in the flow + is this step's action
 // done." Built on the EXISTING pipeline (customers.workflow_stage_id) — this does
 // not store status, it READS the real records (estimates, jobs, invoices,
@@ -54,18 +56,9 @@ export interface StageLike {
 }
 
 /** Off-ramp (dead deal) — outside the linear spine. */
-export const isLostStage = (s: { name: string }) =>
-  /lost|declin|dead|cancel/.test(s.name.toLowerCase());
+export const isLostStage = (s: { name: string }) => stageNameMeansLost(s.name);
 /** On-hold park stage — reachable any time, not a numbered step. */
-export const isParkStage = (s: { name: string }) => {
-  const n = s.name.toLowerCase();
-  // Waiting on a specific, tracked thing — a material order, a delivery — is a
-  // real step ON the spine. Only an open-ended hold ("on hold", "parked") is a
-  // park. Without this, "Waiting for Materials" would be filed off-spine and
-  // vanish from the pipeline it belongs in.
-  if (/material|deliver/.test(n)) return false;
-  return /\bwaiting\b|\bon hold\b|\bhold\b|\bpark/.test(n);
-};
+export const isParkStage = (s: { name: string }) => stageNameMeansParked(s.name);
 export const isOffSpine = (s: { name: string }) => isLostStage(s) || isParkStage(s);
 
 /** Human title per step — shared so every surface labels it identically. */

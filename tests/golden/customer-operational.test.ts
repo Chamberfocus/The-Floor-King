@@ -102,8 +102,10 @@ describe("archived customer operational stop", () => {
 
   it("refreshes the install scheduler when a customer is archived", () => {
     const action = src("src/app/(app)/customer-records/actions.ts");
-    expect(action).toContain('revalidatePath("/install-scheduler")');
-    expect(action).toContain("cancelled_at: new Date().toISOString()");
+    expect(action).toContain("revalidateOperationalSurfaces");
+    expect(action).toContain("decideArchive");
+    const surfaces = src("src/lib/customer-lifecycle.ts");
+    expect(surfaces).toContain('"/install-scheduler"');
     const scheduler = src("src/app/(app)/install-scheduler/page.tsx");
     expect(scheduler).toContain("showOnActiveInstallCalendar");
     expect(scheduler).toContain("cancelled_at");

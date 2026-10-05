@@ -49,3 +49,57 @@ export function showOnActiveInstallCalendar(args: {
   if (customerIsArchived(args.customerCancelledAt)) return false;
   return true;
 }
+
+/** Open service work. Resolved and cancelled callbacks are history. */
+export const ACTIVE_SERVICE_STATUSES = [
+  "open",
+  "scheduled",
+  "in_progress",
+  "waiting",
+] as const;
+
+/**
+ * Active service views omit archived customers.
+ * Resolved, cancelled, and the All browse keep them.
+ * There is no separate warranty flag. An open callback is operational work.
+ */
+export function serviceQueueKeepsArchivedCustomer(
+  statuses: readonly string[] | null | undefined,
+): boolean {
+  if (!statuses || statuses.length === 0) return true;
+  return statuses.some(
+    (status) => status === "resolved" || status === "cancelled",
+  );
+}
+
+/** Completed task view is history. Open, overdue, and mine are attention. */
+export function taskQueueKeepsArchivedCustomer(view: string): boolean {
+  return view === "completed";
+}
+
+/**
+ * Sent and draft estimates are sales attention.
+ * Approved, declined, and the full list stay searchable.
+ */
+export function estimateQueueKeepsArchivedCustomer(
+  status: string | null | undefined,
+): boolean {
+  return status !== "sent" && status !== "draft";
+}
+
+/**
+ * Submitted and approved orders are open operational work.
+ * A browse, or a declined/cancelled view, keeps archived customers.
+ */
+export function orderQueueKeepsArchivedCustomer(
+  statuses: readonly string[] | null | undefined,
+): boolean {
+  if (!statuses || statuses.length === 0) return true;
+  return statuses.some(
+    (status) => status === "declined" || status === "cancelled",
+  );
+}
+
+export function scheduleChangeAllowed(cancelledAt: string | null | undefined): boolean {
+  return !customerIsArchived(cancelledAt);
+}

@@ -34,6 +34,7 @@ import { warehouseJobIdFromForm } from "@/lib/job-warehouse";
 import { applyEligibleDepositsToInvoice } from "@/lib/data/apply-customer-deposits";
 import { employeePaymentError } from "@/lib/payment-safety";
 import { customerOrderStagingBlockMessage } from "@/lib/order-warehouse-gates";
+import { scheduleChangeAllowed } from "@/lib/customer-operational";
 
 // Back-half pipeline stages carry no auto_action marker, so job-lifecycle events
 // map to them by name (forward-only, best-effort).
@@ -434,7 +435,7 @@ export async function bookInstall(formData: FormData): Promise<void> {
 
   const { data: targetJob } = await supabase
     .from("jobs")
-    .select("id")
+    .select("id, customer:customers(cancelled_at)")
     .eq("id", id)
     .maybeSingle();
   if (!targetJob) {
@@ -442,6 +443,17 @@ export async function bookInstall(formData: FormData): Promise<void> {
       (afterBookRedirect || `/jobs/${id}`) +
         `?schedule_error=${encodeURIComponent(
           "That job is not available to schedule.",
+        )}`,
+    );
+  }
+  const bookedCustomer = Array.isArray(targetJob.customer)
+    ? targetJob.customer[0]
+    : targetJob.customer;
+  if (!scheduleChangeAllowed(bookedCustomer?.cancelled_at as string | null | undefined)) {
+    redirect(
+      (afterBookRedirect || `/jobs/${id}`) +
+        `?schedule_error=${encodeURIComponent(
+          "This customer is archived. Restore them before scheduling.",
         )}`,
     );
   }
@@ -736,11 +748,15 @@ export async function rescheduleInstall(
   const { data: job } = await admin
     .from("jobs")
     .select(
-      "id, title, customer_id, assigned_to, assigned_crew_id, scheduled_date, scheduled_end, arrival_window, warehouse_ready_at",
+      "id, title, customer_id, assigned_to, assigned_crew_id, scheduled_date, scheduled_end, arrival_window, warehouse_ready_at, customer:customers(cancelled_at)",
     )
     .eq("id", jobId)
     .maybeSingle();
   if (!job) return { ok: false, error: "Job not found." };
+  const movingCustomer = Array.isArray(job.customer) ? job.customer[0] : job.customer;
+  if (!scheduleChangeAllowed((movingCustomer as { cancelled_at?: string | null } | null)?.cancelled_at)) {
+    return { ok: false, error: "This customer is archived. Restore them before changing the install." };
+  }
 
   const isStaff = ["admin", "office", "scheduler"].includes(role);
   const isAssigned = !!job.assigned_to && job.assigned_to === user.id;
