@@ -220,7 +220,7 @@ export default async function CustomerPage({
   const prefs = await getUserPreferences();
   const customer = await getCustomer(id);
   if (!customer) notFound();
-  const canDelete = profile.role === "admin" || profile.role === "office";
+  const canDelete = profile.role === "admin";
   const leadSources = await listLeadSources({ activeOnly: true });
   // Whether the lead source (+ its required sub-detail) is recorded — gates
   // estimate creation with an inline prompt rather than a redirect.

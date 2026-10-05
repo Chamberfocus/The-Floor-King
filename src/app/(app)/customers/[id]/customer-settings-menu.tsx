@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { Settings2, Pencil, UserPlus, Trash2, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,8 @@ import type { Customer } from "@/lib/types";
 import type { LucideIcon } from "lucide-react";
 import { CustomerForm } from "../customer-form";
 import { InvitePortalForm } from "./invite-portal-form";
-import { deleteCustomer } from "../actions";
+import { deleteCustomerForever } from "@/app/(app)/customer-records/actions";
+import { useRouter } from "next/navigation";
 
 type View = "menu" | "edit" | "portal" | "delete";
 
@@ -41,10 +42,16 @@ export function CustomerSettingsMenu({
   defaultEmail: string;
   sources?: import("@/lib/types").LeadSourceRow[];
 }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>("menu");
   const [confirmText, setConfirmText] = useState("");
   const canConfirmDelete = confirmText.trim().toUpperCase() === "DELETE";
+  const [deleteState, deleteAction, deletePending] = useActionState(deleteCustomerForever, { ok: false });
+
+  useEffect(() => {
+    if (deleteState.ok) router.push("/customer-records");
+  }, [deleteState.ok, router]);
 
   const onOpenChange = (o: boolean) => {
     setOpen(o);
@@ -92,7 +99,7 @@ export function CustomerSettingsMenu({
                   <SettingRow
                     icon={Trash2}
                     title="Delete customer"
-                    desc="Permanently remove this customer & everything attached"
+                    desc="Permanently remove only an unused customer record"
                     destructive
                     onClick={() => setView("delete")}
                   />
@@ -141,15 +148,14 @@ export function CustomerSettingsMenu({
                 <BackButton onClick={() => setView("menu")} />
                 <DialogTitle>Delete {customer.full_name}?</DialogTitle>
                 <DialogDescription>
-                  This permanently deletes the customer <strong>and everything
-                  attached</strong> — estimates, jobs, invoices, payments,
-                  messages, and history. This <strong>cannot be undone</strong>.
-                  If you just want them out of your pipeline, use{" "}
-                  <em>Cancel</em> instead.
+                  Permanent delete is allowed only when this customer has no linked
+                  jobs, estimates, invoices, payments, orders, appointments, notes,
+                  documents, referrals, or other history. If linked records exist,
+                  deletion is blocked and you should archive the customer instead.
                 </DialogDescription>
               </DialogHeader>
-              <form action={deleteCustomer} className="space-y-3">
-                <input type="hidden" name="id" value={customer.id} />
+              <form action={deleteAction} className="space-y-3">
+                <input type="hidden" name="customer_id" value={customer.id} />
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">
                     Type{" "}
@@ -157,11 +163,15 @@ export function CustomerSettingsMenu({
                     confirm
                   </label>
                   <Input
+                    name="confirmation"
                     value={confirmText}
                     onChange={(e) => setConfirmText(e.target.value)}
                     placeholder="DELETE"
                     autoComplete="off"
                   />
+                  {deleteState.error ? (
+                    <p className="text-sm text-destructive">{deleteState.error}</p>
+                  ) : null}
                 </div>
                 <DialogFooter>
                   <Button
@@ -177,7 +187,7 @@ export function CustomerSettingsMenu({
                       confirm={null}
                       className="bg-destructive text-white hover:bg-destructive/90"
                     >
-                      Delete forever
+                      {deletePending ? "Deleting…" : "Delete forever"}
                     </SubmitButton>
                   ) : (
                     <Button type="button" disabled className="opacity-50">
