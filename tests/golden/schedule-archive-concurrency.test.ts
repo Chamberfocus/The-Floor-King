@@ -159,8 +159,9 @@ describe("new active work is refused in the server action", () => {
       "refuseNewActiveWorkForCustomer",
     );
     const cron = src("src/app/api/cron/daily/route.ts");
-    const start = cron.indexOf('update({ status: "in_progress" })');
+    const start = cron.indexOf("advance_scheduled_job_if_active");
     expect(start).toBeGreaterThan(0);
-    expect(cron.slice(Math.max(0, start - 400), start)).toContain("customerIsArchived");
+    expect(cron.slice(Math.max(0, start - 900), start)).toContain("customerIsArchived");
+    expect(cron).not.toContain('.update({ status: "in_progress" })');
   });
 });

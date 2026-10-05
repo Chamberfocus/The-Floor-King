@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { StageAutoAction, LeadStage } from "@/lib/types";
 import { jobEffectOnLost, stageNameMeansLost, stageNameMeansParked } from "@/lib/customer-lifecycle";
+import { releaseJobReservations } from "@/lib/po-stock";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DB = SupabaseClient<any, any, any>;
@@ -215,9 +216,9 @@ async function applyMove(
  *
  * The two ends of the pipeline mean opposite things:
  *   past the install  -> the work happened  -> complete the job
- *   lost / declined    -> it never will      -> cancel jobs that have not started.
- *                        Stock reservations stay. Cancel, and cancelling the
- *                        job itself, are what release them.
+ *   lost / declined    -> it never will      -> cancel jobs that have not started
+ *                        and release their stock through releaseJobReservations.
+ *                        in_progress and completed jobs are left alone, holds included.
  *
  * Position alone can't tell them apart: "Lost / Declined" (120) sits BETWEEN
  * "Collect Balance" (115) and "Closed" (130), so this matches on name.
@@ -250,6 +251,16 @@ export async function settleJobsForStage(
     (j) => !lost || jobEffectOnLost(j.status as string) === "cancel",
   );
   if (!changing.length) return;
+
+  // Same release Cancel uses. Only jobs this Lost transition is about to
+  // cancel. A second Lost does not select those rows again, and a repeated
+  // release computes outstanding quantity as zero.
+  const releasingIds = changing
+    .filter((j) => lost && jobEffectOnLost(j.status) === "cancel")
+    .map((j) => j.id);
+  if (releasingIds.length) {
+    await releaseJobReservations(supabase as never, releasingIds);
+  }
 
   for (const j of changing) {
     if (lost) {

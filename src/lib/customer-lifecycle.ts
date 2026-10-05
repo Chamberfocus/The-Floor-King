@@ -6,8 +6,9 @@
  *           Restore puts those same rows back into active queues.
  * CANCEL  — the transaction was called off. Open jobs become cancelled.
  *           Restore/reopen does not resurrect a cancelled job.
- * LOST    — the sale did not convert. Jobs not yet underway are cancelled.
- *           A job in progress or already completed stays. That work is real.
+ * LOST    — the sale did not convert. Jobs not yet underway are cancelled,
+ *           and those cancelled jobs release stock through releaseJobReservations.
+ *           A job in progress or already completed stays, and so does its stock.
  *
  * Stage display names still classify lost/park until workflow_stages has a
  * stable outcome column. Do not add that column in this phase.
@@ -73,6 +74,15 @@ export function jobEffectOnLost(status: string): JobLifecycleEffect {
     return "keep";
   }
   return "cancel";
+}
+
+/**
+ * Lost releases stock only for the jobs it cancels.
+ * in_progress, completed, and already-cancelled jobs keep their ledger.
+ * The release itself is releaseJobReservations — there is no second path.
+ */
+export function reservationEffectOnLost(status: string): "release" | "keep" {
+  return jobEffectOnLost(status) === "cancel" ? "release" : "keep";
 }
 
 /**

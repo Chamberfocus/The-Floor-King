@@ -224,7 +224,19 @@ export async function GET(request: NextRequest) {
       staleScheduled += 1;
       continue;
     }
-    await admin.from("jobs").update({ status: "in_progress" }).eq("id", j.id as string);
+    // Locks the customer, then the job. A direct status update could start
+    // an install after archive committed. Apply 0486 before this cron relies on it.
+    const { data: startRes, error: startErr } = await admin.rpc(
+      "advance_scheduled_job_if_active",
+      { p_job_id: j.id as string },
+    );
+    const startBody = startRes as { ok?: boolean; code?: string } | null;
+    if (startErr || !startBody?.ok) {
+      if (startErr) {
+        console.error("[cron] advance_scheduled_job_if_active", startErr.code, j.id);
+      }
+      continue;
+    }
     if (j.customer_id) {
       await advanceToNamedStage(j.customer_id as string, /in progress|in-progress/, j.id as string);
     }
