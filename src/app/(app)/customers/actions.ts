@@ -48,6 +48,8 @@ export interface DuplicateMatch {
 export interface CustomerFormState {
   error: string | null;
   ok?: boolean;
+  /** Set after a successful create so the form opens that customer. */
+  customerId?: string;
   /** Likely-existing customers found on create — the form asks to confirm. */
   duplicates?: DuplicateMatch[];
 }
@@ -234,8 +236,8 @@ export async function createCustomer(
     }
   }
 
-  refreshCustomerViews();
-  redirect(`/customers/${id}?new=1`);
+  refreshCustomerViews(id);
+  return { error: null, customerId: id };
 }
 
 export async function updateCustomer(

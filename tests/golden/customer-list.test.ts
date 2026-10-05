@@ -455,7 +455,10 @@ describe("customer list data layer uses customers table, not a job join", () => 
       "utf8",
     );
     expect(page).toContain("getCustomerListActivity");
+    expect(page).toContain("canDelete");
     expect(list).toContain("`/customers/${c.id}`");
     expect(list).toContain("formatCustomerActivityLine");
+    expect(list).toContain("deleteCustomer");
+    expect(list).toContain("Delete ${label}");
   });
 });

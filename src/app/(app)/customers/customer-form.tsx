@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { AlertTriangle, ExternalLink } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -33,17 +34,22 @@ export function CustomerForm({
   referrerCustomers?: { id: string; full_name: string }[];
 }) {
   const isEdit = Boolean(customer);
+  const router = useRouter();
   const [state, formAction, pending] = useActionState(
     isEdit ? updateCustomer : createCustomer,
     initialState,
   );
 
   useEffect(() => {
+    if (state.customerId) {
+      router.push(`/customers/${state.customerId}?new=1`);
+      return;
+    }
     if (state.ok) {
       toast.success("Saved");
       onSaved?.();
     }
-  }, [state.ok, onSaved]);
+  }, [state.customerId, state.ok, onSaved, router]);
 
   return (
     <form action={formAction} data-tour="customer-form" className="space-y-5">

@@ -146,6 +146,7 @@ describe("Customers server render survives the digest-producing paths", () => {
     const html = await htmlFor();
     expect(html).toContain("Pat Customer");
     expect(html).toContain("New lead");
+    expect(html).toContain("Delete");
     expect(html).not.toContain("temporarily unavailable");
     expect(html).not.toContain("No customers yet");
   });
