@@ -209,6 +209,7 @@ export default async function EstimatePage({
     role: profile.role,
     estimateId: estimate.id,
     customerId: estimate.customer_id,
+    customerArchivedAt: customer?.cancelled_at ?? null,
     status: estimate.status,
     sentAt: estimate.sent_at,
     approvedAt: estimate.approved_at,

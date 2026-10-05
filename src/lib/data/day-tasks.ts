@@ -63,13 +63,14 @@ export async function getTodayTasks(): Promise<DayTask[]> {
   // 2) Appointments today.
   const { data: appts } = await supabase
     .from("appointments")
-    .select("id, starts_at, contact_name, customer_id, customer:customers(full_name), type:appointment_types(name)")
+    .select("id, starts_at, contact_name, customer_id, customer:customers(full_name, cancelled_at), type:appointment_types(name)")
     .gte("starts_at", `${today}T00:00:00Z`)
     .lte("starts_at", `${today}T23:59:59Z`)
     .neq("status", "cancelled")
     .order("starts_at", { ascending: true });
   for (const a of appts ?? []) {
-    const c = a.customer as unknown as { full_name?: string } | null;
+    const c = a.customer as unknown as { full_name?: string; cancelled_at?: string | null } | null;
+    if (c?.cancelled_at) continue;
     const t = a.type as unknown as { name?: string } | null;
     const d = new Date(a.starts_at as string);
     const hh = d.getUTCHours();
@@ -102,7 +103,6 @@ export async function getTodayTasks(): Promise<DayTask[]> {
       full_name?: string;
       cancelled_at?: string | null;
     } | null;
-    if (cust?.cancelled_at) continue;
     const red = collectReductions.get(inv.id as string);
     const bal = dayTaskCollectAmountDue({
       items: (inv.items as { quantity: number; rate: number }[]) ?? [],
@@ -130,11 +130,12 @@ export async function getTodayTasks(): Promise<DayTask[]> {
   // 4) Schedule: jobs not yet on the calendar.
   const { data: jobs } = await supabase
     .from("jobs")
-    .select("id, title, customer:customers(full_name)")
+    .select("id, title, customer:customers(full_name, cancelled_at)")
     .eq("status", "unscheduled")
     .limit(10);
   for (const j of jobs ?? []) {
-    const c = j.customer as unknown as { full_name?: string } | null;
+    const c = j.customer as unknown as { full_name?: string; cancelled_at?: string | null } | null;
+    if (c?.cancelled_at) continue;
     tasks.push({
       id: `job-${j.id}`,
       kind: "schedule",

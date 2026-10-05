@@ -390,6 +390,7 @@ export default async function CustomerPage({
     now: new Date(),
     role: profile.role,
     customerId: id,
+    archivedAt: customer.cancelled_at,
     stageName: currentStage?.name ?? null,
     stageAction: currentStage?.auto_action ?? null,
     nextAction: currentStage?.next_action ?? null,
