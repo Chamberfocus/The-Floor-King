@@ -10,12 +10,20 @@ export const metadata: Metadata = { title: "Add customer" };
 export default function NewCustomerPage() {
   return (
     <div className="mx-auto max-w-2xl">
-      <Link
-        href="/home"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="size-4" /> Back to home
-      </Link>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <Link
+          href="/home"
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="size-4" /> Back to home
+        </Link>
+        <Link
+          href="/customer-records"
+          className="text-sm font-medium text-primary hover:underline"
+        >
+          Manage customer records
+        </Link>
+      </div>
 
       <PageHeader
         title="Add customer"
