@@ -855,7 +855,7 @@ const WAREHOUSE_BOARD_COLUMNS =
   "id, title, status, scheduled_date, scheduled_end, site_street, site_city, site_state, site_zip, notes, delivery_type, warehouse_status, warehouse_submitted_at, warehouse_assigned_to, warehouse_accepted_at, staging_location, warehouse_ready_at, assigned_to, assigned_crew_id, customer_id, created_at, customer:customers(full_name, workflow_stage_id)";
 
 const SCHEDULER_LIST_COLUMNS =
-  "id, title, customer_id, scheduled_date, site_street, site_city, warehouse_ready_at, status, customer:customers(full_name)";
+  "id, title, customer_id, scheduled_date, site_street, site_city, warehouse_ready_at, status, customer:customers(full_name, cancelled_at)";
 
 export interface SchedulerQueueRow {
   id: string;
@@ -897,12 +897,13 @@ export async function listSchedulerQueue(args: {
     throw new Error(QUEUE_LIST_UNAVAILABLE);
   }
   const order = new Map(found.ids.map((id, index) => [id, index]));
-  const rows = ((data ?? []) as (SchedulerQueueRow & {
-    customer?: { full_name: string | null } | { full_name: string | null }[] | null;
+  const shaped = ((data ?? []) as (SchedulerQueueRow & {
+    customer?: { full_name: string | null; cancelled_at: string | null } | { full_name: string | null; cancelled_at: string | null }[] | null;
   })[])
     .map((row) => {
       const customer = Array.isArray(row.customer) ? row.customer[0] : row.customer;
       return {
+        archived: Boolean(customer?.cancelled_at),
         id: row.id,
         title: row.title,
         customer_id: row.customer_id,
@@ -913,9 +914,21 @@ export async function listSchedulerQueue(args: {
         status: row.status,
         customer_name: customer?.full_name ?? null,
       };
-    })
+    });
+  const archivedOnPage = shaped.filter((row) => row.archived).length;
+  const rows = shaped
+    .filter((row) => !row.archived)
+    .map(({ archived: _archived, ...row }) => row)
     .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
-  return { rows, total: found.total, page: found.page, pageSize };
+  // 0483 makes found.total exact across every page. This local guard keeps an
+  // archived customer out of the scheduler even before/if that migration is
+  // temporarily unavailable.
+  return {
+    rows,
+    total: Math.max(rows.length, found.total - archivedOnPage),
+    page: found.page,
+    pageSize,
+  };
 }
 
 /**
