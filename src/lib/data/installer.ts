@@ -1,3 +1,4 @@
+import { customerIsArchived } from "@/lib/customer-operational";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAll } from "@/lib/supabase/paginate";
 import { getJobOpenBalance } from "./invoices";
@@ -52,7 +53,7 @@ export async function getInstallerHome(
   const memberCrewIds = (crewRows ?? []).map((c) => c.id as string);
   const { data } = await admin
     .from("jobs")
-    .select("*, customer:customers(full_name, workflow_stage_id, phone)")
+    .select("*, customer:customers(full_name, workflow_stage_id, phone, cancelled_at)")
     .or(installerAssignmentOrFilter(userId, memberCrewIds))
     .in("status", ["unscheduled", "scheduled", "in_progress", "completed"])
     .order("scheduled_date", { ascending: true });
@@ -62,15 +63,26 @@ export async function getInstallerHome(
         full_name: string | null;
         workflow_stage_id: string | null;
         phone: string | null;
+        cancelled_at?: string | null;
       } | null;
-    })[]).filter((j) =>
-      installerSeesJob({
-        assignedTo: j.assigned_to,
-        assignedCrewId: j.assigned_crew_id,
-        userId,
-        memberCrewIds,
-      }),
-    ),
+    })[]).filter((j) => {
+      if (
+        !installerSeesJob({
+          assignedTo: j.assigned_to,
+          assignedCrewId: j.assigned_crew_id,
+          userId,
+          memberCrewIds,
+        })
+      ) {
+        return false;
+      }
+      // Completed installs stay on the installer's history. Open work for an
+      // archived customer does not.
+      if (customerIsArchived(j.customer?.cancelled_at) && j.status !== "completed") {
+        return false;
+      }
+      return true;
+    }),
   );
   const jobIds = jobsRaw.map((j) => j.id);
 

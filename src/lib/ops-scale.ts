@@ -1,10 +1,12 @@
 /**
- * Queue membership rules shared with supabase/migrations/0478_ops_queue_scale.sql.
+ * Queue membership rules shared with job_queue_page
+ * (0478_ops_queue_scale.sql, archive exclusion in 0483_archived_customer_active_queues.sql).
  * The database pages the real lists. These functions let tests prove a match
  * past the old 200-row cap is still on a later page.
  * They do not choose a next step.
  */
 import { assessMaterialsReadyForSchedule } from "@/lib/materials-ready";
+import { customerIsArchived } from "@/lib/customer-operational";
 import { isMaterialLine } from "@/lib/job-scope";
 import { phoneSearchPattern } from "@/lib/search-query";
 import { listPageWindow, WORK_QUEUE_PAGE_SIZE } from "@/lib/work-queues";
@@ -72,6 +74,8 @@ export interface ScaleJob {
   serviceOpen?: boolean;
   /** Present only so a test can prove a PO does not change the queue. */
   purchaseOrders?: { status?: string | null }[];
+  /** customers.cancelled_at. Active queues omit archived customers. */
+  customerCancelledAt?: string | null;
 }
 
 export function jobHasMaterialNeed(
@@ -97,8 +101,13 @@ function materialsReady(job: ScaleJob): boolean {
 
 const OPEN_JOB = new Set(["unscheduled", "scheduled", "in_progress"]);
 
+function archivedCustomer(job: { customerCancelledAt?: string | null }): boolean {
+  return customerIsArchived(job.customerCancelledAt);
+}
+
 /** Canonical queue membership. Purchase orders and deposits are not inputs. */
 export function jobQueueIncludes(job: ScaleJob, queue: "material" | "ready" | "service"): boolean {
+  if (archivedCustomer(job)) return false;
   if (queue === "service") return OPEN_JOB.has(job.status) && !!job.serviceOpen;
   if (queue === "material") {
     return OPEN_JOB.has(job.status) && !job.warehouseReadyAt && job.hasMaterialNeed;
@@ -127,6 +136,7 @@ export function invoiceIsOverdue(row: ScaleInvoice, today: string): boolean {
 }
 
 export function schedulerQueueIncludes(job: ScaleJob, section: "ready" | "booked"): boolean {
+  if (archivedCustomer(job)) return false;
   if (section === "ready") return jobQueueIncludes(job, "ready");
   return (
     !!job.scheduledDate &&
@@ -137,9 +147,14 @@ export function schedulerQueueIncludes(job: ScaleJob, section: "ready" | "booked
 const STAGED = new Set(["staged", "out_for_delivery", "delivered", "picked_up"]);
 
 export function warehouseSectionIncludes(
-  job: { status: string; warehouseStatus: string | null },
+  job: {
+    status: string;
+    warehouseStatus: string | null;
+    customerCancelledAt?: string | null;
+  },
   section: "active" | "staged",
 ): boolean {
+  if (archivedCustomer(job)) return false;
   if (!OPEN_JOB.has(job.status)) return false;
   const staged = job.warehouseStatus != null && STAGED.has(job.warehouseStatus);
   return section === "staged" ? staged : !staged;

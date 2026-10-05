@@ -1,3 +1,4 @@
+import { customerIsArchived } from "@/lib/customer-operational";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { queueSearchArgs, readQueueWindow } from "@/lib/data/queue-rpc";
@@ -130,6 +131,11 @@ export async function listJobs(
 
 const JOB_LIST_COLUMNS =
   "id, title, status, scheduled_date, warehouse_ready_at, warehouse_status, warehouse_submitted_at, assigned_to, assigned_crew_id, open_for_claim, arrival_window, site_street, site_city, site_state, delivery_type, created_at, customer_id, customer:customers(full_name, phone)";
+
+const JOB_DATE_COLUMNS = JOB_LIST_COLUMNS.replace(
+  "customer:customers(full_name, phone)",
+  "customer:customers!inner(full_name, phone, cancelled_at)",
+);
 
 function shapeJobs(data: unknown): JobListRow[] {
   return ((data ?? []) as (Job & {
@@ -266,7 +272,8 @@ async function jobsOnDateBase(args: JobsOnDateArgs) {
     let next = query
       .eq("scheduled_date", args.date)
       .in("status", ["scheduled", "in_progress"])
-      .or(PICKUP_EXCLUDED);
+      .or(PICKUP_EXCLUDED)
+      .is("customer.cancelled_at", null);
     if (args.assignedTo) {
       next = next.or(installerAssignmentOrFilter(args.assignedTo, crewIds));
     } else if (args.mineFor) {
@@ -298,7 +305,9 @@ export async function listJobsOnDate(args: JobsOnDateArgs): Promise<{
   const pageSize = WORK_QUEUE_PAGE_SIZE;
   const { supabase, apply } = await jobsOnDateBase(args);
   const counted = await apply(
-    supabase.from("jobs").select("id", { count: "exact", head: true }),
+    supabase
+      .from("jobs")
+      .select("id, customer:customers!inner(cancelled_at)", { count: "exact", head: true }),
   );
   if (counted.error) {
     logQueueFailure("jobs_on_date", counted.error);
@@ -306,7 +315,7 @@ export async function listJobsOnDate(args: JobsOnDateArgs): Promise<{
   }
   const total = (counted.count as number | null) ?? 0;
   const window = listPageWindow(args.page ?? 1, pageSize, total);
-  const { data, error } = await apply(supabase.from("jobs").select(JOB_LIST_COLUMNS))
+  const { data, error } = await apply(supabase.from("jobs").select(JOB_DATE_COLUMNS))
     .order("arrival_window", { ascending: true, nullsFirst: false })
     .order("title", { ascending: true })
     .range(window.from, Math.max(window.from, window.to - 1));
@@ -335,7 +344,9 @@ export async function countJobsOnDate(
 ): Promise<number> {
   const { supabase, apply } = await jobsOnDateBase(args);
   const counted = await apply(
-    supabase.from("jobs").select("id", { count: "exact", head: true }),
+    supabase
+      .from("jobs")
+      .select("id, customer:customers!inner(cancelled_at)", { count: "exact", head: true }),
   );
   if (counted.error) {
     logQueueFailure("jobs_on_date", counted.error);
@@ -1037,10 +1048,18 @@ export async function listActiveInstallJobs(): Promise<ActiveInstallJob[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("jobs")
-    .select("id, title, scheduled_date, assigned_to, open_for_claim, status, customer:customers(full_name)")
+    .select("id, title, scheduled_date, assigned_to, open_for_claim, status, customer:customers(full_name, cancelled_at)")
     .in("status", ["scheduled", "in_progress"])
     .order("scheduled_date", { ascending: true });
-  const rows = (data ?? []) as (Job & { customer?: { full_name: string | null } | { full_name: string | null }[] | null })[];
+  const rows = ((data ?? []) as (Job & {
+    customer?:
+      | { full_name: string | null; cancelled_at?: string | null }
+      | { full_name: string | null; cancelled_at?: string | null }[]
+      | null;
+  })[]).filter((row) => {
+    const cust = Array.isArray(row.customer) ? row.customer[0] : row.customer;
+    return !customerIsArchived(cust?.cancelled_at);
+  });
   const ids = [...new Set(rows.map((r) => r.assigned_to).filter(Boolean) as string[])];
   const nameById = new Map<string, string>();
   if (ids.length) {
@@ -1067,10 +1086,19 @@ export async function listActiveInstallJobs(): Promise<ActiveInstallJob[]> {
 
 export async function getActiveJobCount(): Promise<number> {
   const supabase = await createClient();
-  const { count } = await supabase
+  const { count, error } = await supabase
     .from("jobs")
-    .select("id", { count: "exact", head: true })
-    .in("status", ["scheduled", "in_progress"]);
+    .select("id, customer:customers!inner(cancelled_at)", { count: "exact", head: true })
+    .in("status", ["scheduled", "in_progress"])
+    .is("customer.cancelled_at", null);
+  if (error) {
+    logQueueFailure("active_job_count", error);
+    const fallback = await supabase
+      .from("jobs")
+      .select("id", { count: "exact", head: true })
+      .in("status", ["scheduled", "in_progress"]);
+    return fallback.count ?? 0;
+  }
   return count ?? 0;
 }
 
@@ -1098,7 +1126,7 @@ export async function listOpenJobsForPipeline(): Promise<
   const { data, error } = await supabase
     .from("jobs")
     .select(
-      "id, customer_id, title, status, workflow_stage_id, workflow_owner_id, next_action_due, site_street, site_city",
+      "id, customer_id, title, status, workflow_stage_id, workflow_owner_id, next_action_due, site_street, site_city, customer:customers(cancelled_at)",
     )
     .neq("status", "cancelled")
     // A pickup order isn't in the install pipeline — it's an order.
@@ -1108,7 +1136,7 @@ export async function listOpenJobsForPipeline(): Promise<
   // a whole. Falling back to no jobs makes every account read as a single
   // pre-job unit — exactly the behaviour that came before — instead of an error.
   if (error) return [];
-  return (data ?? []) as {
+  return ((data ?? []) as {
     id: string;
     customer_id: string;
     title: string | null;
@@ -1118,5 +1146,24 @@ export async function listOpenJobsForPipeline(): Promise<
     next_action_due: string | null;
     site_street: string | null;
     site_city: string | null;
-  }[];
+    customer?:
+      | { cancelled_at?: string | null }
+      | { cancelled_at?: string | null }[]
+      | null;
+  }[])
+    .filter((row) => {
+      const cust = Array.isArray(row.customer) ? row.customer[0] : row.customer;
+      return !customerIsArchived(cust?.cancelled_at);
+    })
+    .map((row) => ({
+      id: row.id,
+      customer_id: row.customer_id,
+      title: row.title,
+      status: row.status,
+      workflow_stage_id: row.workflow_stage_id,
+      workflow_owner_id: row.workflow_owner_id,
+      next_action_due: row.next_action_due,
+      site_street: row.site_street,
+      site_city: row.site_city,
+    }));
 }

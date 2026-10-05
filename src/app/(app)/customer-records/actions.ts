@@ -23,6 +23,10 @@ function refresh() {
   revalidatePath("/dashboard");
   revalidatePath("/tasks");
   revalidatePath("/jobs");
+  revalidatePath("/install-scheduler");
+  revalidatePath("/installer");
+  revalidatePath("/warehouse");
+  revalidatePath("/board");
 }
 
 export async function archiveCustomerRecord(
