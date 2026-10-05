@@ -543,7 +543,7 @@ export interface QuickCreateAction {
  * Tasks are created on the dashboard, which office and sales managers already open.
  */
 export const QUICK_CREATE: QuickCreateAction[] = [
-  { id: "customer", label: "New customer", href: "/customers/new", roles: SALES_VIEW },
+  { id: "customer", label: "New customer", href: "/new-customer", roles: SALES_VIEW },
   { id: "estimate", label: "New estimate", href: "/estimates/start", roles: SALES },
   { id: "measure", label: "Schedule a measure", href: "/calendar", roles: SALES_VIEW },
   {
