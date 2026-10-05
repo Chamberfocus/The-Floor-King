@@ -7,7 +7,6 @@ import { DEFAULT_ESTIMATE_FOLLOWUP_DAYS } from "@/lib/ops-followup";
 import {
   WORK_QUEUE_PAGE_SIZE,
   estimateStatusForView,
-  listPageWindow,
   type EstimateQueueView,
 } from "@/lib/work-queues";
 import type {
@@ -182,64 +181,35 @@ export async function listEstimatesQueue(args: {
       options: row.options ?? [],
     }));
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const apply = (query: any) => {
-    let next = query;
-    if (status) next = next.eq("status", status);
-    if (followupBefore) next = next.lt("sent_at", followupBefore);
-    if (args.mineFor) next = next.eq("customer.assigned_to", args.mineFor);
-    return next;
-  };
-
   const columns = args.mineFor
     ? ESTIMATE_LIST_COLUMNS.replace("customer:customers(", "customer:customers!inner(")
     : ESTIMATE_LIST_COLUMNS;
 
   let rows: EstimateListRow[] = [];
-  let total = 0;
-  let capped = false;
-  let page = 1;
+  const capped = false;
 
-  if (safe.length >= 2) {
-    const found = await readQueueWindow(
-      supabase,
-      "estimate_queue_page",
-      {
-        p_status: status,
-        p_sent_before: followupBefore,
-        p_mine: args.mineFor ?? null,
-        p_search: safe,
-      },
-      args.page ?? 1,
-      pageSize,
-    );
-    page = found.page;
-    total = found.total;
-    if (found.ids.length) {
-      const { data, error } = await supabase.from("estimates").select(columns).in("id", found.ids);
-      if (error) {
-        logQueueFailure("estimate_queue_page", error);
-        throw new Error(QUEUE_LIST_UNAVAILABLE);
-      }
-      rows = orderByIds(shape(data), found.ids);
+  // Follow-up, sent, and draft counts use estimate_queue_page, same as this list.
+  const found = await readQueueWindow(
+    supabase,
+    "estimate_queue_page",
+    {
+      p_status: status,
+      p_sent_before: followupBefore,
+      p_mine: args.mineFor ?? null,
+      p_search: safe.length >= 2 ? safe : null,
+    },
+    args.page ?? 1,
+    pageSize,
+  );
+  const page = found.page;
+  const total = found.total;
+  if (found.ids.length) {
+    const { data, error } = await supabase.from("estimates").select(columns).in("id", found.ids);
+    if (error) {
+      logQueueFailure("estimate_queue_page", error);
+      throw new Error(QUEUE_LIST_UNAVAILABLE);
     }
-  } else {
-    let countQuery = apply(supabase.from("estimates").select("id, customer:customers(assigned_to)", { count: "exact", head: true }));
-    if (args.mineFor) {
-      countQuery = apply(
-        supabase
-          .from("estimates")
-          .select("id, customer:customers!inner(assigned_to)", { count: "exact", head: true }),
-      );
-    }
-    const counted = await countQuery;
-    total = counted.count ?? 0;
-    const window = listPageWindow(args.page ?? 1, pageSize, total);
-    page = window.page;
-    const { data } = await apply(
-      supabase.from("estimates").select(columns).order("created_at", { ascending: false }),
-    ).range(window.from, Math.max(window.from, window.to - 1));
-    rows = shape(data);
+    rows = orderByIds(shape(data), found.ids);
   }
 
   await attachOptions(supabase, rows);

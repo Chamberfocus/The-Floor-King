@@ -11,6 +11,7 @@ import { workUnitsFor, type WorkUnit } from "@/lib/work-stage";
 import { listWorkflowStages } from "@/lib/data/workflow";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { stageNameMeansLost } from "@/lib/customer-lifecycle";
 
 export const metadata: Metadata = { title: "Client status" };
 export const dynamic = "force-dynamic";
@@ -58,7 +59,7 @@ const LANES: {
  * Off-spine stages (Lost / Declined) are matched by name, as everywhere else.
  */
 function laneFor(stageName: string, position: number): LaneKey | null {
-  if (/lost|declin|dead/i.test(stageName)) return null;
+  if (stageNameMeansLost(stageName)) return null;
   if (/closed/i.test(stageName)) return null;
   if (position < 30) return "new";
   if (position < 50) return "quoting";

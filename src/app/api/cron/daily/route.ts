@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { customerIsArchived } from "@/lib/customer-operational";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import { sendSms } from "@/lib/sms";
 import { triggerImportProcessing } from "@/lib/import-worker";
@@ -95,7 +96,7 @@ export async function GET(request: NextRequest) {
   const cutoff = new Date(now - 2 * 3600 * 1000).toISOString();
   const { data: ests } = await admin
     .from("estimates")
-    .select("id, title, viewed_at, customer:customers(full_name, email)")
+    .select("id, title, viewed_at, customer:customers(full_name, email, cancelled_at)")
     .is("thankyou_sent_at", null)
     .not("sent_at", "is", null)
     .lte("sent_at", cutoff);
@@ -103,7 +104,9 @@ export async function GET(request: NextRequest) {
     const cust = e.customer as unknown as {
       full_name: string | null;
       email: string | null;
+      cancelled_at?: string | null;
     } | null;
+    if (customerIsArchived(cust?.cancelled_at)) continue;
     // Already read it? Then say nothing and close it out.
     const { count: opens } = await admin
       .from("estimate_events")
@@ -136,7 +139,7 @@ export async function GET(request: NextRequest) {
   const tomorrow = new Date(now + 24 * 3600 * 1000).toISOString().slice(0, 10);
   const { data: jobs } = await admin
     .from("jobs")
-    .select("id, title, assigned_to, customer:customers(full_name, email, phone)")
+    .select("id, title, assigned_to, customer:customers(full_name, email, phone, cancelled_at)")
     .eq("status", "scheduled")
     .eq("scheduled_date", tomorrow)
     .is("reminder_sent_at", null);
@@ -145,7 +148,9 @@ export async function GET(request: NextRequest) {
       full_name: string | null;
       email: string | null;
       phone: string | null;
+      cancelled_at?: string | null;
     } | null;
+    if (customerIsArchived(cust?.cancelled_at)) continue;
     const recipients = new Set<string>([ownerEmail()]);
     if (j.assigned_to) {
       const { data: inst } = await admin
@@ -204,16 +209,34 @@ export async function GET(request: NextRequest) {
   const lookback = new Date(now - 14 * 24 * 3600 * 1000).toISOString().slice(0, 10);
   const { data: due } = await admin
     .from("jobs")
-    .select("id, customer_id, scheduled_date")
+    .select("id, customer_id, scheduled_date, customer:customers(cancelled_at)")
     .eq("status", "scheduled")
     .not("scheduled_date", "is", null)
     .lte("scheduled_date", todayStr);
   for (const j of due ?? []) {
+    const dueCustomer = j.customer as unknown as
+      | { cancelled_at?: string | null }
+      | { cancelled_at?: string | null }[]
+      | null;
+    const dueCust = Array.isArray(dueCustomer) ? dueCustomer[0] : dueCustomer;
+    if (customerIsArchived(dueCust?.cancelled_at)) continue;
     if ((j.scheduled_date as string) < lookback) {
       staleScheduled += 1;
       continue;
     }
-    await admin.from("jobs").update({ status: "in_progress" }).eq("id", j.id as string);
+    // Locks the customer, then the job. A direct status update could start
+    // an install after archive committed. Apply 0486 before this cron relies on it.
+    const { data: startRes, error: startErr } = await admin.rpc(
+      "advance_scheduled_job_if_active",
+      { p_job_id: j.id as string },
+    );
+    const startBody = startRes as { ok?: boolean; code?: string } | null;
+    if (startErr || !startBody?.ok) {
+      if (startErr) {
+        console.error("[cron] advance_scheduled_job_if_active", startErr.code, j.id);
+      }
+      continue;
+    }
     if (j.customer_id) {
       await advanceToNamedStage(j.customer_id as string, /in progress|in-progress/, j.id as string);
     }
@@ -409,7 +432,7 @@ export async function GET(request: NextRequest) {
     const { data: cos } = await admin
       .from("sample_checkouts")
       .select(
-        "id, due_date, last_reminder_on, customer:customers(full_name, email, phone), items:sample_checkout_items(label, qty)",
+        "id, due_date, last_reminder_on, customer:customers(full_name, email, phone, cancelled_at), items:sample_checkout_items(label, qty)",
       )
       .eq("status", "out");
 
@@ -425,7 +448,13 @@ export async function GET(request: NextRequest) {
 
       const cust = (
         Array.isArray(c.customer) ? c.customer[0] : c.customer
-      ) as { full_name: string | null; email: string | null; phone: string | null } | null;
+      ) as {
+        full_name: string | null;
+        email: string | null;
+        phone: string | null;
+        cancelled_at?: string | null;
+      } | null;
+      if (customerIsArchived(cust?.cancelled_at)) continue;
       const items = (c.items ?? []) as { label: string; qty: number }[];
       const list = items
         .map((i) => `${i.qty > 1 ? `${i.qty}× ` : ""}${i.label}`)

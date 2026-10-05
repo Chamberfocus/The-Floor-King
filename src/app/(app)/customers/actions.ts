@@ -1,6 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { jobEffectOnCancel } from "@/lib/customer-lifecycle";
+import { revalidateOperationalSurfaces } from "@/lib/revalidate-operational";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -814,11 +816,12 @@ export async function cancelCustomer(formData: FormData): Promise<void> {
   // text — because the cron filters on job status, which nobody had changed.
   const { data: liveJobs } = await supabase
     .from("jobs")
-    .select("id")
-    .eq("customer_id", id)
-    .not("status", "in", "(completed,cancelled)");
-  if (liveJobs?.length) {
-    const jobIds = liveJobs.map((j) => j.id as string);
+    .select("id, status")
+    .eq("customer_id", id);
+  const jobIds = (liveJobs ?? [])
+    .filter((j) => jobEffectOnCancel(j.status as string) === "cancel")
+    .map((j) => j.id as string);
+  if (jobIds.length) {
     await releaseJobReservations(supabase, jobIds);
     await supabase.from("jobs").update({ status: "cancelled" }).in("id", jobIds);
     await supabase.from("activities").insert({
@@ -837,14 +840,7 @@ export async function cancelCustomer(formData: FormData): Promise<void> {
   });
 
   refreshCustomerViews(id);
-  revalidatePath("/client-status");
-  revalidatePath("/dashboard");
-  // The crew-facing views the customer refresh never covered.
-  revalidatePath("/jobs");
-  revalidatePath("/board");
-  revalidatePath("/warehouse");
-  revalidatePath("/install-scheduler");
-  revalidatePath("/installer");
+  revalidateOperationalSurfaces([`/customers/${id}`]);
   redirect(`/customers/${id}`);
 }
 
@@ -889,7 +885,7 @@ export async function reopenCustomer(formData: FormData): Promise<void> {
   });
 
   refreshCustomerViews(id);
-  revalidatePath("/client-status");
+  revalidateOperationalSurfaces([`/customers/${id}`]);
   redirect(`/customers/${id}`);
 }
 

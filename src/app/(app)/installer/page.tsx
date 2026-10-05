@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { showOnActiveInstallCalendar } from "@/lib/customer-operational";
 import { getInstallerHome } from "@/lib/data/installer";
 import {
   InstallerCalendar,
@@ -80,14 +81,14 @@ export default async function InstallerHomePage() {
   const { data: myRows } = await supabase
     .from("jobs")
     .select(
-      "id, title, customer_id, scheduled_date, scheduled_end, arrival_window, site_city, status, customer:customers(full_name)",
+      "id, title, customer_id, scheduled_date, scheduled_end, arrival_window, site_city, status, customer:customers(full_name, cancelled_at)",
     )
     .eq("assigned_to", profile.id)
     .not("scheduled_date", "is", null)
     .gte("scheduled_date", since)
     .or("delivery_type.is.null,delivery_type.neq.cash_carry")
     .order("scheduled_date", { ascending: true });
-  const myEvents: CalEvent[] = ((myRows ?? []) as unknown[]).map((row) => {
+  const myEvents: CalEvent[] = ((myRows ?? []) as unknown[]).flatMap((row) => {
     const r = row as {
       id: string;
       title: string | null;
@@ -97,10 +98,21 @@ export default async function InstallerHomePage() {
       arrival_window: string | null;
       site_city: string | null;
       status: string | null;
-      customer?: { full_name: string | null }[] | { full_name: string | null } | null;
+      customer?:
+        | { full_name: string | null; cancelled_at?: string | null }
+        | { full_name: string | null; cancelled_at?: string | null }[]
+        | null;
     };
     const cust = Array.isArray(r.customer) ? r.customer[0] : r.customer;
-    return {
+    if (
+      !showOnActiveInstallCalendar({
+        status: r.status,
+        customerCancelledAt: cust?.cancelled_at,
+      })
+    ) {
+      return [];
+    }
+    return [{
       id: r.id,
       name: cust?.full_name ?? r.title ?? "Install",
       customerId: r.customer_id,
@@ -111,7 +123,7 @@ export default async function InstallerHomePage() {
       resourceName: "You",
       city: r.site_city ?? null,
       status: r.status ?? null,
-    };
+    }];
   });
 
   return (

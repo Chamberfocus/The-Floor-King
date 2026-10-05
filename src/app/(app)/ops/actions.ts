@@ -32,6 +32,10 @@ import {
   serviceSchedulePatch,
   type ServiceStatus,
 } from "@/lib/service-callback";
+import {
+  refuseNewActiveWorkForCustomer,
+  refuseNewActiveWorkForJob,
+} from "@/lib/active-work-guard";
 
 const TASK_SAVE_FAILED = "This task could not be saved. Refresh and try again.";
 const TASK_CHANGED =
@@ -88,6 +92,14 @@ export async function createOfficeTask(formData: FormData): Promise<void> {
   const supabase = await createClient();
   const assigned =
     str(formData.get("assigned_to")) || profile.id;
+  const taskCustomerId = str(formData.get("customer_id")) || null;
+  const taskJobId = str(formData.get("job_id")) || null;
+  const taskBlocked = taskCustomerId
+    ? await refuseNewActiveWorkForCustomer(supabase, taskCustomerId)
+    : taskJobId
+      ? await refuseNewActiveWorkForJob(supabase, taskJobId)
+      : null;
+  if (taskBlocked) throw new Error(taskBlocked);
   const { error } = await supabase.from("office_tasks").insert({
     title,
     description: str(formData.get("description")) || null,
@@ -193,13 +205,19 @@ export async function ensureAutomatedOfficeTask(args: {
   description?: string | null;
 }): Promise<{ created: boolean }> {
   await assertRole(TASK_ASSIGN_ROLES);
+  const supabase = await createClient();
+  const autoBlocked = args.customerId
+    ? await refuseNewActiveWorkForCustomer(supabase, args.customerId)
+    : args.jobId
+      ? await refuseNewActiveWorkForJob(supabase, args.jobId)
+      : null;
+  if (autoBlocked) return { created: false };
   const key = automationSourceKey(args.sourceKind, args.entityId);
   const open = await listOpenSourceKeys([key]);
   if (!shouldCreateAutomatedTask({ sourceKey: key, existingOpenSourceKeys: open })) {
     return { created: false };
   }
   const profile = await requireProfile();
-  const supabase = await createClient();
   const { error } = await supabase.from("office_tasks").insert({
     title: args.title,
     description: args.description ?? null,
@@ -283,6 +301,8 @@ export async function createServiceCallback(formData: FormData): Promise<void> {
   }
   const profile = await requireProfile();
   const supabase = await createClient();
+  const callbackBlocked = await refuseNewActiveWorkForCustomer(supabase, customerId);
+  if (callbackBlocked) throw new Error(callbackBlocked);
   const jobId = str(formData.get("job_id")) || null;
   let openQuery = supabase
     .from("service_callbacks")
@@ -422,6 +442,11 @@ export async function scheduleServiceVisit(
   }
   const { supabase, prior } = await loadCallbackForEdit(id);
   if (!prior) return { error: serviceEmployeeMessage("schedule") };
+  const visitBlocked = await refuseNewActiveWorkForCustomer(
+    supabase,
+    (prior.customer_id as string | null) ?? null,
+  );
+  if (visitBlocked) return { error: visitBlocked };
   const gate = assessServiceTransition(prior.status as string, "scheduled");
   if (!gate.ok) return { error: serviceEmployeeMessage("schedule") };
   const { data: saved, error } = await supabase
@@ -476,6 +501,13 @@ export async function setServiceCallbackStatus(
   }
   const { supabase, prior } = await loadCallbackForEdit(id);
   if (!prior) return { error: serviceEmployeeMessage("update") };
+  if (status === "in_progress") {
+    const startBlocked = await refuseNewActiveWorkForCustomer(
+      supabase,
+      (prior.customer_id as string | null) ?? null,
+    );
+    if (startBlocked) return { error: startBlocked };
+  }
   const gate = assessServiceTransition(prior.status as string, status);
   if (!gate.ok) return { error: serviceEmployeeMessage("update") };
   const { data: saved, error } = await supabase
@@ -513,7 +545,7 @@ export async function reportInstallerIssue(formData: FormData): Promise<void> {
   const { data: job } = await supabase
     .from("jobs")
     .select(
-      "id, customer_id, assigned_to, assigned_crew_id, title, customer:customers(full_name)",
+      "id, customer_id, assigned_to, assigned_crew_id, title, customer:customers(full_name, cancelled_at)",
     )
     .eq("id", jobId)
     .maybeSingle();
@@ -541,6 +573,8 @@ export async function reportInstallerIssue(formData: FormData): Promise<void> {
   }
   const customerId = (job.customer_id as string | null) ?? null;
   if (!customerId) throw new Error("This job has no customer on file.");
+  const issueBlocked = await refuseNewActiveWorkForCustomer(supabase, customerId);
+  if (issueBlocked) throw new Error(issueBlocked);
   const cust = job.customer as unknown as { full_name?: string | null } | null;
   const category = callbackCategoryForIssue(categoryRaw);
   let admin;

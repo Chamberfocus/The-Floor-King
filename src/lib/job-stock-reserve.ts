@@ -19,6 +19,46 @@ export function netReservedQty(
 }
 
 /**
+ * What one canonical release does to a product.
+ * on_hand stays. products.reserved drops by the outstanding hold.
+ * A second call sees no outstanding quantity and releases nothing.
+ * This is the ledger math inside releaseJobReservations / release_inventory_safe.
+ */
+export function stockAfterReservationRelease(args: {
+  onHand: number;
+  productReserved: number;
+  movements: { kind: string; qty: number }[];
+}): {
+  onHand: number;
+  productReserved: number;
+  available: number;
+  releasedQty: number;
+  movements: { kind: string; qty: number }[];
+} {
+  const outstanding = netReservedQty(args.movements);
+  const onHand = round2(args.onHand);
+  if (outstanding <= 0) {
+    const productReserved = round2(args.productReserved);
+    return {
+      onHand,
+      productReserved,
+      available: round2(onHand - productReserved),
+      releasedQty: 0,
+      movements: args.movements,
+    };
+  }
+  const productReserved = round2(Math.max(0, args.productReserved - outstanding));
+  const movements = [...args.movements, { kind: "release", qty: -outstanding }];
+  return {
+    onHand,
+    productReserved,
+    available: round2(onHand - productReserved),
+    releasedQty: outstanding,
+    movements,
+  };
+}
+
+/**
  * How much reservation to release when need drops or a line is removed.
  * Never releases below what has already been pulled.
  */

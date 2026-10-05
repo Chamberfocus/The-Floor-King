@@ -12,6 +12,7 @@ import {
   Scale,
   Zap,
 } from "lucide-react";
+import { stageNameMeansLost } from "@/lib/customer-lifecycle";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/ui/date-field";
@@ -182,7 +183,7 @@ export function QuickActions({
   }, [openOnLoad, router]);
 
   const targetStage = stages.find((s) => s.id === toStage);
-  const isLost = /lost|declin|dead|cancel/i.test(targetStage?.name ?? "");
+  const isLost = stageNameMeansLost(targetStage?.name);
 
   const installWindow = windowLabel(job?.window ?? null);
 

@@ -10,6 +10,7 @@ import { formatDate } from "@/lib/format";
 import { InstallSchedule } from "../customers/[id]/install-schedule";
 import { listAssignableUsers, listSchedulerQueue } from "@/lib/data/jobs";
 import { buildSchedulerInstallProps } from "@/lib/data/install-schedule";
+import { showOnActiveInstallCalendar } from "@/lib/customer-operational";
 import { calendarWindow } from "@/lib/scheduler-window";
 import { WorkQueueBar, WorkQueuePager } from "@/components/work-queue-bar";
 import { parseListPage, resultCountLabel } from "@/lib/work-queues";
@@ -68,7 +69,7 @@ export default async function InstallSchedulerPage({
       supabase
         .from("jobs")
         .select(
-          "id, title, customer_id, scheduled_date, scheduled_end, arrival_window, assigned_to, assigned_crew_id, site_city, status, customer:customers(full_name)",
+          "id, title, customer_id, scheduled_date, scheduled_end, arrival_window, assigned_to, assigned_crew_id, site_city, status, customer:customers(full_name, cancelled_at)",
         )
         .not("scheduled_date", "is", null)
         .lte("scheduled_date", window.end)
@@ -103,7 +104,7 @@ export default async function InstallSchedulerPage({
         [c.id, `${c.name}${c.kind === "subcontractor" ? " (sub)" : ""}`] as const,
     ),
   );
-  const calEvents: CalEvent[] = (calRows ?? []).map((row) => {
+  const calEvents: CalEvent[] = (calRows ?? []).flatMap((row) => {
     const r = row as {
       id: string;
       title: string | null;
@@ -115,9 +116,20 @@ export default async function InstallSchedulerPage({
       assigned_crew_id: string | null;
       site_city: string | null;
       status: string | null;
-      customer?: { full_name: string | null }[] | { full_name: string | null } | null;
+      customer?:
+        | { full_name: string | null; cancelled_at?: string | null }
+        | { full_name: string | null; cancelled_at?: string | null }[]
+        | null;
     };
     const cust = Array.isArray(r.customer) ? r.customer[0] : r.customer;
+    if (
+      !showOnActiveInstallCalendar({
+        status: r.status,
+        customerCancelledAt: cust?.cancelled_at,
+      })
+    ) {
+      return [];
+    }
     const resourceId = r.assigned_to
       ? r.assigned_to
       : r.assigned_crew_id
@@ -128,7 +140,7 @@ export default async function InstallSchedulerPage({
       : r.assigned_crew_id
         ? (crewName.get(r.assigned_crew_id) ?? "Crew")
         : "Unassigned";
-    return {
+    return [{
       id: r.id,
       name: cust?.full_name ?? r.title ?? "Job",
       customerId: r.customer_id,
@@ -139,7 +151,7 @@ export default async function InstallSchedulerPage({
       resourceName,
       city: r.site_city ?? null,
       status: r.status ?? null,
-    };
+    }];
   });
   const installRoles = INSTALL_ROLES as unknown as string[];
   const installerList = installerUsers.filter((u) => installRoles.includes(u.role));

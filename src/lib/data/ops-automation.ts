@@ -7,6 +7,7 @@
  * is treated as "already created / skipped".
  */
 import { createAdminClient } from "@/lib/supabase/admin";
+import { customerIsArchived } from "@/lib/customer-operational";
 import {
   automationSourceKey,
   shouldCreateAutomatedTask,
@@ -51,6 +52,16 @@ export async function ensureAutomatedOfficeTaskSafe(args: {
   const admin = tryAdmin();
   if (!admin) return { created: false };
   if (!isAutomationSourceKind(args.sourceKind)) return { created: false };
+  if (args.customerId) {
+    const { data: cust } = await admin
+      .from("customers")
+      .select("cancelled_at")
+      .eq("id", args.customerId)
+      .maybeSingle();
+    if (customerIsArchived(cust?.cancelled_at as string | null | undefined)) {
+      return { created: false };
+    }
+  }
   const key = automationSourceKey(args.sourceKind, args.entityId);
   const { data: existing } = await admin
     .from("office_tasks")

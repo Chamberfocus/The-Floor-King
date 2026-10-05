@@ -4,7 +4,6 @@ import { orderByIds, queueSearchArgs, readQueueWindow } from "@/lib/data/queue-r
 import { QUEUE_LIST_UNAVAILABLE, logQueueFailure } from "@/lib/ops-scale";
 import {
   WORK_QUEUE_PAGE_SIZE,
-  listPageWindow,
   orderStatusesForView,
   type OrderQueueView,
 } from "@/lib/work-queues";
@@ -132,41 +131,25 @@ export async function listOrdersQueue(args: {
   let capped = false;
   let page = 1;
 
-  if (search.p_search || search.p_phone_like || search.p_digits) {
-    const found = await readQueueWindow(
-      supabase,
-      "order_queue_page",
-      { p_statuses: statuses, ...search },
-      args.page ?? 1,
-      pageSize,
-    );
-    page = found.page;
-    total = found.total;
-    if (found.ids.length) {
-      const { data, error } = await supabase
-        .from("orders")
-        .select(ORDER_LIST_COLUMNS)
-        .in("id", found.ids);
-      if (error) {
-        logQueueFailure("order_queue_page", error);
-        throw new Error(QUEUE_LIST_UNAVAILABLE);
-      }
-      rows = orderByIds(asOrderRows(data as never), found.ids);
-    }
-  } else {
-    let countQuery = supabase.from("orders").select("id", { count: "exact", head: true });
-    if (statuses) countQuery = countQuery.in("status", statuses);
-    const { count } = await countQuery;
-    total = count ?? 0;
-    const window = listPageWindow(args.page ?? 1, pageSize, total);
-    page = window.page;
-    let dataQuery = supabase
+  const found = await readQueueWindow(
+    supabase,
+    "order_queue_page",
+    { p_statuses: statuses, ...search },
+    args.page ?? 1,
+    pageSize,
+  );
+  page = found.page;
+  total = found.total;
+  if (found.ids.length) {
+    const { data, error } = await supabase
       .from("orders")
       .select(ORDER_LIST_COLUMNS)
-      .order("created_at", { ascending: false });
-    if (statuses) dataQuery = dataQuery.in("status", statuses);
-    const { data } = await dataQuery.range(window.from, Math.max(window.from, window.to - 1));
-    rows = asOrderRows(data as never);
+      .in("id", found.ids);
+    if (error) {
+      logQueueFailure("order_queue_page", error);
+      throw new Error(QUEUE_LIST_UNAVAILABLE);
+    }
+    rows = orderByIds(asOrderRows(data as never), found.ids);
   }
 
   if (args.focusId && !rows.some((row) => row.id === args.focusId)) {

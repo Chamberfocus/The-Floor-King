@@ -7,6 +7,7 @@ import { enforceMaterialsReadyForSchedule } from "@/app/(app)/jobs/actions";
 import {
   isScheduleRpcUnavailable,
   employeeScheduleError,
+  scheduleRpcFailureMessage,
   SCHEDULE_UNAVAILABLE_MESSAGE,
 } from "@/lib/scheduling-conflicts";
 import { seedJobScopeIfEmpty } from "@/lib/data/job-operational-lines";
@@ -381,7 +382,7 @@ export async function carryOverDeal(
       }
       const body = schedRes as { ok?: boolean; error?: string } | null;
       if (body && body.ok === false) {
-        return { error: employeeScheduleError(body.error || "Could not schedule the carried-over install.") };
+        return { error: scheduleRpcFailureMessage(body, "Could not schedule the carried-over install.") };
       }
     } else if (jobStatus === "scheduled") {
       // Status-only: already handled if dated; undated "scheduled" is unusual —

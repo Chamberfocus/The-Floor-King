@@ -1,10 +1,11 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { assertRole } from "@/lib/auth";
 import { employeeDbError } from "@/lib/employee-error";
+import { decideArchive, decideRestore } from "@/lib/customer-lifecycle";
+import { revalidateOperationalSurfaces } from "@/lib/revalidate-operational";
 
 export type CustomerRecordActionState = {
   ok: boolean;
@@ -16,13 +17,8 @@ function customerId(formData: FormData): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-function refresh() {
-  revalidatePath("/customer-records");
-  revalidatePath("/customers");
-  revalidatePath("/home");
-  revalidatePath("/dashboard");
-  revalidatePath("/tasks");
-  revalidatePath("/jobs");
+function refresh(customerId?: string) {
+  revalidateOperationalSurfaces(customerId ? [`/customers/${customerId}`] : []);
 }
 
 export async function archiveCustomerRecord(
@@ -34,13 +30,30 @@ export async function archiveCustomerRecord(
   if (!id) return { ok: false, error: "Missing customer." };
 
   const supabase = await createClient();
+  const { data: existing, error: readError } = await supabase
+    .from("customers")
+    .select("cancelled_at")
+    .eq("id", id)
+    .maybeSingle();
+  if (readError || !existing) {
+    return { ok: false, error: "This customer could not be archived." };
+  }
+  const decision = decideArchive(existing.cancelled_at as string | null, new Date().toISOString());
+  if (decision.action === "noop") {
+    refresh(id);
+    return { ok: true };
+  }
+
+  // Archive leaves jobs, tasks, callbacks, invoices, and payments unchanged.
+  // A second click matches cancelled_at is null, so it cannot stamp twice.
   const { error } = await supabase
     .from("customers")
     .update({
-      cancelled_at: new Date().toISOString(),
+      cancelled_at: decision.cancelledAt,
       cancel_reason: "Archived from customer records",
     })
-    .eq("id", id);
+    .eq("id", id)
+    .is("cancelled_at", null);
 
   if (error) {
     return {
@@ -49,21 +62,7 @@ export async function archiveCustomerRecord(
     };
   }
 
-  // Archiving is an operational stop, not a financial erase. Cancel only
-  // automated sales/install progression tasks. Collections and service work
-  // remain visible because those can still be real obligations.
-  await supabase
-    .from("office_tasks")
-    .update({
-      status: "cancelled",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("customer_id", id)
-    .eq("source", "automation")
-    .in("status", ["open", "in_progress"])
-    .or("source_key.like.estimate_followup:%,source_key.like.deposit_due:%");
-
-  refresh();
+  refresh(id);
   return { ok: true };
 }
 
@@ -76,10 +75,25 @@ export async function restoreCustomerRecord(
   if (!id) return { ok: false, error: "Missing customer." };
 
   const supabase = await createClient();
+  const { data: existing, error: readError } = await supabase
+    .from("customers")
+    .select("cancelled_at")
+    .eq("id", id)
+    .maybeSingle();
+  if (readError || !existing) {
+    return { ok: false, error: "This customer could not be restored." };
+  }
+  if (decideRestore(existing.cancelled_at as string | null).action === "noop") {
+    refresh(id);
+    return { ok: true };
+  }
+
+  // Restore clears the archive flag only. It does not insert jobs, tasks, or money.
   const { error } = await supabase
     .from("customers")
     .update({ cancelled_at: null, cancel_reason: null })
-    .eq("id", id);
+    .eq("id", id)
+    .not("cancelled_at", "is", null);
 
   if (error) {
     return {
@@ -87,7 +101,7 @@ export async function restoreCustomerRecord(
       error: employeeDbError(error.message, "This customer could not be restored."),
     };
   }
-  refresh();
+  refresh(id);
   return { ok: true };
 }
 
@@ -129,7 +143,7 @@ export async function deleteCustomerForever(
   };
 
   if (result.already_deleted) {
-    refresh();
+    refresh(id);
     redirect("/customer-records");
   }
 
@@ -150,6 +164,6 @@ export async function deleteCustomerForever(
     return { ok: false, error: "This customer could not be deleted." };
   }
 
-  refresh();
+  refresh(id);
   redirect("/customer-records");
 }

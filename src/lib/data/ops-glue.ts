@@ -1,6 +1,7 @@
 /**
  * F2 office tasks / holds / callbacks data access.
  */
+import { customerIsArchived } from "@/lib/customer-operational";
 import { createClient } from "@/lib/supabase/server";
 import { orderByIds, readQueueWindow } from "@/lib/data/queue-rpc";
 import { QUEUE_LIST_UNAVAILABLE, logQueueFailure } from "@/lib/ops-scale";
@@ -8,7 +9,6 @@ import { isOpenTaskStatus, isTaskOverdue } from "@/lib/office-task";
 import { sanitizeIlikeQuery } from "@/lib/ops-followup";
 import {
   WORK_QUEUE_PAGE_SIZE,
-  listPageWindow,
   serviceStatusesForView,
   type ServiceQueueView,
   type TaskQueueView,
@@ -157,7 +157,7 @@ export async function listOpenServiceCallbacks(): Promise<
   const { data } = await supabase
     .from("service_callbacks")
     .select(
-      "id, status, category, description, follow_up_at, customer_id, job_id, customer:customers(full_name)",
+      "id, status, category, description, follow_up_at, customer_id, job_id, customer:customers(full_name, cancelled_at)",
     )
     .in("status", ["open", "scheduled", "in_progress", "waiting"])
     .order("follow_up_at", { ascending: true, nullsFirst: false })
@@ -171,12 +171,13 @@ export async function listOpenServiceCallbacks(): Promise<
     customer_id: string;
     job_id: string | null;
     customer?:
-      | { full_name: string | null }
-      | { full_name: string | null }[]
+      | { full_name: string | null; cancelled_at?: string | null }
+      | { full_name: string | null; cancelled_at?: string | null }[]
       | null;
-  }[]).map((r) => {
+  }[]).flatMap((r) => {
     const customer = Array.isArray(r.customer) ? r.customer[0] ?? null : r.customer;
-    return {
+    if (customerIsArchived(customer?.cancelled_at)) return [];
+    return [{
       id: r.id,
       status: r.status,
       category: r.category,
@@ -185,7 +186,7 @@ export async function listOpenServiceCallbacks(): Promise<
       customer_id: r.customer_id,
       job_id: r.job_id,
       customer_name: customer?.full_name ?? null,
-    };
+    }];
   });
 }
 
@@ -260,28 +261,12 @@ export async function listServiceQueue(args: {
   const statuses = serviceStatusesForView(args.view);
   const safe = sanitizeIlikeQuery(args.search ?? "");
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const applyStatus = (query: any) => (statuses ? query.in("status", statuses) : query);
-
-  if (safe.length < 2) {
-    const counted = await applyStatus(
-      supabase.from("service_callbacks").select("id", { count: "exact", head: true }),
-    );
-    const total = (counted.count as number | null) ?? 0;
-    const window = listPageWindow(args.page ?? 1, pageSize, total);
-    const { data } = await applyStatus(
-      supabase
-        .from("service_callbacks")
-        .select(SERVICE_COLUMNS)
-        .order("follow_up_at", { ascending: true, nullsFirst: false }),
-    ).range(window.from, Math.max(window.from, window.to - 1));
-    return { rows: shapeServiceRows(data), total, page: window.page, pageSize, capped: false };
-  }
-
+  // Count and rows come from service_queue_page, including an empty search.
+  // Home uses the same function, so the badge and the list are one population.
   const found = await readQueueWindow(
     supabase,
     "service_queue_page",
-    { p_statuses: statuses, p_search: safe },
+    { p_statuses: statuses, p_search: safe.length >= 2 ? safe : null },
     args.page ?? 1,
     pageSize,
   );
@@ -469,32 +454,7 @@ export async function listTaskQueue(args: {
   const safe = sanitizeIlikeQuery(args.search ?? "");
   const nowIso = new Date().toISOString();
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const apply = (query: any) => {
-    let next = query;
-    if (!args.seeAll || args.view === "mine") next = next.eq("assigned_to", args.userId);
-    if (args.view === "completed") next = next.eq("status", "completed");
-    else if (args.view === "overdue") {
-      next = next.in("status", ["open", "in_progress"]).lt("due_at", nowIso);
-    } else next = next.in("status", ["open", "in_progress"]);
-    return next;
-  };
-
-  if (safe.length < 2) {
-    const counted = await apply(
-      supabase.from("office_tasks").select("id", { count: "exact", head: true }),
-    );
-    const total = (counted.count as number | null) ?? 0;
-    const window = listPageWindow(args.page ?? 1, pageSize, total);
-    const { data } = await apply(
-      supabase
-        .from("office_tasks")
-        .select(TASK_COLUMNS)
-        .order("due_at", { ascending: true, nullsFirst: false }),
-    ).range(window.from, Math.max(window.from, window.to - 1));
-    return { rows: shapeTaskRows(data), total, page: window.page, pageSize, capped: false };
-  }
-
+  // Open, overdue, and mine counts use task_queue_page, same as this list.
   const found = await readQueueWindow(
     supabase,
     "task_queue_page",
@@ -503,7 +463,7 @@ export async function listTaskQueue(args: {
       p_user: args.userId,
       p_see_all: args.seeAll,
       p_now: nowIso,
-      p_search: safe,
+      p_search: safe.length >= 2 ? safe : null,
     },
     args.page ?? 1,
     pageSize,

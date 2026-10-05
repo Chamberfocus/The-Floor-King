@@ -18,6 +18,7 @@ import {
   canStageCustomerOrder,
 } from "@/lib/order-warehouse-gates";
 import { cutsTotalSqYd } from "@/lib/order-cuts";
+import { refuseNewActiveWorkForCustomer } from "@/lib/active-work-guard";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -54,6 +55,8 @@ async function ensureOrderCashCarryJob(args: {
   if (args.order.job_id) return args.order.job_id;
   if (!args.order.customer_id) return null;
   const admin = createAdminClient();
+  const orderBlocked = await refuseNewActiveWorkForCustomer(admin, args.order.customer_id);
+  if (orderBlocked) return null;
   const custName = args.order.contact_name || "Order";
   const jobNotes = `To stage: CASH & CARRY — cut for pickup\n${orderCutList(args.items)}${
     args.order.notes ? `\n\nCustomer note: ${args.order.notes}` : ""
@@ -184,6 +187,8 @@ export async function approveOrder(formData: FormData): Promise<{
     customerId = resolved.customerId;
   }
   if (!customerId) return { error: "Couldn't attach a customer." };
+  const approveBlocked = await refuseNewActiveWorkForCustomer(supabase, customerId);
+  if (approveBlocked) return { error: approveBlocked };
 
   const readyDate = str(formData.get("ready_date")) || null;
   const readyKindRaw = str(formData.get("ready_kind"));

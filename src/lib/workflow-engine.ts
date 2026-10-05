@@ -4,6 +4,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { StageAutoAction, LeadStage } from "@/lib/types";
+import { jobEffectOnLost, stageNameMeansLost, stageNameMeansParked } from "@/lib/customer-lifecycle";
+import { releaseJobReservations } from "@/lib/po-stock";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DB = SupabaseClient<any, any, any>;
@@ -61,8 +63,7 @@ export function deriveLeadStage(
   target: { name: string | null; position: number },
   all: AnchorRow[],
 ): LeadStage {
-  const name = (target.name ?? "").toLowerCase();
-  if (/lost|declin|dead|cancel/.test(name)) return "lost";
+  if (stageNameMeansLost(target.name)) return "lost";
 
   const posOf = (aa: string): number | null => {
     const s = all.find((x) => x.auto_action === aa);
@@ -215,7 +216,9 @@ async function applyMove(
  *
  * The two ends of the pipeline mean opposite things:
  *   past the install  -> the work happened  -> complete the job
- *   lost / declined    -> it never will      -> cancel it and free the material
+ *   lost / declined    -> it never will      -> cancel jobs that have not started
+ *                        and release their stock through releaseJobReservations.
+ *                        in_progress and completed jobs are left alone, holds included.
  *
  * Position alone can't tell them apart: "Lost / Declined" (120) sits BETWEEN
  * "Collect Balance" (115) and "Closed" (130), so this matches on name.
@@ -229,7 +232,7 @@ export async function settleJobsForStage(
   stage: { name: string; position: number },
   allStages: { name: string; position: number }[],
 ): Promise<void> {
-  const lost = /lost|declin|dead/i.test(stage.name);
+  const lost = stageNameMeansLost(stage.name);
   // Where "the install has happened" begins, read from the stage list rather
   // than hard-coded, so renaming or renumbering stages can't silently break it.
   const installedPos =
@@ -244,7 +247,22 @@ export async function settleJobsForStage(
     .not("status", "in", "(completed,cancelled)");
   if (!live?.length) return;
 
-  for (const j of live) {
+  const changing = (live as { id: string; status: string; scheduled_date: string | null }[]).filter(
+    (j) => !lost || jobEffectOnLost(j.status as string) === "cancel",
+  );
+  if (!changing.length) return;
+
+  // Same release Cancel uses. Only jobs this Lost transition is about to
+  // cancel. A second Lost does not select those rows again, and a repeated
+  // release computes outstanding quantity as zero.
+  const releasingIds = changing
+    .filter((j) => lost && jobEffectOnLost(j.status) === "cancel")
+    .map((j) => j.id);
+  if (releasingIds.length) {
+    await releaseJobReservations(supabase as never, releasingIds);
+  }
+
+  for (const j of changing) {
     if (lost) {
       await supabase.from("jobs").update({ status: "cancelled" }).eq("id", j.id);
       continue;
@@ -265,7 +283,7 @@ export async function settleJobsForStage(
   await supabase.from("activities").insert({
     customer_id: customerId,
     type: "system",
-    body: `${live.length} job${live.length === 1 ? "" : "s"} ${
+    body: `${changing.length} job${changing.length === 1 ? "" : "s"} ${
       lost ? "cancelled" : "marked complete"
     } automatically — the customer reached "${stage.name}".`,
   });
@@ -458,7 +476,7 @@ export async function restartFlowForNewWork(
   const byAction = (a: string) => list.find((s) => s.auto_action === a) ?? null;
   // Off-spine stages (Lost / on-hold) are never a starting point for live work.
   const mainline = list.filter(
-    (s) => !/lost|declin|dead|cancel|waiting|on hold|hold|park/i.test(s.name ?? ""),
+    (s) => !stageNameMeansLost(s.name) && !stageNameMeansParked(s.name),
   );
 
   const target = job.estimateApproved

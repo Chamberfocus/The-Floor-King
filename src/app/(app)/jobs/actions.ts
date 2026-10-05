@@ -28,8 +28,18 @@ import {
   findInstallerScheduleConflict,
   employeeScheduleError,
   isScheduleRpcUnavailable,
+  scheduleRpcFailureMessage,
   SCHEDULE_UNAVAILABLE_MESSAGE,
 } from "@/lib/scheduling-conflicts";
+import {
+  ARCHIVED_CUSTOMER_SCHEDULE_ERROR,
+  jobStatusChangeIsNewActiveWork,
+  scheduleChangeAllowed,
+} from "@/lib/customer-operational";
+import {
+  refuseNewActiveWorkForCustomer,
+  refuseNewActiveWorkForJob,
+} from "@/lib/active-work-guard";
 import { warehouseJobIdFromForm } from "@/lib/job-warehouse";
 import { applyEligibleDepositsToInvoice } from "@/lib/data/apply-customer-deposits";
 import { employeePaymentError } from "@/lib/payment-safety";
@@ -434,7 +444,7 @@ export async function bookInstall(formData: FormData): Promise<void> {
 
   const { data: targetJob } = await supabase
     .from("jobs")
-    .select("id")
+    .select("id, customer:customers(cancelled_at)")
     .eq("id", id)
     .maybeSingle();
   if (!targetJob) {
@@ -442,6 +452,17 @@ export async function bookInstall(formData: FormData): Promise<void> {
       (afterBookRedirect || `/jobs/${id}`) +
         `?schedule_error=${encodeURIComponent(
           "That job is not available to schedule.",
+        )}`,
+    );
+  }
+  const bookedCustomer = Array.isArray(targetJob.customer)
+    ? targetJob.customer[0]
+    : targetJob.customer;
+  if (!scheduleChangeAllowed(bookedCustomer?.cancelled_at as string | null | undefined)) {
+    redirect(
+      (afterBookRedirect || `/jobs/${id}`) +
+        `?schedule_error=${encodeURIComponent(
+          "This customer is archived. Restore them before scheduling.",
         )}`,
     );
   }
@@ -530,7 +551,7 @@ export async function bookInstall(formData: FormData): Promise<void> {
       redirect(
         (afterBookRedirect || `/jobs/${id}`) +
           `?schedule_error=${encodeURIComponent(
-            employeeScheduleError(body.error || "Could not schedule this install."),
+            scheduleRpcFailureMessage(body, "Could not schedule this install."),
           )}`,
       );
     }
@@ -736,11 +757,15 @@ export async function rescheduleInstall(
   const { data: job } = await admin
     .from("jobs")
     .select(
-      "id, title, customer_id, assigned_to, assigned_crew_id, scheduled_date, scheduled_end, arrival_window, warehouse_ready_at",
+      "id, title, customer_id, assigned_to, assigned_crew_id, scheduled_date, scheduled_end, arrival_window, warehouse_ready_at, customer:customers(cancelled_at)",
     )
     .eq("id", jobId)
     .maybeSingle();
   if (!job) return { ok: false, error: "Job not found." };
+  const movingCustomer = Array.isArray(job.customer) ? job.customer[0] : job.customer;
+  if (!scheduleChangeAllowed((movingCustomer as { cancelled_at?: string | null } | null)?.cancelled_at)) {
+    return { ok: false, error: "This customer is archived. Restore them before changing the install." };
+  }
 
   const isStaff = ["admin", "office", "scheduler"].includes(role);
   const isAssigned = !!job.assigned_to && job.assigned_to === user.id;
@@ -859,7 +884,7 @@ export async function rescheduleInstall(
     if (body && body.ok === false) {
       return {
         ok: false,
-        error: employeeScheduleError(body.error || "Could not reschedule this install."),
+        error: scheduleRpcFailureMessage(body, "Could not reschedule this install."),
       };
     }
   }
@@ -975,9 +1000,15 @@ export async function ensureJobForEstimate(
 
     const { data: cust } = await admin
       .from("customers")
-      .select("street, city, state, zip")
+      .select("street, city, state, zip, cancelled_at")
       .eq("id", est.customer_id as string)
       .maybeSingle();
+    if (
+      cust &&
+      (await refuseNewActiveWorkForCustomer(admin, est.customer_id as string))
+    ) {
+      return null;
+    }
 
     // Site address: the estimate's chosen service address if set, else the
     // account's primary address.
@@ -1215,6 +1246,13 @@ export async function updateJob(
   const from = (prior.status as JobStatus) ?? "unscheduled";
   const gate = assessJobStatusTransition(from, newStatus);
   if (!gate.ok) return { error: gate.error };
+  if (jobStatusChangeIsNewActiveWork(from, newStatus)) {
+    const blocked = await refuseNewActiveWorkForCustomer(
+      supabase,
+      (prior.customer_id as string | null) ?? null,
+    );
+    if (blocked) return { error: blocked };
+  }
 
   const patch = {
     title: nullable(formData.get("title")),
@@ -1312,6 +1350,10 @@ async function commitJobStatus(
   const gate = assessJobStatusTransition(from, status);
   if (!gate.ok) {
     return { error: jobStatusEmployeeMessage(intent, "blocked", from) };
+  }
+  if (jobStatusChangeIsNewActiveWork(from, status)) {
+    const blocked = await refuseNewActiveWorkForJob(supabase, id);
+    if (blocked) return { error: blocked };
   }
   const patch = jobStatusUpdatePatch(
     status,
@@ -1661,6 +1703,12 @@ export async function assignInstaller(formData: FormData): Promise<void> {
     .eq("id", jobId)
     .maybeSingle();
   if (!job) return;
+  const assignmentBlocked = await refuseNewActiveWorkForJob(supabase, jobId);
+  if (assignmentBlocked) {
+    throw new Error(
+      job.scheduled_date ? ARCHIVED_CUSTOMER_SCHEDULE_ERROR : assignmentBlocked,
+    );
+  }
 
   if (job.scheduled_date) {
     const mat = await enforceMaterialsReadyForSchedule({
@@ -1696,9 +1744,9 @@ export async function assignInstaller(formData: FormData): Promise<void> {
       }
       throw new Error(employeeScheduleError(schedErr.message));
     }
-    const body = schedRes as { ok?: boolean; error?: string } | null;
+    const body = schedRes as { ok?: boolean; error?: string; code?: string } | null;
     if (body && body.ok === false) {
-      throw new Error(employeeScheduleError(body.error || "Could not assign installer (schedule conflict)."));
+      throw new Error(scheduleRpcFailureMessage(body, "Could not assign installer (schedule conflict)."));
     }
   } else {
     // Undated board assign — keep unscheduled. Never invent a scheduled
@@ -1802,12 +1850,14 @@ async function ensureWarehouseSubmitted(
   const { data: job } = await db
     .from("jobs")
     .select(
-      "id, title, scheduled_date, warehouse_submitted_at, warehouse_assigned_to, site_street, site_city, site_state, customer:customers(full_name)",
+      "id, title, scheduled_date, warehouse_submitted_at, warehouse_assigned_to, site_street, site_city, site_state, customer:customers(full_name, cancelled_at)",
     )
     .eq("id", jobId)
     .maybeSingle();
   if (!job) return { error: "That job no longer exists." };
   if (job.warehouse_submitted_at) return { error: null };
+  const warehouseBlocked = await refuseNewActiveWorkForJob(db, jobId);
+  if (warehouseBlocked) return { error: warehouseBlocked };
   // Installs go to the warehouse once scheduled; cash-and-carry / pickup orders
   // go when explicitly sent (force), since they have no install date.
   if (!job.scheduled_date && !opts?.force) return { error: null };
@@ -1880,6 +1930,8 @@ export async function assignWarehousePerson(
   if (!id) return;
   const personId = str(formData.get("warehouse_person_id")) || null;
   const supabase = await createClient();
+  const assignBlocked = await refuseNewActiveWorkForJob(supabase, id);
+  if (assignBlocked) throw new Error(assignBlocked);
   await supabase
     .from("jobs")
     .update({ warehouse_assigned_to: personId })
@@ -1924,6 +1976,8 @@ export async function acceptWarehouseJob(formData: FormData): Promise<void> {
   const ack = str(formData.get("ack")); // "on" when the checkbox is ticked
   if (!id || ack !== "on") return;
   const supabase = await createClient();
+  const acceptBlocked = await refuseNewActiveWorkForJob(supabase, id);
+  if (acceptBlocked) throw new Error(acceptBlocked);
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -1972,6 +2026,8 @@ export async function completeWarehouseJob(
     .maybeSingle();
   if (!jobRow) return { error: "That job no longer exists." };
   if (jobRow.warehouse_ready_at) return { error: null };
+  const readyBlocked = await refuseNewActiveWorkForJob(admin, id);
+  if (readyBlocked) return { error: readyBlocked };
 
   const lines = await loadOperationalJobLines(admin, id);
   const hasMaterialNeed = lines.some((l) => isMaterialLine(l));
