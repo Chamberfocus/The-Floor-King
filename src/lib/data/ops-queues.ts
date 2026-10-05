@@ -66,7 +66,7 @@ export async function getOpsTodayQueues(): Promise<OpsQueue[]> {
 
   const { data: sent } = await supabase
     .from("estimates")
-    .select("id, title, customer_id, customer:customers(full_name)")
+    .select("id, title, customer_id, customer:customers(full_name, cancelled_at)")
     .eq("status", "sent")
     .order("sent_at", { ascending: true })
     .limit(12);
@@ -74,7 +74,8 @@ export async function getOpsTodayQueues(): Promise<OpsQueue[]> {
     const cid = e.customer_id as string | null;
     if (cid && followSeen.has(cid)) continue;
     if (cid) followSeen.add(cid);
-    const c = e.customer as unknown as { full_name?: string } | null;
+    const c = e.customer as unknown as { full_name?: string; cancelled_at?: string | null } | null;
+    if (c?.cancelled_at) continue;
     follow_up.items.push({
       id: `est-${e.id}`,
       title: c?.full_name || (e.title as string) || "Estimate",
@@ -124,7 +125,8 @@ export async function getOpsTodayQueues(): Promise<OpsQueue[]> {
   for (const e of approved ?? []) {
     const cid = e.customer_id as string | null;
     if (cid && depositOnFile.has(cid)) continue;
-    const c = e.customer as unknown as { full_name?: string } | null;
+    const c = e.customer as unknown as { full_name?: string; cancelled_at?: string | null } | null;
+    if (c?.cancelled_at) continue;
     deposit.items.push({
       id: `dep-${e.id}`,
       title: c?.full_name || (e.title as string) || "Approved estimate",
@@ -136,7 +138,7 @@ export async function getOpsTodayQueues(): Promise<OpsQueue[]> {
   const { data: jobs } = await supabase
     .from("jobs")
     .select(
-      "id, title, status, scheduled_date, warehouse_ready_at, estimate_id, customer:customers(full_name)",
+      "id, title, status, scheduled_date, warehouse_ready_at, estimate_id, customer:customers(full_name, cancelled_at)",
     )
     .in("status", ["unscheduled", "scheduled", "in_progress"])
     .or("delivery_type.is.null,delivery_type.neq.cash_carry")
@@ -144,8 +146,10 @@ export async function getOpsTodayQueues(): Promise<OpsQueue[]> {
     .limit(20);
 
   for (const j of jobs ?? []) {
+    const customer = j.customer as unknown as { full_name?: string; cancelled_at?: string | null } | null;
+    if (customer?.cancelled_at) continue;
     const name =
-      (j.customer as unknown as { full_name?: string } | null)?.full_name ||
+      customer?.full_name ||
       (j.title as string) ||
       "Job";
     const href = `/jobs/${j.id}`;
@@ -187,7 +191,6 @@ export async function getOpsTodayQueues(): Promise<OpsQueue[]> {
       full_name?: string;
       cancelled_at?: string | null;
     } | null;
-    if (cust?.cancelled_at) continue;
     const red = reductions.get(inv.id as string);
     const bal = dayTaskCollectAmountDue({
       items: (inv.items as { quantity: number; rate: number }[]) ?? [],
@@ -222,7 +225,7 @@ export async function getOpsTodayQueues(): Promise<OpsQueue[]> {
 
   const { data: submittedOrders } = await supabase
     .from("orders")
-    .select("id, status, stock_status, contact_name, customer:customers(full_name)")
+    .select("id, status, stock_status, contact_name, customer:customers(full_name, cancelled_at)")
     .eq("status", "submitted")
     .order("created_at", { ascending: false })
     .limit(24);
@@ -236,7 +239,8 @@ export async function getOpsTodayQueues(): Promise<OpsQueue[]> {
       stockStatus: o.stock_status as string,
     });
     if (!hint) continue;
-    const c = o.customer as unknown as { full_name?: string } | null;
+    const c = o.customer as unknown as { full_name?: string; cancelled_at?: string | null } | null;
+    if (c?.cancelled_at) continue;
     customer_order.items.push({
       id: `corder-${oid}`,
       title: c?.full_name || (o.contact_name as string) || orderDisplayNumber(oid),
