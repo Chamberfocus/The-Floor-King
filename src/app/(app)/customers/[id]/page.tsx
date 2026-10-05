@@ -137,6 +137,7 @@ import {
   TabCollapse,
 } from "./customer-tabs";
 import { CustomerSettingsMenu } from "./customer-settings-menu";
+import { VisibleCustomerDelete } from "./visible-customer-delete";
 import { listLeadSources } from "@/lib/data/lead-sources";
 import { NewEstimate } from "@/components/new-estimate";
 import { QualifyDialog } from "./qualify-dialog";
@@ -1012,6 +1013,12 @@ export default async function CustomerPage({
                 <Wrench className="size-3.5" /> New job
               </Link>
             </>
+          ) : null}
+          {canDelete ? (
+            <VisibleCustomerDelete
+              customerId={customer.id}
+              customerName={customer.full_name}
+            />
           ) : null}
           <details className="group">
             <summary className="inline-flex min-h-11 cursor-pointer list-none items-center rounded-lg px-3 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground [&::-webkit-details-marker]:hidden">
