@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { assertRole } from "@/lib/auth";
 import { employeeDbError } from "@/lib/employee-error";
@@ -111,7 +112,7 @@ export async function deleteCustomerForever(
 
   if (result.already_deleted) {
     refresh();
-    return { ok: true };
+    redirect("/customer-records");
   }
 
   if (!result.ok) {
@@ -132,5 +133,5 @@ export async function deleteCustomerForever(
   }
 
   refresh();
-  return { ok: true };
+  redirect("/customer-records");
 }
