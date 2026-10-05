@@ -2,15 +2,75 @@
  * Archive is customers.cancelled_at.
  * There is no second archive column.
  *
+ * READ RULE: an archived customer does not participate in active operational
+ * queues. Completed work, resolved service, and the All list stay searchable.
+ * Queue filters are presentation. Hiding a row does not stop a write.
+ *
+ * WRITE RULE: an archived customer cannot receive new active operational work.
+ * newActiveOperationalWorkAllowed is that rule. Scheduling is also enforced
+ * inside schedule_job_install_safe, which locks the customer row before it
+ * writes the job. Both rules read customers.cancelled_at. They are different
+ * checks. Closing, completing, or correcting history is not new work.
+ *
  * Archive is an operational stop. It does not rewrite job status, invoices,
- * payments, or history. Active queues derive "leave this alone" from the
- * customer flag. Completed work and the All list stay searchable.
+ * payments, or history.
  */
+
+export const ARCHIVED_CUSTOMER_SCHEDULE_ERROR =
+  "This customer is archived and cannot be scheduled.";
 
 export function customerIsArchived(
   cancelledAt: string | null | undefined,
 ): boolean {
   return typeof cancelledAt === "string" && cancelledAt.length > 0;
+}
+
+export function newActiveOperationalWorkAllowed(
+  cancelledAt: string | null | undefined,
+): boolean {
+  return !customerIsArchived(cancelledAt);
+}
+
+/**
+ * A status change that opens or restarts operational work.
+ * Completing or cancelling a job is not new work.
+ * Editing a job without changing its status is not new work.
+ */
+export function jobStatusChangeIsNewActiveWork(from: string, to: string): boolean {
+  if (from === to) return false;
+  return to === "unscheduled" || to === "scheduled" || to === "in_progress";
+}
+
+export type ScheduleWriteRefusal = {
+  ok: false;
+  code: "SCHEDULE_CUSTOMER_ARCHIVED" | "SCHEDULE_CANCELLED";
+  error: string;
+};
+
+/**
+ * Same decision schedule_job_install_safe makes after it locks the job and
+ * the owning customer. The database function is authoritative. This is the
+ * shared description of that decision for tests and for the friendly message.
+ */
+export function scheduleWriteDecision(args: {
+  customerCancelledAt: string | null | undefined;
+  jobStatus: string | null | undefined;
+}): { ok: true } | ScheduleWriteRefusal {
+  if (args.jobStatus === "cancelled") {
+    return {
+      ok: false,
+      code: "SCHEDULE_CANCELLED",
+      error: "Cannot schedule a cancelled job.",
+    };
+  }
+  if (!newActiveOperationalWorkAllowed(args.customerCancelledAt)) {
+    return {
+      ok: false,
+      code: "SCHEDULE_CUSTOMER_ARCHIVED",
+      error: ARCHIVED_CUSTOMER_SCHEDULE_ERROR,
+    };
+  }
+  return { ok: true };
 }
 
 /** Job queues that ask someone to do something now. */
@@ -101,5 +161,5 @@ export function orderQueueKeepsArchivedCustomer(
 }
 
 export function scheduleChangeAllowed(cancelledAt: string | null | undefined): boolean {
-  return !customerIsArchived(cancelledAt);
+  return newActiveOperationalWorkAllowed(cancelledAt);
 }

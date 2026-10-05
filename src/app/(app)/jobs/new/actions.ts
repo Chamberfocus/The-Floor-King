@@ -7,9 +7,10 @@ import { restartFlowForNewWork } from "@/lib/workflow-engine";
 import { enforceMaterialsReadyForSchedule, ensureJobForEstimate } from "@/app/(app)/jobs/actions";
 import {
   isScheduleRpcUnavailable,
-  employeeScheduleError,
+  scheduleRpcFailureMessage,
   SCHEDULE_UNAVAILABLE_MESSAGE,
 } from "@/lib/scheduling-conflicts";
+import { refuseNewActiveWorkForCustomer } from "@/lib/active-work-guard";
 import { formatServiceAddress } from "@/lib/types";
 import { defaultJobTitle } from "@/lib/job-label";
 import type { UserRole, LeadSource, LeadStage } from "@/lib/types";
@@ -218,10 +219,12 @@ export async function createJobForCustomer(
 
   const { data: cust } = await supabase
     .from("customers")
-    .select("id, stage, street, city, state, zip")
+    .select("id, stage, street, city, state, zip, cancelled_at")
     .eq("id", customerId)
     .maybeSingle();
   if (!cust) return { error: "That customer no longer exists." };
+  const newJobBlocked = await refuseNewActiveWorkForCustomer(supabase, customerId);
+  if (newJobBlocked) return { error: newJobBlocked };
 
   /**
    * A brand-new property, typed here rather than on the customer's file.
@@ -395,11 +398,11 @@ export async function createJobForCustomer(
         });
         return { error: SCHEDULE_UNAVAILABLE_MESSAGE };
       }
-      return { error: employeeScheduleError(schedErr.message) };
+      return { error: scheduleRpcFailureMessage({ error: schedErr.message }, "Could not schedule the install.") };
     }
     const body = schedRes as { ok?: boolean; error?: string } | null;
     if (body && body.ok === false) {
-      return { error: employeeScheduleError(body.error || "Could not schedule the install.") };
+      return { error: scheduleRpcFailureMessage(body, "Could not schedule the install.") };
     }
   }
 

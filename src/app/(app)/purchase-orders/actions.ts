@@ -12,6 +12,7 @@ import { poVoidIdempotencyKey } from "@/lib/po-void";
 import { employeePoError } from "@/lib/po-facts";
 import { assertRole } from "@/lib/auth";
 import { advanceToNamedStage } from "@/lib/workflow-engine";
+import { refuseNewActiveWorkForCustomer } from "@/lib/active-work-guard";
 
 // "Materials Received" pipeline stage — receiving a PO advances the customer here
 // (forward-only), teeing up the install scheduling.
@@ -426,6 +427,11 @@ export async function createPOFromEstimate(formData: FormData): Promise<void> {
     .eq("id", estimateId)
     .maybeSingle();
   if (!est) return;
+  const poBlocked = await refuseNewActiveWorkForCustomer(
+    supabase,
+    (est.customer_id as string | null) ?? null,
+  );
+  if (poBlocked) throw new Error(poBlocked);
 
   // Guard against duplicate POs: the job auto-generates POs for special-order
   // lines when it's created, and this button (or a double-click) would order the
@@ -642,6 +648,11 @@ export async function createPOsFromEstimateSelection(
     .eq("id", estimateId)
     .maybeSingle();
   if (!est) redirect(`/estimates/${estimateId}/order`);
+  const selectionBlocked = await refuseNewActiveWorkForCustomer(
+    supabase,
+    (est.customer_id as string | null) ?? null,
+  );
+  if (selectionBlocked) throw new Error(selectionBlocked);
 
   const { data: lineData } = await supabase
     .from("estimate_line_items")
@@ -1113,6 +1124,8 @@ export async function voidPurchaseOrder(formData: FormData): Promise<void> {
 export async function createBlankPO(formData: FormData): Promise<void> {
   const customerId = str(formData.get("customer_id")) || null;
   const supabase = await createClient();
+  const blankBlocked = await refuseNewActiveWorkForCustomer(supabase, customerId);
+  if (blankBlocked) throw new Error(blankBlocked);
   const {
     data: { user },
   } = await supabase.auth.getUser();

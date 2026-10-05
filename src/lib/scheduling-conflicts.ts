@@ -4,7 +4,10 @@
  *
  * The schedule date itself is written only by schedule_job_install_safe.
  * A missing function must fail closed. It must not become a direct jobs update.
+ * An archived customer is refused inside that function. Map its code here so
+ * the screen never shows raw SQL.
  */
+import { ARCHIVED_CUSTOMER_SCHEDULE_ERROR } from "@/lib/customer-operational";
 
 export const SCHEDULE_UNAVAILABLE_MESSAGE =
   "Scheduling is temporarily unavailable. Please try again or contact an administrator.";
@@ -15,7 +18,16 @@ export const SCHEDULE_MATERIALS_BLOCKED =
 export const SCHEDULE_FAILED_MESSAGE =
   "This installation could not be scheduled. Try again.";
 
-/** Employee-facing schedule failure. Database and RPC text stays off the screen. */
+/** Employee text for a schedule_job_install_safe jsonb refusal. Raw SQL stays off the screen. */
+export function scheduleRpcFailureMessage(
+  body: { error?: string | null; code?: string | null } | null | undefined,
+  fallback: string,
+): string {
+  if (body?.code === "SCHEDULE_CUSTOMER_ARCHIVED") return ARCHIVED_CUSTOMER_SCHEDULE_ERROR;
+  if (body?.code === "SCHEDULE_CANCELLED") return "Cannot schedule a cancelled job.";
+  return employeeScheduleError(body?.error || fallback);
+}
+
 export function employeeScheduleError(raw: string | null | undefined): string {
   const msg = (raw ?? "").trim();
   if (!msg) return SCHEDULE_FAILED_MESSAGE;

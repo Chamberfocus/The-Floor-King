@@ -11,6 +11,7 @@ import { setJobStatus, enforceMaterialsReadyForSchedule } from "@/app/(app)/jobs
 import {
   isScheduleRpcUnavailable,
   employeeScheduleError,
+  scheduleRpcFailureMessage,
   SCHEDULE_UNAVAILABLE_MESSAGE,
 } from "@/lib/scheduling-conflicts";
 import { addActivity } from "@/app/(app)/customers/actions";
@@ -342,6 +343,9 @@ export async function runAssistantAction(
       }
       const body = schedRes as { ok?: boolean; error?: string; code?: string } | null;
       if (body && body.ok === false) {
+        if (body.code === "SCHEDULE_CUSTOMER_ARCHIVED" || body.code === "SCHEDULE_CANCELLED") {
+          return { ok: false, message: scheduleRpcFailureMessage(body, "That date could not be booked.") };
+        }
         return {
           ok: false,
           message:

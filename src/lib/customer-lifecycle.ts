@@ -11,6 +11,16 @@
  *
  * Stage display names still classify lost/park until workflow_stages has a
  * stable outcome column. Do not add that column in this phase.
+ *
+ * Next phase (not this migration): workflow_stages.outcome text, null or one
+ * of active, won, lost, parked. Display name stays freely editable. Business
+ * logic reads outcome. While outcome is null, keep the name fallback so
+ * existing shops do not change behavior the day the column appears. Backfill
+ * lost from stageNameMeansLost and parked from stageNameMeansParked. Leave
+ * every other stage null (treated as active). Do not overload outcome for
+ * "installed" or "follow" — those are pipeline steps, not terminal outcomes.
+ * Install, follow-up, balance, and materials keep needing an explicit
+ * auto_action or milestone, because a renamed display label must not move them.
  */
 import { customerIsArchived } from "@/lib/customer-operational";
 

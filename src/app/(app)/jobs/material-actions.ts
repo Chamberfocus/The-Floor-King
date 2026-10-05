@@ -18,6 +18,7 @@ import {
   orphanedStockLineIds,
 } from "@/lib/job-stock-reserve";
 import type { EstimateLineItem } from "@/lib/types";
+import { refuseNewActiveWorkForJob } from "@/lib/active-work-guard";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -161,6 +162,8 @@ async function reconcileStaleReservations(
 export async function prepareJobMaterials(formData: FormData): Promise<void> {
   const jobId = str(formData.get("job_id"));
   if (!jobId) return;
+  const blocked = await refuseNewActiveWorkForJob(await createClient(), jobId);
+  if (blocked) throw new Error(blocked);
   const result = await prepareJobMaterialsFor(jobId);
   if (result?.alreadyFullyCovered && result.message) {
     redirect(
@@ -178,6 +181,8 @@ export async function prepareJobMaterialsFor(
 ): Promise<JobPurchasingSyncResult | null> {
   if (!jobId) return null;
   const db = (opts?.admin ? createAdminClient() : await createClient()) as DB;
+  const reserveBlocked = await refuseNewActiveWorkForJob(db, jobId);
+  if (reserveBlocked) return null;
   await seedJobScopeIfEmpty(db, jobId);
   const mats = await getJobMaterials(jobId, db);
   const uid = await userId(db);
@@ -220,6 +225,10 @@ export async function setLineSource(formData: FormData): Promise<void> {
   const source = str(formData.get("source"));
   if (!jobId || !lineId || (source !== "stock" && source !== "order")) return;
   const db = await createClient();
+  if (source === "stock") {
+    const stockBlocked = await refuseNewActiveWorkForJob(db, jobId);
+    if (stockBlocked) throw new Error(stockBlocked);
+  }
 
   // Switching to order: release any reservation on this line.
   if (source === "order") {

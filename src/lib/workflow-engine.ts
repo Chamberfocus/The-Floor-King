@@ -215,7 +215,9 @@ async function applyMove(
  *
  * The two ends of the pipeline mean opposite things:
  *   past the install  -> the work happened  -> complete the job
- *   lost / declined    -> it never will      -> cancel it and free the material
+ *   lost / declined    -> it never will      -> cancel jobs that have not started.
+ *                        Stock reservations stay. Cancel, and cancelling the
+ *                        job itself, are what release them.
  *
  * Position alone can't tell them apart: "Lost / Declined" (120) sits BETWEEN
  * "Collect Balance" (115) and "Closed" (130), so this matches on name.
