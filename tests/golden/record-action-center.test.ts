@@ -77,6 +77,42 @@ describe("record action center", () => {
     expect(model.secondary.map((row) => row.href)).toContain("/jobs/b");
   });
 
+  it("treats an archived customer as an operational stop", () => {
+    const model = customer("admin", {
+      archivedAt: "2026-10-05T12:00:00Z",
+      depositOnFile: false,
+      estimates: [{ id: "e", status: "approved" }],
+      jobs: [{ id: "j", title: "Hall", status: "unscheduled", hasMaterialNeed: false }],
+      openInvoices: [{ id: "inv", number: "100", dueAt: "2026-09-01" }],
+      tasks: [{ title: "Book install", dueAt: "2026-09-01T00:00:00Z", status: "open" }],
+    });
+    expect(model.situation).toEqual(["Archived"]);
+    expect(model.primary).toBeNull();
+    expect(model.secondary).toEqual([]);
+    expect(model.blocker).toBeNull();
+    expect(JSON.stringify(model)).not.toContain("Schedule install");
+    expect(JSON.stringify(model)).not.toContain("Collect deposit");
+    expect(model.quiet).toContain("archived");
+  });
+
+  it("stops estimate progression when its customer is archived", () => {
+    const model = buildEstimateActionCenter({
+      now: NOW,
+      role: "admin",
+      estimateId: "e",
+      customerId: "c",
+      customerArchivedAt: "2026-10-05T12:00:00Z",
+      status: "approved",
+      depositOnFile: false,
+      linkedJob: { id: "j", title: "Hall", bookable: true },
+    });
+    expect(model.situation).toEqual(["Customer archived"]);
+    expect(model.primary).toBeNull();
+    expect(model.secondary).toEqual([]);
+    expect(JSON.stringify(model)).not.toContain("Schedule install");
+    expect(JSON.stringify(model)).not.toContain("Collect deposit");
+  });
+
   it("says the customer is caught up when nothing is due", () => {
     const model = customer("office", {
       now: NOW,
