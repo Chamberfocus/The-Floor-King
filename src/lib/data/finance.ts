@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAll } from "@/lib/supabase/paginate";
-import { listInvoices, amountPaid, invoiceAmountDue } from "@/lib/data/invoices";
+import { listInvoices, amountPaid, invoiceAmountDue, OPEN_AR_MIN } from "@/lib/data/invoices";
 import { invoiceTotals } from "@/lib/invoice-calc";
 import { listPurchaseOrders } from "@/lib/data/purchase-orders";
 import { poTotal, isCommittedPoStatus } from "@/lib/po-calc";
@@ -31,15 +31,24 @@ export interface PeriodSummary {
   net: number; // net PROFIT on pre-tax income
 }
 
-/** Customers that have been cancelled — excluded from all financial totals. */
-async function cancelledCustomerIds(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-): Promise<Set<string>> {
-  const { data } = await supabase
-    .from("customers")
-    .select("id")
-    .not("cancelled_at", "is", null);
-  return new Set((data ?? []).map((c) => c.id as string));
+/**
+ * Cash that belongs in a period total.
+ * Void payments are history. Migrated carry-over deposits were collected
+ * in the old system. Customer archive/cancel does not remove a payment.
+ */
+export function paymentCountsAsCollected(payment: {
+  migrated?: boolean | null;
+  status?: string | null;
+}): boolean {
+  return !payment.migrated && (payment.status ?? "active") !== "void";
+}
+
+export function collectedFromPayments(
+  payments: { amount: number; migrated?: boolean | null; status?: string | null }[],
+): number {
+  return payments
+    .filter(paymentCountsAsCollected)
+    .reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
 }
 
 export async function getPeriodSummary(
@@ -47,24 +56,9 @@ export async function getPeriodSummary(
   end: string,
 ): Promise<PeriodSummary> {
   const supabase = await createClient();
-  const cancelled = await cancelledCustomerIds(supabase);
-
-  // Jobs belonging to cancelled customers — their labor & expenses don't count.
-  const cancelledJobIds = new Set<string>();
-  if (cancelled.size) {
-    const { data: cjobs } = await supabase
-      .from("jobs")
-      .select("id, customer_id")
-      .in("customer_id", [...cancelled]);
-    for (const j of cjobs ?? []) cancelledJobIds.add(j.id as string);
-  }
-
+  // Ledger rows are the period. customers.cancelled_at is an operational
+  // flag and does not remove invoices, payments, expenses, or labor.
   const invoices = await listInvoices();
-  // Invoices belonging to cancelled customers don't count anywhere.
-  const liveInvoices = invoices.filter((i) => !cancelled.has(i.customer_id));
-  const cancelledInvoiceIds = new Set(
-    invoices.filter((i) => cancelled.has(i.customer_id)).map((i) => i.id),
-  );
 
   const pays = await fetchAll<{
     amount: number;
@@ -81,15 +75,8 @@ export async function getPeriodSummary(
       .lte("paid_at", end)
       .range(from, to),
   );
-  const collectedPays = pays.filter(
-    // Carry-over deposits (pre-go-live money) don't count as new collections.
-    // Void payments are audit history only — not cash collected.
-    (p) =>
-      !p.migrated &&
-      !cancelledInvoiceIds.has(p.invoice_id) &&
-      ((p.status as string | null | undefined) ?? "active") !== "void",
-  );
-  const collected = collectedPays.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const collectedPays = pays.filter(paymentCountsAsCollected);
+  const collected = collectedFromPayments(collectedPays);
 
   const exps = await fetchAll<{ amount: number; job_id: string | null; bill_id?: string | null }>(
     (from, to) =>
@@ -101,7 +88,7 @@ export async function getPeriodSummary(
         .range(from, to),
   );
   const cashExpenses = exps
-    .filter((e) => !cancelledJobIds.has(e.job_id as string) && !e.bill_id)
+    .filter((e) => !e.bill_id)
     .reduce((s, e) => s + (Number(e.amount) || 0), 0);
 
   const { data: periodAp } = await supabase
@@ -111,7 +98,7 @@ export async function getPeriodSummary(
     .gte("bill_date", start)
     .lte("bill_date", end);
   const periodApIds = (periodAp ?? [])
-    .filter((b) => !b.installer_labor_bill_id && !cancelledJobIds.has(b.job_id as string))
+    .filter((b) => !b.installer_labor_bill_id)
     .map((b) => b.id as string);
   let apSpend = 0;
   if (periodApIds.length) {
@@ -137,11 +124,9 @@ export async function getPeriodSummary(
       .lte("paid_at", end)
       .range(from, to),
   );
-  const subLabor = lab
-    .filter((r) => !cancelledJobIds.has(r.job_id))
-    .reduce((s, r) => s + (Number(r.total) || 0), 0);
+  const subLabor = lab.reduce((s, r) => s + (Number(r.total) || 0), 0);
 
-  const billed = liveInvoices
+  const billed = invoices
     .filter(
       (i) =>
         i.status !== "void" &&
@@ -177,7 +162,6 @@ export async function getPeriodSummary(
     pos
       .filter((p) => {
         if (!isCommittedPoStatus(p.status)) return false;
-        if (p.customer_id && cancelled.has(p.customer_id)) return false;
         const d = p.created_at.slice(0, 10);
         return d >= start && d <= end;
       })
@@ -191,13 +175,13 @@ export async function getPeriodSummary(
   //    the period (invoice → job).
   const biz = await getBusinessSettings();
   const invoiceJob = new Map(
-    liveInvoices.map((i) => [i.id, (i.job_id as string | null) ?? null] as const),
+    invoices.map((i) => [i.id, (i.job_id as string | null) ?? null] as const),
   );
   // Sales tax the customer paid us is NOT revenue or profit — we owe it to the
   // state. Split each collected payment into its pre-tax portion using its
   // invoice's tax rate, so net profit is computed on real (pre-tax) income.
   const invoiceTax = new Map(
-    liveInvoices.map((i) => [i.id, Number(i.tax_rate) || 0] as const),
+    invoices.map((i) => [i.id, Number(i.tax_rate) || 0] as const),
   );
   let salesTax = 0;
   for (const p of collectedPays) {
@@ -241,11 +225,11 @@ export interface ARBuckets {
   count: number;
 }
 
-export async function getOutstandingAR(): Promise<ARBuckets> {
-  const supabase = await createClient();
-  const cancelled = await cancelledCustomerIds(supabase);
-  const invoices = await listInvoices();
-  const today = Date.now();
+/** Open AR from invoice rows. Status "paid" is not a balance. Archive is not a write-off. */
+export function summarizeOutstandingAr(
+  invoices: Parameters<typeof invoiceAmountDue>[0][],
+  today = Date.now(),
+): ARBuckets {
   const b: ARBuckets = {
     total: 0,
     current: 0,
@@ -255,10 +239,8 @@ export async function getOutstandingAR(): Promise<ARBuckets> {
     count: 0,
   };
   for (const inv of invoices) {
-    if (inv.status === "paid" || inv.status === "void") continue;
-    if (cancelled.has(inv.customer_id)) continue;
     const bal = invoiceAmountDue(inv);
-    if (bal <= 0.005) continue;
+    if (bal <= OPEN_AR_MIN) continue;
     b.total += bal;
     b.count += 1;
     const ref = inv.issue_date ? new Date(inv.issue_date).getTime() : today;
@@ -269,6 +251,10 @@ export async function getOutstandingAR(): Promise<ARBuckets> {
     else b.d90plus += bal;
   }
   return b;
+}
+
+export async function getOutstandingAR(): Promise<ARBuckets> {
+  return summarizeOutstandingAr(await listInvoices());
 }
 
 export interface JobProfit {
@@ -308,17 +294,12 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
   const jobFuel = Number(biz.job_fuel_fee) || 0;
   const jobCar = Number(biz.job_car_allowance) || 0;
   const jobCommPct = Number(biz.job_commission_pct) || 0;
-  const cancelled = await cancelledCustomerIds(supabase);
   const jobs = (await listJobs()).filter(
     // Carry-over jobs are excluded from profit analytics — their costs live in
     // the old system, so any "profit" would be fiction. They still show on the
-    // job board and their balances still show in AR. CANCELLED jobs are excluded
-    // too — a cancelled job with a deposit would otherwise drag margins/profit.
-    (j) =>
-      j.option_id &&
-      !cancelled.has(j.customer_id) &&
-      !j.migrated &&
-      j.status !== "cancelled",
+    // job board and their balances still show in AR. A cancelled JOB is excluded
+    // by status. The customer's archive flag is not a profit filter.
+    (j) => j.option_id && !j.migrated && j.status !== "cancelled",
   );
   if (!jobs.length) return [];
 

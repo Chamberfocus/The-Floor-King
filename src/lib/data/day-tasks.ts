@@ -94,7 +94,9 @@ export async function getTodayTasks(): Promise<DayTask[]> {
     .select(
       "id, number, tax_rate, status, customer_id, customer:customers(full_name, cancelled_at), items:invoice_items(quantity, rate), payments(amount, status), credit_applications(amount, status)",
     )
-    .in("status", ["sent", "partial"]);
+    // Same debt rule as the ops collect queue: paid-with-balance stays,
+    // and customers.cancelled_at does not remove the invoice.
+    .in("status", ["sent", "partial", "paid"]);
   const collectReductions = await loadInvoiceArReductions(
     (invs ?? []).map((i) => i.id as string),
   );

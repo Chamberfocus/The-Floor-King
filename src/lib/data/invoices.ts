@@ -211,7 +211,7 @@ export function amountWrittenOff(inv: Invoice): number {
   return Math.round((Number(inv.appliedWriteOffs) || 0) * 100) / 100;
 }
 
-/** Canonical amount still due. Void invoices are $0. */
+/** Canonical amount still due. Void invoices are $0. Status "paid" is not consulted. */
 export function invoiceAmountDue(inv: Invoice): number {
   if (inv.status === "void") return 0;
   return effectiveInvoiceBalance({
@@ -222,6 +222,17 @@ export function invoiceAmountDue(inv: Invoice): number {
     appliedDeposits: amountDeposited(inv),
     appliedWriteOffs: amountWrittenOff(inv),
   }).amountDue;
+}
+
+/** Dust below this is not open AR. Same cutoff the dashboard buckets use. */
+export const OPEN_AR_MIN = 0.005;
+
+export function invoiceHasOpenAr(inv: Invoice): boolean {
+  return invoiceAmountDue(inv) > OPEN_AR_MIN;
+}
+
+export function countInvoicesWithOpenAr(invoices: Invoice[]): number {
+  return invoices.filter(invoiceHasOpenAr).length;
 }
 
 /**
@@ -493,26 +504,10 @@ export async function listInvoicesForJob(jobId: string): Promise<Invoice[]> {
 }
 
 /**
- * Open invoices on the dashboard.
- *
- * Cancelled customers are excluded, the same as everywhere money is counted
- * (see finance.ts). Without this, closing a customer removed them from every
- * revenue figure but left their unpaid invoice on the dashboard — chasing money
- * from someone you'd already written off.
+ * Dashboard count of invoices that still have open AR.
+ * Archive, cancel, and a status of "paid" do not remove a real balance.
+ * Void invoices are $0 in invoiceAmountDue.
  */
 export async function getOutstandingInvoiceCount(): Promise<number> {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("invoices")
-    .select("id, customer:customers(cancelled_at)")
-    .in("status", ["sent", "partial"]);
-  return (data ?? []).filter((row) => {
-    // PostgREST returns a to-one embed as an array in some shapes.
-    const c = row.customer as
-      | { cancelled_at: string | null }
-      | { cancelled_at: string | null }[]
-      | null;
-    const cancelled = Array.isArray(c) ? c[0]?.cancelled_at : c?.cancelled_at;
-    return !cancelled;
-  }).length;
+  return countInvoicesWithOpenAr(await listInvoices());
 }
