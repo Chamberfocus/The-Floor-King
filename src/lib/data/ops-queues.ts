@@ -86,7 +86,7 @@ export async function getOpsTodayQueues(): Promise<OpsQueue[]> {
 
   const { data: approved } = await supabase
     .from("estimates")
-    .select("id, title, customer_id, customer:customers(full_name)")
+    .select("id, title, customer_id, customer:customers(full_name, cancelled_at)")
     .eq("status", "approved")
     .order("updated_at", { ascending: false })
     .limit(24);
@@ -181,7 +181,9 @@ export async function getOpsTodayQueues(): Promise<OpsQueue[]> {
     .select(
       "id, number, tax_rate, status, due_date, customer_id, customer:customers(full_name, cancelled_at), items:invoice_items(quantity, rate), payments(amount, status), credit_applications(amount, status)",
     )
-    .in("status", ["sent", "partial"])
+    // Paid is included because a status label can disagree with the balance.
+    // Void and draft stay out. Archive is not a filter: this queue is the debt.
+    .in("status", ["sent", "partial", "paid"])
     .limit(40);
   const reductions = await loadInvoiceArReductions(
     (invs ?? []).map((i) => i.id as string),
@@ -191,6 +193,8 @@ export async function getOpsTodayQueues(): Promise<OpsQueue[]> {
       full_name?: string;
       cancelled_at?: string | null;
     } | null;
+    // cancelled_at is on the row and is intentionally not a reason to skip.
+    // A balance on an archived customer is still money owed.
     const red = reductions.get(inv.id as string);
     const bal = dayTaskCollectAmountDue({
       items: (inv.items as { quantity: number; rate: number }[]) ?? [],

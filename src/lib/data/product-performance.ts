@@ -35,14 +35,9 @@ interface PerfLine extends CalcLine {
  */
 export async function getProductPerformance(): Promise<ProductPerf[]> {
   const supabase = await createClient();
-  const { data: cx } = await supabase
-    .from("customers")
-    .select("id")
-    .not("cancelled_at", "is", null);
-  const cancelled = new Set((cx ?? []).map((c) => c.id as string));
-  const jobs = (await listJobs()).filter(
-    (j) => j.option_id && !cancelled.has(j.customer_id),
-  );
+  // Sold-job revenue stays after the customer is archived. Archive is not a
+  // reversal of the sale.
+  const jobs = (await listJobs()).filter((j) => j.option_id);
   if (!jobs.length) return [];
 
   const optionIds = [...new Set(jobs.map((j) => j.option_id))] as string[];
