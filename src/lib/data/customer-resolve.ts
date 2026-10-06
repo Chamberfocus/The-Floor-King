@@ -43,11 +43,21 @@ type Q = {
   }>;
 } & PromiseLike<{ data: unknown; error?: { message?: string } | null }>;
 
+type StrongIdRpc = (
+  fn: string,
+  args: { p_email: string | null; p_phone: string | null },
+) => PromiseLike<{ data: boolean | null; error: { message?: string } | null }>;
+
 type Loose = {
   from: (table: string) => {
     select: (cols: string) => Q;
     insert: (row: Record<string, unknown>) => Q;
   };
+  /**
+   * Optional so databases without customer_strong_identifier_taken still create.
+   * Must be invoked as a method: SupabaseClient.rpc reads this.rest.
+   */
+  rpc?: StrongIdRpc;
 };
 
 function likeSafe(term: string): string {
@@ -173,16 +183,10 @@ async function hiddenStrongDuplicateForSalesman(
   const email = normalizeEmail(input.email);
   const phone = normalizePhoneDigits(input.phone);
   if (!email && phone.length !== 10) return false;
-  const rpc = (
-    db as unknown as {
-      rpc?: (
-        fn: string,
-        args: { p_email: string | null; p_phone: string | null },
-      ) => PromiseLike<{ data: boolean | null; error: { message?: string } | null }>;
-    }
-  ).rpc;
-  if (typeof rpc !== "function") return false;
-  const { data, error } = await rpc("customer_strong_identifier_taken", {
+  // Invoke as a method. Copying `.rpc` off the client drops `this`, and
+  // SupabaseClient.rpc then throws reading `this.rest` (POST /customers/new).
+  if (typeof db.rpc !== "function") return false;
+  const { data, error } = await db.rpc("customer_strong_identifier_taken", {
     p_email: email || null,
     p_phone: phone.length === 10 ? phone : null,
   });
