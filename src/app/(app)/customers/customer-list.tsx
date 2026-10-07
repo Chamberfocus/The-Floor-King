@@ -31,6 +31,7 @@ import {
   type CustomerListActivity,
 } from "@/lib/customer-list";
 import { QuickActions } from "./[id]/quick-actions";
+import { deleteCustomer } from "./actions";
 
 /** Shared data fetched once by the page, reused by every row. */
 export interface ListShared {
@@ -143,6 +144,29 @@ function ExpandToggle({
   );
 }
 
+function DeleteCustomerButton({ id, name }: { id: string; name: string }) {
+  const label = name.trim() || "this customer";
+  return (
+    <form
+      action={deleteCustomer}
+      onSubmit={(event) => {
+        const ok = window.confirm(
+          `Delete ${label}? This permanently removes the customer and everything attached. It cannot be undone.`,
+        );
+        if (!ok) event.preventDefault();
+      }}
+    >
+      <input type="hidden" name="id" value={id} />
+      <button
+        type="submit"
+        className="inline-flex h-9 items-center rounded-md border border-destructive/40 px-2.5 text-sm font-medium text-destructive hover:bg-destructive/10"
+      >
+        Delete
+      </button>
+    </form>
+  );
+}
+
 function contactLine(c: Customer): string {
   return [c.street, c.city, c.phone].filter(Boolean).join(" · ");
 }
@@ -210,6 +234,7 @@ function DesktopRow({
   activity,
   shared,
   isAdmin,
+  canDelete,
   overdue,
 }: {
   c: Customer;
@@ -217,10 +242,12 @@ function DesktopRow({
   activity: CustomerListActivity;
   shared: ListShared;
   isAdmin: boolean;
+  canDelete: boolean;
   overdue: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const hasActions = rowHasActions(ctx, shared);
+  const displayName = typeof c.full_name === "string" && c.full_name.trim() ? c.full_name : "Customer";
   return (
     <>
       <TableRow>
@@ -270,10 +297,15 @@ function DesktopRow({
         <TableCell className="text-right text-muted-foreground">
           {formatDate(c.updated_at)}
         </TableCell>
+        {canDelete ? (
+          <TableCell className="w-24 text-right">
+            <DeleteCustomerButton id={c.id} name={displayName} />
+          </TableCell>
+        ) : null}
       </TableRow>
       {open && hasActions ? (
         <TableRow>
-          <TableCell colSpan={isAdmin ? 8 : 7} className="bg-muted/30">
+          <TableCell colSpan={isAdmin ? (canDelete ? 9 : 8) : canDelete ? 8 : 7} className="bg-muted/30">
             <QuickActions {...quickProps(c, ctx, shared)} />
           </TableCell>
         </TableRow>
@@ -288,6 +320,7 @@ function MobileCard({
   activity,
   shared,
   isAdmin,
+  canDelete,
   overdue,
 }: {
   c: Customer;
@@ -295,10 +328,12 @@ function MobileCard({
   activity: CustomerListActivity;
   shared: ListShared;
   isAdmin: boolean;
+  canDelete: boolean;
   overdue: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const hasActions = rowHasActions(ctx, shared);
+  const displayName = typeof c.full_name === "string" && c.full_name.trim() ? c.full_name : "Customer";
   return (
     <div className="rounded-lg border p-3">
       <div className="flex items-start justify-between gap-2">
@@ -345,6 +380,11 @@ function MobileCard({
         {c.source ? <span>{LEAD_SOURCE_LABELS[c.source]}</span> : null}
         <span className="ml-auto">{formatDate(c.updated_at)}</span>
       </Link>
+      {canDelete ? (
+        <div className="mt-3 flex justify-end">
+          <DeleteCustomerButton id={c.id} name={displayName} />
+        </div>
+      ) : null}
       {open && hasActions ? (
         <div className="mt-3 border-t pt-3">
           <QuickActions {...quickProps(c, ctx, shared)} />
@@ -404,6 +444,7 @@ export function CustomerList({
   activity,
   shared,
   isAdmin = false,
+  canDelete = false,
 }: {
   customers: Customer[];
   contexts: Record<string, CustomerRowContext>;
@@ -411,6 +452,8 @@ export function CustomerList({
   shared: ListShared;
   /** Show the "Assigned to" (salesperson) column — admin only. */
   isAdmin?: boolean;
+  /** Admin and office may delete a customer from the list. */
+  canDelete?: boolean;
 }) {
   const nowMs = Date.now();
   const isOverdue = (c: Customer) =>
@@ -498,6 +541,7 @@ export function CustomerList({
             activity={activity[c.id] ?? EMPTY_CUSTOMER_LIST_ACTIVITY}
             shared={shared}
             isAdmin={isAdmin}
+            canDelete={canDelete}
             overdue={isOverdue(c)}
           />
         ))}
@@ -517,6 +561,7 @@ export function CustomerList({
               <SortTh label="City" k="city" sortKey={sortKey} dir={dir} onSort={sortBy} />
               <SortTh label="Source" k="source" sortKey={sortKey} dir={dir} onSort={sortBy} />
               <SortTh label="Updated" k="updated" sortKey={sortKey} dir={dir} onSort={sortBy} align="right" />
+              {canDelete ? <TableHead className="w-24"><span className="sr-only">Delete</span></TableHead> : null}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -528,6 +573,7 @@ export function CustomerList({
                 activity={activity[c.id] ?? EMPTY_CUSTOMER_LIST_ACTIVITY}
                 shared={shared}
                 isAdmin={isAdmin}
+                canDelete={canDelete}
                 overdue={isOverdue(c)}
               />
             ))}

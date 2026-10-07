@@ -337,5 +337,5 @@ export async function createCustomerSafe(
     };
   }
 
-  redirect("/home");
+  redirect(`/customers/${data.id}?new=1`);
 }
