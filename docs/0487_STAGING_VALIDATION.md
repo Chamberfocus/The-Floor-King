@@ -905,3 +905,101 @@ claim that Block A proved the project id.
 `Representative regex table` is the Block D grid next to the JavaScript
 table. `Any mismatches` is empty only when those grids agree, Block H matches
 Block B, and Blocks I–M passed.
+
+## Staging execution result — PASS
+
+Historical evidence from one manual run. The blocks above stay the procedure
+for a future database. This section does not replace them.
+
+Operator-confirmed staging project. PostgreSQL 17.6. Supabase SQL Editor.
+No credentials, project URLs, addresses, or customer records are stored here.
+
+### Before 0487
+
+| Fact | Value |
+| --- | --- |
+| Workflow stages | 16 |
+| Customers | 6 |
+| Customers with a workflow stage | 1 |
+| Archived customers (`cancelled_at` set) | 5 |
+| Jobs | 1 |
+| Invoices | 0 |
+| Payments | 0 |
+| Stock movements | 0 |
+| Office tasks | 0 |
+| Inventory return allocations | 0 |
+| Products | 13583 |
+| Products with `reserved` > 0 | 0 |
+| Reserved quantity sum | 0 |
+
+Stage names, in pipeline order:
+
+1. New Lead
+2. Estimate Needs Scheduled
+3. Estimate Scheduled
+4. Awaiting Price (Measuring)
+5. Awaiting Customer Response
+6. Won — Collect Deposit
+7. Ordering Materials
+8. Waiting for Materials
+9. Materials Received
+10. Installation Needs Scheduled
+11. Install Scheduled
+12. Install In Progress
+13. Installed — Follow-up
+14. Collect Balance
+15. Lost / Declined
+16. Closed
+
+Classification preview: 15 `active`, 1 `lost` (`Lost / Declined`), 0 `parked`.
+`Waiting for Materials` was `active` because the material/deliver exclusion
+runs before the parked rule.
+
+Block D matched the JavaScript table for all 19 representative names,
+including `Waiting` → `parked`, `Parked` → `parked`, and
+`Awaiting Materials` → `active`. The PostgreSQL 17.6 `\y` word boundary
+agreed with the JavaScript `\b` rule.
+
+Pre-migration gate: `workflow_stages.outcome` absent, and
+`workflow_stages_outcome_check` absent.
+
+### 0487
+
+Executed once. No SQL error.
+
+### After 0487
+
+| Fact | Value |
+| --- | --- |
+| Stage count | 16 |
+| `active` | 15 |
+| `lost` | 1 |
+| `parked` | 0 |
+| `won` | 0 |
+| `null` | 0 |
+| Constraint rows named `workflow_stages_outcome_check` | 1 |
+| Column | `outcome` |
+| Type | `text` |
+| Nullable | `YES` |
+| `column_default` | `'active'::text` |
+| `attr_default` | `'active'::text` |
+
+Business fingerprint matched the before counts exactly: stages 16, customers
+6, customers with a stage 1, archived customers 5, jobs 1, invoices 0,
+payments 0, stock movements 0, office tasks 0, inventory return allocations
+0, products 13583, products with reserved quantity 0, reserved quantity sum 0.
+
+### Rollback probes
+
+| Test | Result |
+| --- | --- |
+| Insert omitting `outcome` | stored `active`. PASS |
+| Insert with `outcome = null` | stored null. PASS |
+| Insert with `outcome = 'garbage'` | SQLSTATE `23514`, constraint `workflow_stages_outcome_check`. PASS |
+| Stored `active` kept after the label became a Lost-like name | PASS |
+| Stored `lost` kept after the label became `Installed` | PASS |
+| Final probe sweep | zero probe rows. PASS |
+
+Database half of B1 on this staging database: PASS.
+Application smoke against the deployed PR #65 build is a separate gate.
+The checklist is `docs/0487_STAGING_APP_SMOKE.md`.
