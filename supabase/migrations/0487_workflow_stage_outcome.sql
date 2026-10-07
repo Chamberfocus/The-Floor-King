@@ -18,6 +18,12 @@
 -- On a database that has never had the column, every existing stage is null
 -- and therefore classified once.
 --
+-- The default is attached AFTER that classification. PostgreSQL 11+ stores a
+-- constant ADD COLUMN default in the catalog and existing rows then read as
+-- that default, so WHERE outcome IS NULL would classify nothing. New inserts
+-- that omit the column, including the app that is running before this code
+-- deploys, store active. An explicit NULL is still accepted.
+--
 -- Safe to re-run. Does not enable accounting.
 
 alter table public.workflow_stages
@@ -38,3 +44,6 @@ set outcome = case
   else 'active'
 end
 where outcome is null;
+
+alter table public.workflow_stages
+  alter column outcome set default 'active';

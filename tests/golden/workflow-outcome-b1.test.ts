@@ -367,6 +367,17 @@ describe("migration 0487", () => {
     expect(backfillOutcomeFromCurrentName("Call Me Next Month")).toBe("active");
     expect(backfillOutcomeFromCurrentName("Did Not Buy")).toBe("active");
   });
+
+  it("defaults an omitted outcome to active only after existing rows are classified", () => {
+    const sql = src("supabase/migrations/0487_workflow_stage_outcome.sql");
+    const updateAt = sql.search(/update public\.workflow_stages/i);
+    const defaultAt = sql.search(/alter column outcome set default 'active'/i);
+    expect(sql).toContain("add column if not exists outcome text");
+    expect(sql).not.toMatch(/add column if not exists outcome text default/i);
+    expect(updateAt).toBeGreaterThan(0);
+    expect(defaultAt).toBeGreaterThan(updateAt);
+    expect(sql).not.toMatch(/alter column outcome set not null/i);
+  });
 });
 
 describe("B2 name routes stay name routes", () => {
