@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { assertRole, requireProfile } from "@/lib/auth";
 import { employeeDbError } from "@/lib/employee-error";
 import { deriveLeadStage } from "@/lib/workflow-engine";
+import type { WorkflowStageOutcome } from "@/lib/customer-lifecycle";
 
 /**
  * Move ONE job's stage by hand.
@@ -39,7 +40,7 @@ export async function setJobStage(formData: FormData): Promise<void> {
   const [{ data: stage }, { data: allStages }] = await Promise.all([
     supabase
       .from("workflow_stages")
-      .select("id, name, position, sla_hours, default_owner")
+      .select("id, name, position, sla_hours, default_owner, outcome")
       .eq("id", toStageId)
       .maybeSingle(),
     supabase.from("workflow_stages").select("position, auto_action, name"),
@@ -79,7 +80,11 @@ export async function setJobStage(formData: FormData): Promise<void> {
      * furthest-moved work.
      */
     const leadStage = deriveLeadStage(
-      { name: stage.name as string, position: stage.position as number },
+      {
+        name: stage.name as string,
+        position: stage.position as number,
+        outcome: (stage.outcome as WorkflowStageOutcome | null) ?? null,
+      },
       (allStages ?? []) as { position: number; auto_action: string | null; name: string | null }[],
     );
     if (leadStage) {

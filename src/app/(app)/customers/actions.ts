@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { jobEffectOnCancel } from "@/lib/customer-lifecycle";
+import { jobEffectOnCancel, type WorkflowStageOutcome } from "@/lib/customer-lifecycle";
 import { revalidateOperationalSurfaces } from "@/lib/revalidate-operational";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -431,10 +431,10 @@ export async function advanceWorkflow(formData: FormData): Promise<void> {
   // lead_stage in lock-step with the workflow stage (one source of truth).
   const { data: allStages } = await supabase
     .from("workflow_stages")
-    .select("id, position, auto_action, name");
+    .select("id, position, auto_action, name, outcome");
   const { data: stage } = await supabase
     .from("workflow_stages")
-    .select("id, name, position, sla_hours, next_action, auto_action")
+    .select("id, name, position, sla_hours, next_action, auto_action, outcome")
     .eq("id", toStageId)
     .maybeSingle();
 
@@ -470,7 +470,7 @@ export async function advanceWorkflow(formData: FormData): Promise<void> {
 
   const leadStage = stage
     ? deriveLeadStage(
-        { name: stage.name, position: stage.position },
+        { name: stage.name, position: stage.position, outcome: stage.outcome ?? null },
         allStages ?? [],
       )
     : undefined;
@@ -521,7 +521,11 @@ export async function advanceWorkflow(formData: FormData): Promise<void> {
     await settleJobsForStage(
       supabase,
       id,
-      { name: stage.name ?? "", position: stage.position ?? 0 },
+      {
+        name: stage.name ?? "",
+        position: stage.position ?? 0,
+        outcome: stage.outcome ?? null,
+      },
       (allStages ?? []).map((sst) => ({
         name: (sst.name as string) ?? "",
         position: (sst.position as number) ?? 0,
@@ -592,10 +596,10 @@ export async function overrideAdvanceWorkflow(formData: FormData): Promise<void>
     .maybeSingle();
   const { data: allStages } = await supabase
     .from("workflow_stages")
-    .select("position, auto_action, name");
+    .select("position, auto_action, name, outcome");
   const { data: stage } = await supabase
     .from("workflow_stages")
-    .select("name, position, sla_hours, next_action")
+    .select("name, position, sla_hours, next_action, outcome")
     .eq("id", toStageId)
     .maybeSingle();
 
@@ -604,7 +608,10 @@ export async function overrideAdvanceWorkflow(formData: FormData): Promise<void>
       ? new Date(Date.now() + stage.sla_hours * 3600 * 1000).toISOString()
       : null;
   const leadStage = stage
-    ? deriveLeadStage({ name: stage.name, position: stage.position }, allStages ?? [])
+    ? deriveLeadStage(
+        { name: stage.name, position: stage.position, outcome: stage.outcome ?? null },
+        allStages ?? [],
+      )
     : undefined;
 
   const { error } = await supabase
@@ -865,10 +872,10 @@ export async function reopenCustomer(formData: FormData): Promise<void> {
   if (cust?.workflow_stage_id) {
     const { data: all } = await supabase
       .from("workflow_stages")
-      .select("id, position, auto_action, name");
+      .select("id, position, auto_action, name, outcome");
     const current = (all ?? []).find(
       (s) => s.id === cust.workflow_stage_id,
-    ) as { name: string | null; position: number } | undefined;
+    ) as { name: string | null; position: number; outcome?: WorkflowStageOutcome | null } | undefined;
     if (current) stage = deriveLeadStage(current, all ?? []);
   }
 
