@@ -33,7 +33,7 @@ import { APPROVE_OPTION_REQUIRED_MESSAGE } from "@/lib/estimate-approve-ui";
 import {
   moveToAutoActionStage,
   advanceFromAutoAction,
-  advanceToNamedStage,
+  advanceToLostStage,
 } from "@/lib/workflow-engine";
 import { ensureJobForEstimate } from "@/app/(app)/jobs/actions";
 import { getCustomerSourceStatus } from "@/lib/data/lead-sources";
@@ -1013,7 +1013,7 @@ export async function onEstimateDeclined(
   const LIVE = ["draft", "sent", "changes_requested", "approved"];
   if (others.some((o) => LIVE.includes(o.status))) return;
 
-  await advanceToNamedStage(customerId, /lost|declin/i);
+  await advanceToLostStage(customerId);
   // Stop the daily nudge chasing a dead lead, and let the coarse stage agree
   // with the detailed one.
   await supabase

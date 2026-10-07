@@ -12,7 +12,7 @@ import {
   Scale,
   Zap,
 } from "lucide-react";
-import { stageNameMeansLost } from "@/lib/customer-lifecycle";
+import { stageIsLost, type WorkflowStageOutcome } from "@/lib/customer-lifecycle";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/ui/date-field";
@@ -93,7 +93,7 @@ export function QuickActions({
   openOnLoad = null,
 }: {
   customerId: string;
-  stages: { id: string; name: string }[];
+  stages: { id: string; name: string; outcome?: WorkflowStageOutcome | null }[];
   currentStageId: string | null;
   currentStageName: string | null;
   currentOwnerId: string | null;
@@ -183,7 +183,7 @@ export function QuickActions({
   }, [openOnLoad, router]);
 
   const targetStage = stages.find((s) => s.id === toStage);
-  const isLost = stageNameMeansLost(targetStage?.name);
+  const isLost = stageIsLost(targetStage);
 
   const installWindow = windowLabel(job?.window ?? null);
 
