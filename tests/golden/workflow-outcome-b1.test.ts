@@ -349,9 +349,10 @@ describe("migration 0487", () => {
     expect(sql).not.toMatch(/\bdelete from\b/i);
     expect(sql).not.toMatch(/\bdrop table\b/i);
 
-    const lostAt = sql.indexOf("lost|declin|dead|cancel");
-    const materialAt = sql.indexOf("material|deliver");
-    const parkAt = sql.indexOf("\\ywaiting\\y");
+    const backfill = sql.slice(sql.indexOf("update public.workflow_stages"));
+    const lostAt = backfill.indexOf("lost|declin|dead|cancel");
+    const materialAt = backfill.indexOf("material|deliver");
+    const parkAt = backfill.indexOf("\\ywaiting\\y");
     expect(lostAt).toBeGreaterThan(0);
     expect(materialAt).toBeGreaterThan(lostAt);
     expect(parkAt).toBeGreaterThan(materialAt);
