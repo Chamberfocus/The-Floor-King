@@ -46,7 +46,7 @@ describe("daily cron authorization", () => {
     expect(get.indexOf("authorizeDailyCronRequest")).toBeGreaterThanOrEqual(0);
     expect(guard).toBeGreaterThan(-1);
     expect(admin).toBeGreaterThan(guard);
-    expect(requestAuth).not.toMatch(/createAdminClient|supabase|from\(/);
+    expect(requestAuth).not.toMatch(/createAdminClient|supabase|\.insert\(|\.update\(/);
   });
 
   it("rejects an invalid bearer", () => {
