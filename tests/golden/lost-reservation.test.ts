@@ -71,27 +71,24 @@ describe("Lost releases only the jobs it cancels", () => {
     expect(reservationEffectOnLost("cancelled")).toBe("keep");
   });
 
-  it("F. Cancel still releases, and Lost uses that same function", () => {
+  it("F. Cancel releases inside the job transaction, and Lost uses that same function", () => {
     const cancel = src("src/app/(app)/customers/actions.ts");
     const cancelFn = cancel.slice(
       cancel.indexOf("export async function cancelCustomer"),
       cancel.indexOf("export async function reopenCustomer"),
     );
-    const releaseAt = cancelFn.indexOf("releaseJobReservations");
-    const statusAt = cancelFn.indexOf('.update({ status: "cancelled" })');
-    expect(releaseAt).toBeGreaterThan(0);
-    expect(statusAt).toBeGreaterThan(releaseAt);
+    expect(cancelFn).toContain("cancelJobWithReservations");
+    expect(cancelFn).not.toContain('.update({ status: "cancelled" })');
+    expect(cancelFn).not.toContain("releaseJobReservations");
 
     const engine = src("src/lib/workflow-engine.ts");
     const settle = engine.slice(
       engine.indexOf("export async function settleJobsForStage"),
       engine.indexOf("export async function moveToAutoActionStage"),
     );
-    const lostRelease = settle.indexOf("releaseJobReservations");
-    const lostCancel = settle.indexOf('.update({ status: "cancelled" })');
-    expect(lostRelease).toBeGreaterThan(0);
-    expect(lostCancel).toBeGreaterThan(lostRelease);
-    expect(settle).toContain('jobEffectOnLost(j.status) === "cancel"');
+    expect(settle).toContain("cancelJobWithReservations");
+    expect(settle).not.toContain('.update({ status: "cancelled" })');
+    expect(settle).toContain('jobEffectOnLost(j.status as string) === "cancel"');
     expect(settle).not.toContain("reserve_inventory_safe");
   });
 
