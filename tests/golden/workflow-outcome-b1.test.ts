@@ -129,7 +129,7 @@ describe("A — stable Lost", () => {
     expect(jobReturnsToActiveOpsOnRestore("cancelled")).toBe(false);
   });
 
-  it("still releases before the Lost status write, and only through that path", () => {
+  it("Lost still uses the outcome, and cancel releases stock in the same transaction", () => {
     const settle = sliceFn(
       "src/lib/workflow-engine.ts",
       "export async function settleJobsForStage",
@@ -137,11 +137,13 @@ describe("A — stable Lost", () => {
     );
     expect(settle).toContain("stageIsLost(stage)");
     expect(settle).not.toContain("stageNameMeansLost");
-    const releaseAt = settle.indexOf("releaseJobReservations");
-    const statusAt = settle.indexOf('.update({ status: "cancelled" })');
-    expect(releaseAt).toBeGreaterThan(0);
-    expect(statusAt).toBeGreaterThan(releaseAt);
-    expect(settle).toContain('jobEffectOnLost(j.status) === "cancel"');
+    // PR #69 replaced the separate release-then-status write. The cancel
+    // function releases reservations and sets cancelled together. A failed
+    // release does not reach a status update.
+    expect(settle).toContain("cancelJobWithReservations");
+    expect(settle).not.toContain("releaseJobReservations");
+    expect(settle).not.toContain('.update({ status: "cancelled" })');
+    expect(settle).toContain('jobEffectOnLost(j.status as string) === "cancel"');
     expect(settle).not.toContain("reserve_inventory_safe");
     expect(settle).toContain("/installed|follow/i");
   });

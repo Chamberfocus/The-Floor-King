@@ -455,9 +455,15 @@ describe("deletion actions call the gate before any delete", () => {
   });
 
   it("does not take over the order-deletion module", () => {
-    expect(existsSync(join(root, "src/lib/order-deletion.ts"))).toBe(false);
+    // RC1 includes PR #67, so the order module exists beside this one.
+    // Neither file calls the other's blocker.
+    expect(existsSync(join(root, "src/lib/order-deletion.ts"))).toBe(true);
     expect(src("src/lib/financial-deletion.ts")).not.toContain("orderDestructionBlocker");
-    expect(src("src/app/(app)/orders/actions.ts")).toContain('from("invoices").delete');
+    expect(src("src/lib/order-deletion.ts")).not.toContain("financialDestructionBlocker");
+    const orders = src("src/app/(app)/orders/actions.ts");
+    expect(orders.indexOf("orderDestructionBlocker")).toBeLessThan(
+      orders.indexOf('from("invoices").delete'),
+    );
   });
 });
 
