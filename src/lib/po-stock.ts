@@ -316,13 +316,19 @@ export async function reverseReceivedPOs(
 export async function releaseJobReservations(
   db: DB,
   jobIds: string[],
-): Promise<void> {
-  if (!jobIds.length) return;
-  const { data: moves } = await db
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!jobIds.length) return { ok: true };
+  const { data: moves, error: readError } = await db
     .from("stock_movements")
     .select("job_id, product_id, line_id, kind, qty")
     .in("job_id", jobIds);
-  if (!moves?.length) return;
+  if (readError) {
+    return {
+      ok: false,
+      error: "Reserved material could not be read, so it was not released.",
+    };
+  }
+  if (!moves?.length) return { ok: true };
 
   // Per (job, product, line): outstanding reserved = max(0, (reserve+release) − pulled).
   type Acc = { reserve: number; pulled: number };
@@ -353,7 +359,7 @@ export async function releaseJobReservations(
     const reserved = Math.max(0, round(acc.reserve - acc.pulled));
     if (reserved <= 0) continue;
     // F7: canonical 0176 release — never direct-update products.reserved.
-    await db.rpc("release_inventory_safe", {
+    const { data, error } = await db.rpc("release_inventory_safe", {
       p_product_id: productId,
       p_qty: reserved,
       p_job_id: jobId,
@@ -362,5 +368,12 @@ export async function releaseJobReservations(
       p_idempotency_key: `release:job:${jobId}:product:${productId}:line:${lineId ?? "_"}:${reserved}`,
       p_created_by: userId,
     });
+    if (error || !rpcOk(data).ok) {
+      return {
+        ok: false,
+        error: "Reserved material could not be released.",
+      };
+    }
   }
+  return { ok: true };
 }

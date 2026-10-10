@@ -22,6 +22,7 @@ import { requireProfile, assertRole } from "@/lib/auth";
 import { ESTIMATE_FOLLOWUP_KIND, maySnoozeCustomerFollowup, snoozeDueAt } from "@/lib/ops-followup";
 import { snoozeAutomatedOfficeTasks } from "@/lib/data/ops-automation";
 import { releaseJobReservations, reverseReceivedPOs } from "@/lib/po-stock";
+import { cancelJobWithReservations } from "@/lib/job-cancel";
 import { listCustomers } from "@/lib/data/customers";
 import { resolveOrCreateCustomer } from "@/lib/data/customer-resolve";
 import {
@@ -828,14 +829,27 @@ export async function cancelCustomer(formData: FormData): Promise<void> {
   const jobIds = (liveJobs ?? [])
     .filter((j) => jobEffectOnCancel(j.status as string) === "cancel")
     .map((j) => j.id as string);
-  if (jobIds.length) {
-    await releaseJobReservations(supabase, jobIds);
-    await supabase.from("jobs").update({ status: "cancelled" }).in("id", jobIds);
+  const cancelledJobIds: string[] = [];
+  const releaseFailedIds: string[] = [];
+  for (const jobId of jobIds) {
+    const cancelled = await cancelJobWithReservations(supabase, jobId);
+    if (cancelled.ok) cancelledJobIds.push(jobId);
+    else releaseFailedIds.push(jobId);
+  }
+  if (cancelledJobIds.length) {
     await supabase.from("activities").insert({
       customer_id: id,
       user_id: user?.id ?? null,
       type: "system",
-      body: `${jobIds.length} booked job${jobIds.length === 1 ? "" : "s"} cancelled and any reserved material released.`,
+      body: `${cancelledJobIds.length} booked job${cancelledJobIds.length === 1 ? "" : "s"} cancelled and any reserved material released.`,
+    });
+  }
+  if (releaseFailedIds.length) {
+    await supabase.from("activities").insert({
+      customer_id: id,
+      user_id: user?.id ?? null,
+      type: "system",
+      body: `${releaseFailedIds.length} job${releaseFailedIds.length === 1 ? "" : "s"} stayed unchanged because reserved material could not be released.`,
     });
   }
 

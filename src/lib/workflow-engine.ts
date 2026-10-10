@@ -11,7 +11,7 @@ import {
   stageIsParked,
   type WorkflowStageOutcome,
 } from "@/lib/customer-lifecycle";
-import { releaseJobReservations } from "@/lib/po-stock";
+import { cancelJobWithReservations } from "@/lib/job-cancel";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DB = SupabaseClient<any, any, any>;
@@ -224,7 +224,7 @@ async function applyMove(
  * The two ends of the pipeline mean opposite things:
  *   past the install  -> the work happened  -> complete the job
  *   lost / declined    -> it never will      -> cancel jobs that have not started
- *                        and release their stock through releaseJobReservations.
+ *                        and release their stock through cancel_job_with_reservations.
  *                        in_progress and completed jobs are left alone, holds included.
  *
  * Position alone can't tell them apart: "Lost / Declined" (120) sits BETWEEN
@@ -259,19 +259,19 @@ export async function settleJobsForStage(
   );
   if (!changing.length) return;
 
-  // Same release Cancel uses. Only jobs this Lost transition is about to
-  // cancel. A second Lost does not select those rows again, and a repeated
-  // release computes outstanding quantity as zero.
-  const releasingIds = changing
-    .filter((j) => lost && jobEffectOnLost(j.status) === "cancel")
-    .map((j) => j.id);
-  if (releasingIds.length) {
-    await releaseJobReservations(supabase as never, releasingIds);
-  }
-
+  // Lost cancels and releases in one transaction per job. A failed release
+  // leaves that job's status unchanged. A second Lost does not select
+  // already-cancelled jobs. in_progress and completed are not in `changing`.
+  const cancelledIds: string[] = [];
+  const releaseFailedIds: string[] = [];
   for (const j of changing) {
     if (lost) {
-      await supabase.from("jobs").update({ status: "cancelled" }).eq("id", j.id);
+      const cancelled = await cancelJobWithReservations(supabase, j.id);
+      if (!cancelled.ok) {
+        releaseFailedIds.push(j.id);
+        continue;
+      }
+      cancelledIds.push(j.id);
       continue;
     }
     // Date it when the install was actually booked, not the moment somebody
@@ -287,13 +287,23 @@ export async function settleJobsForStage(
       .eq("id", j.id);
   }
 
-  await supabase.from("activities").insert({
-    customer_id: customerId,
-    type: "system",
-    body: `${changing.length} job${changing.length === 1 ? "" : "s"} ${
-      lost ? "cancelled" : "marked complete"
-    } automatically — the customer reached "${stage.name}".`,
-  });
+  const settledCount = lost ? cancelledIds.length : changing.length;
+  if (settledCount) {
+    await supabase.from("activities").insert({
+      customer_id: customerId,
+      type: "system",
+      body: `${settledCount} job${settledCount === 1 ? "" : "s"} ${
+        lost ? "cancelled" : "marked complete"
+      } automatically — the customer reached "${stage.name}".`,
+    });
+  }
+  if (releaseFailedIds.length) {
+    await supabase.from("activities").insert({
+      customer_id: customerId,
+      type: "system",
+      body: `${releaseFailedIds.length} job${releaseFailedIds.length === 1 ? "" : "s"} stayed unchanged because reserved material could not be released.`,
+    });
+  }
 }
 
 /**
