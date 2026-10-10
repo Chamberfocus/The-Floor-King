@@ -845,13 +845,15 @@ export async function savePurchaseOrder(
     prevStatus === "void" ||
     prevStatus === "cancelled";
 
+  const becomingReceived = prevStatus !== "received" && input.status === "received";
+  const leavingReceived = prevStatus === "received" && input.status !== "received";
   const { error: updateError } = await supabase
     .from("purchase_orders")
     .update({
       supplier: input.supplier || null,
       supplier_id: input.supplier_id || null,
       source_type: input.source_type || null,
-      status: input.status,
+      status: becomingReceived || leavingReceived ? (prevStatus ?? input.status) : input.status,
       notes: input.notes || null,
       eta_date: input.eta_date || null,
       backordered: input.backordered,
@@ -929,10 +931,24 @@ export async function savePurchaseOrder(
     }
   }
 
-  // Reconcile inventory AFTER items are saved, so a received PO restocks the
-  // current quantities. Same single reconciler the status buttons use — editing
-  // status in the builder can no longer skip it.
-  await reconcilePoStock(supabase, poId, prevStatus, input.status);
+  // Reconcile inventory AFTER items are saved. Status moves to or from
+  // received only after that stock call succeeds.
+  try {
+    await reconcilePoStock(supabase, poId, prevStatus, input.status);
+  } catch (e) {
+    return {
+      error: employeePoError(
+        e instanceof Error ? e.message : "Warehouse stock for this purchase order could not be updated.",
+      ),
+    };
+  }
+  if (becomingReceived || leavingReceived) {
+    const { error: statusError } = await supabase
+      .from("purchase_orders")
+      .update({ status: input.status })
+      .eq("id", poId);
+    if (statusError) return { error: employeePoError(statusError.message) };
+  }
 
   revalidatePath(`/purchase-orders/${poId}`);
   revalidatePath("/purchase-orders");
@@ -994,8 +1010,17 @@ export async function applyPoStatus(
     );
   }
 
-  await supabase.from("purchase_orders").update({ status }).eq("id", id);
-  await reconcilePoStock(supabase, id, prev, status);
+  const becomingReceived = prev !== "received" && status === "received";
+  const leavingReceived = prev === "received" && status !== "received";
+  // Stock first. A failed receipt or reversal must not leave the status claiming
+  // the inventory movement already happened.
+  if (becomingReceived || leavingReceived) {
+    await reconcilePoStock(supabase, id, prev, status);
+    await supabase.from("purchase_orders").update({ status }).eq("id", id);
+  } else {
+    await supabase.from("purchase_orders").update({ status }).eq("id", id);
+    await reconcilePoStock(supabase, id, prev, status);
+  }
 
   // Same customer-facing follow-through the PO builder does when it hits
   // "ordered" — the status button was silently skipping it.
