@@ -13,6 +13,14 @@ import { to12, formatDate } from "@/lib/format";
 import { releaseJobReservations } from "@/lib/po-stock";
 import { cancelJobWithReservations } from "@/lib/job-cancel";
 import {
+  assertFinancialDeletionAllowed,
+  deleteBareDraftPaperwork,
+  laborHistoryDeletionBlocker,
+  reservationReleaseBlocker,
+  reservationStillHeld,
+  unconfirmedMessage,
+} from "@/lib/financial-deletion";
+import {
   moveToAutoActionStage,
   advanceToNamedStage,
 } from "@/lib/workflow-engine";
@@ -2486,56 +2494,32 @@ export async function deleteJob(formData: FormData): Promise<void> {
   if (!id) return;
   await assertRole(["admin", "office"]);
 
-  const supabase = await createClient();
-  // MUST happen before the delete. stock_movements.job_id is ON DELETE SET
-  // NULL, and releaseJobReservations derives the amount to give back from
-  // exactly those rows — once the job is gone they're orphaned and the
-  // reserved quantity is stuck on the product forever with nothing to
-  // reconcile against.
-  await releaseJobReservations(supabase, [id]);
+  const jobError = (message: string) =>
+    `/jobs/${id}?job_error=${encodeURIComponent(message)}`;
 
-  /**
-   * Everything hanging off this job that Postgres will NOT cascade.
-   *
-   * Same trap deleting an estimate fell into: these all reference jobs with
-   * `on delete set null`, so the row outlives the job with its link quietly
-   * blanked — an invoice with no job, purchase orders no one can trace, photos
-   * still in the customer's files. Service role so the cleanup can't be
-   * half-blocked by row-level security.
-   */
-  let admin;
+  let admin: ReturnType<typeof createAdminClient>;
   try {
     admin = createAdminClient();
   } catch {
-    admin = supabase; // fall back (may leave orphans under RLS)
-  }
-  const { data: docs } = await admin.from("documents").select("path").eq("job_id", id);
-  const paths = (docs ?? []).map((d) => d.path as string).filter(Boolean);
-  if (paths.length) {
-    try {
-      await admin.storage.from("documents").remove(paths);
-    } catch {
-      // A missing object must not stop the rows from going.
-    }
-  }
-  for (const table of [
-    "invoices",         // invoice items + payments cascade from it
-    "purchase_orders",  // PO items cascade
-    "documents",
-    "expenses",
-    "bills",
-    "orders",
-    "stock_movements",
-    "stock_rolls",
-  ]) {
-    await admin.from(table).delete().eq("job_id", id);
+    redirect(jobError(unconfirmedMessage("job")));
   }
 
-  await admin.from("jobs").delete().eq("id", id);
+  const gate = await assertFinancialDeletionAllowed(admin, "job", { jobIds: [id] });
+  if (!gate.ok) redirect(jobError(gate.message));
+
+  await releaseJobReservations(admin, [id]);
+  const held = await reservationStillHeld(admin, [id]);
+  if (!held.ok || held.qty > 0) {
+    redirect(jobError(reservationReleaseBlocker("job", held.ok ? held.qty : 1)?.message ?? unconfirmedMessage("job")));
+  }
+
+  const again = await assertFinancialDeletionAllowed(admin, "job", { jobIds: [id] });
+  if (!again.ok) redirect(jobError(again.message));
+
+  const removed = await deleteBareDraftPaperwork(admin, "job", again.snapshot);
+  if (!removed.ok) redirect(jobError(removed.message));
 
   revalidateJobEverywhere(id, customerId || null);
-  // Land back where the delete was pressed. From a customer's job list that's
-  // the customer file; from the job page itself, the jobs board.
   if (customerId) redirect(`/customers/${customerId}`);
   redirect("/jobs");
 }
@@ -2610,12 +2594,7 @@ export async function toggleJobLaborPaid(formData: FormData): Promise<void> {
 }
 
 export async function deleteJobLabor(formData: FormData): Promise<void> {
-  const id = str(formData.get("id"));
   const jobId = str(formData.get("job_id"));
-  if (!id) return;
-  const supabase = await createClient();
-  await supabase.from("job_labor").delete().eq("id", id);
-  if (jobId) revalidatePath(`/jobs/${jobId}`);
-  revalidatePath("/pulse");
-  revalidatePath("/financials");
+  const message = laborHistoryDeletionBlocker().message;
+  if (jobId) redirect(`/jobs/${jobId}?job_error=${encodeURIComponent(message)}`);
 }
