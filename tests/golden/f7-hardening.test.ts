@@ -265,7 +265,10 @@ describe("launch-trust invoice + warehouse gates", () => {
     );
     expect(invoices).toContain("INVOICE_CREATE_ROLES");
     expect(invoices).toContain("INVOICE_DELETE_ROLES");
-    expect(invoices).toContain("Issued invoices cannot be deleted");
+    expect(invoices).toContain("invoiceHardDeleteBlocker");
+    expect(readFileSync(join(ROOT, "src/lib/order-deletion.ts"), "utf8")).toContain(
+      "Issued invoices cannot be deleted",
+    );
     expect(invoices).toContain("await assertRole(INVOICE_CREATE_ROLES)");
   });
 

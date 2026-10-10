@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { employeePaymentError } from "@/lib/payment-safety";
+import { invoiceHardDeleteBlocker } from "@/lib/order-deletion";
 import {
   type SaveInvoiceInput,
 } from "@/lib/invoice-calc";
@@ -1584,18 +1585,10 @@ export async function deleteInvoice(formData: FormData): Promise<void> {
     if (!customerId) customerId = (inv.customer_id as string | null) ?? "";
     const jobId = (inv.job_id as string | null) ?? null;
     const status = (inv.status as string) ?? "draft";
-    if (status !== "draft") {
-      fail("Issued invoices cannot be deleted. Void the invoice to cancel it.");
-    }
     const { data: pays } = await admin
       .from("payments")
       .select("id")
       .eq("invoice_id", id);
-    if ((pays ?? []).length) {
-      fail(
-        "This invoice has payment history and can’t be deleted. Void only if unpaid, or keep it for history.",
-      );
-    }
     const [{ data: apps }, { data: depApps }, { data: writeOffs }] =
       await Promise.all([
         admin
@@ -1608,13 +1601,18 @@ export async function deleteInvoice(formData: FormData): Promise<void> {
           .eq("invoice_id", id),
         admin.from("invoice_write_offs").select("id").eq("invoice_id", id),
       ]);
-    if ((apps ?? []).length) {
-      fail("This invoice has credit applications and can’t be deleted. Void instead.");
+    const block = invoiceHardDeleteBlocker({
+      status,
+      paymentCount: (pays ?? []).length,
+      creditApplicationCount: (apps ?? []).length,
+      depositApplicationCount: (depApps ?? []).length,
+      writeOffCount: (writeOffs ?? []).length,
+    });
+    if (block) fail(block.message);
+    const { error: deleteError } = await admin.from("invoices").delete().eq("id", id);
+    if (deleteError) {
+      fail("This invoice was not deleted. Posted financial history stays on the books.");
     }
-    if ((depApps ?? []).length || (writeOffs ?? []).length) {
-      fail("This invoice has deposits or write-offs and can’t be deleted. Void instead.");
-    }
-    await admin.from("invoices").delete().eq("id", id);
     if (jobId) revalidatePath(`/jobs/${jobId}`);
   }
 
