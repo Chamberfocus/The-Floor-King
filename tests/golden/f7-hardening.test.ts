@@ -241,10 +241,15 @@ describe("F7 hardening — partial receiving ledger plan", () => {
     expect(secondB.ok).toBe(false);
   });
 
-  it("receivePoLines posts applyPoLineReceiptDelta", () => {
-    expect(receivingActions).toContain("applyPoLineReceiptDelta");
+  it("receivePoLines posts one receipt batch before received status", () => {
+    expect(receivingActions).toContain("postPoReceiptLines");
+    expect(receivingActions).not.toContain("applyPoLineReceiptDelta");
     expect(receivingActions).toContain("inv_po_item_received_qty");
     expect(receivingActions).toContain("already received or voided in another session");
+    const post = receivingActions.indexOf("await postPoReceiptLines");
+    const status = receivingActions.indexOf("await applyPoStatus");
+    expect(post).toBeGreaterThan(0);
+    expect(status).toBeGreaterThan(post);
   });
 });
 
@@ -351,9 +356,11 @@ describe("launch-trust money + schedule follow-through", () => {
       join(ROOT, "src/app/(app)/warehouse/receiving-actions.ts"),
       "utf8",
     );
-    const ledger = recv.indexOf("applyPoLineReceiptDelta");
-    const stamp = recv.indexOf("received_qty: qty");
-    expect(ledger).toBeGreaterThan(0);
-    expect(stamp).toBeGreaterThan(ledger);
+    const post = recv.indexOf("await postPoReceiptLines");
+    const status = recv.indexOf("await applyPoStatus");
+    expect(post).toBeGreaterThan(0);
+    expect(status).toBeGreaterThan(post);
+    expect(recv).toContain("stamp_received_qty: true");
+    expect(recv).not.toContain("applyPoLineReceiptDelta");
   });
 });
