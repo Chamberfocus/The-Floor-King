@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "verify:migrations": "node scripts/check-migrations.mjs",
+    "staging:dry-run": "node scripts/staging-migrate.mjs dry-run",
     "verify": "npm test && npm run typecheck && npm run verify:migrations && npm run lint:ci && npm run build"
   },
   "dependencies": {
