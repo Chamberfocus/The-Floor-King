@@ -19,6 +19,12 @@ import {
 } from "@/lib/order-warehouse-gates";
 import { cutsTotalSqYd } from "@/lib/order-cuts";
 import { refuseNewActiveWorkForCustomer } from "@/lib/active-work-guard";
+import {
+  deleteErrorPreservesHistory,
+  orderDestructionBlocker,
+  type InvoicePaperwork,
+  type PurchaseOrderPaperwork,
+} from "@/lib/order-deletion";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -446,49 +452,187 @@ export async function createInvoiceFromOrder(
   if (invId) redirect(`/invoices/${invId}`);
 }
 
-/** Permanently remove an order AND everything it spawned: the warehouse job it
- *  created (and that job's staging files, labor, and satisfaction sign-off), the
- *  invoice (with its line items and payments), and any purchase orders raised
- *  for it. Physical inventory (rolls / remnants / stock movements) and uploaded
- *  documents are kept — those are real-world records, not order paperwork.
- *  Admin/office only. */
+const ORDER_KEPT =
+  "This order was not deleted. Its related records could not be read, so nothing was removed.";
+
+function orderDeleteDenied(message: string): never {
+  revalidatePath("/orders");
+  redirect(`/orders?order_error=${encodeURIComponent(message)}`);
+}
+
+function tally(rows: { invoice_id?: string | null }[] | null, invoiceId: string): number {
+  return (rows ?? []).filter((row) => row.invoice_id === invoiceId).length;
+}
+
+function receivedQty(items: { received_qty?: number | string | null }[] | null): number {
+  return (items ?? []).reduce((sum, item) => sum + (Number(item.received_qty) || 0), 0);
+}
+
+/** Remove an order only when it has no posted financial history.
+ *  Issued invoices, payments, credits, deposits, write-offs, issued or
+ *  received purchase orders, and job cost history are kept. Untouched draft
+ *  paperwork can still be removed. Admin/office only. */
 export async function deleteOrder(formData: FormData): Promise<void> {
   await assertRole(["admin", "office"]);
   const orderId = str(formData.get("order_id"));
   if (!orderId) return;
 
-  // Elevated: sidestep any gap in orders' RLS delete policy (public orders have
-  // no customer/owner), and reach the spawned job/invoice/POs.
-  const admin = createAdminClient();
+  let admin: ReturnType<typeof createAdminClient>;
+  try {
+    admin = createAdminClient();
+  } catch {
+    orderDeleteDenied(ORDER_KEPT);
+  }
 
-  // Find what this order spawned BEFORE deleting anything.
-  const { data: order } = await admin
+  const { data: order, error: orderError } = await admin
     .from("orders")
     .select("job_id, invoice_id")
     .eq("id", orderId)
     .maybeSingle();
-  const jobId = (order?.job_id as string | null) ?? null;
-  const invoiceId = (order?.invoice_id as string | null) ?? null;
+  if (orderError) orderDeleteDenied(ORDER_KEPT);
+  if (!order) orderDeleteDenied("This order was not found. Nothing was deleted.");
 
-  // Purchase orders + invoices tied to the spawned job. These must go first:
-  // their job_id is ON DELETE SET NULL, so once the job is gone we can no longer
-  // find them. po_items / invoice_items / payments cascade with their parent.
+  const jobId = (order.job_id as string | null) ?? null;
+  const directInvoiceId = (order.invoice_id as string | null) ?? null;
+
+  const invoiceById = new Map<string, { id: string; status: string | null }>();
   if (jobId) {
-    await admin.from("purchase_orders").delete().eq("job_id", jobId);
-    await admin.from("invoices").delete().eq("job_id", jobId);
+    const { data, error } = await admin
+      .from("invoices")
+      .select("id, status")
+      .eq("job_id", jobId);
+    if (error) orderDeleteDenied(ORDER_KEPT);
+    for (const row of data ?? []) {
+      invoiceById.set(row.id as string, {
+        id: row.id as string,
+        status: (row.status as string | null) ?? null,
+      });
+    }
   }
-  // The invoice the order links to directly (belt-and-suspenders if it wasn't
-  // caught by the job match above).
-  if (invoiceId) await admin.from("invoices").delete().eq("id", invoiceId);
+  if (directInvoiceId && !invoiceById.has(directInvoiceId)) {
+    const { data, error } = await admin
+      .from("invoices")
+      .select("id, status")
+      .eq("id", directInvoiceId)
+      .maybeSingle();
+    if (error) orderDeleteDenied(ORDER_KEPT);
+    if (data) {
+      invoiceById.set(data.id as string, {
+        id: data.id as string,
+        status: (data.status as string | null) ?? null,
+      });
+    }
+  }
 
-  // The job itself — cascades job_files, job_labor, job_satisfaction, and
-  // job_applications; unlinks documents/inventory (kept on purpose).
-  if (jobId) await admin.from("jobs").delete().eq("id", jobId);
+  const invoiceIds = [...invoiceById.keys()];
+  let paymentRows: { invoice_id?: string | null }[] | null = [];
+  let creditRows: { invoice_id?: string | null }[] | null = [];
+  let depositRows: { invoice_id?: string | null }[] | null = [];
+  let writeOffRows: { invoice_id?: string | null }[] | null = [];
+  if (invoiceIds.length) {
+    const [payments, credits, deposits, writeOffs] = await Promise.all([
+      admin.from("payments").select("invoice_id").in("invoice_id", invoiceIds),
+      admin.from("credit_applications").select("invoice_id").in("invoice_id", invoiceIds),
+      admin
+        .from("customer_deposit_applications")
+        .select("invoice_id")
+        .in("invoice_id", invoiceIds),
+      admin.from("invoice_write_offs").select("invoice_id").in("invoice_id", invoiceIds),
+    ]);
+    if (payments.error || credits.error || deposits.error || writeOffs.error) {
+      orderDeleteDenied(ORDER_KEPT);
+    }
+    paymentRows = payments.data as { invoice_id?: string | null }[] | null;
+    creditRows = credits.data as { invoice_id?: string | null }[] | null;
+    depositRows = deposits.data as { invoice_id?: string | null }[] | null;
+    writeOffRows = writeOffs.data as { invoice_id?: string | null }[] | null;
+  }
 
-  // Finally the order and its line items (order_items also cascades on the order
-  // delete; we clear it explicitly to be safe).
-  await admin.from("order_items").delete().eq("order_id", orderId);
-  await admin.from("orders").delete().eq("id", orderId);
+  const invoices: InvoicePaperwork[] = [...invoiceById.values()].map((invoice) => ({
+    status: invoice.status,
+    paymentCount: tally(paymentRows, invoice.id),
+    creditApplicationCount: tally(creditRows, invoice.id),
+    depositApplicationCount: tally(depositRows, invoice.id),
+    writeOffCount: tally(writeOffRows, invoice.id),
+  }));
+
+  let purchaseOrders: PurchaseOrderPaperwork[] = [];
+  let draftPoIds: string[] = [];
+  let jobLaborCount = 0;
+  let installerBillCount = 0;
+  let trueUpCount = 0;
+  let commissionLedgerCount = 0;
+  if (jobId) {
+    const [pos, labor, bills, trueUps, commissions] = await Promise.all([
+      admin.from("purchase_orders").select("id, status, items:po_items(received_qty)").eq("job_id", jobId),
+      admin.from("job_labor").select("id", { count: "exact", head: true }).eq("job_id", jobId),
+      admin.from("installer_bills").select("id", { count: "exact", head: true }).eq("job_id", jobId),
+      admin.from("job_true_ups").select("id", { count: "exact", head: true }).eq("job_id", jobId),
+      admin.from("job_commission_ledger").select("id", { count: "exact", head: true }).eq("job_id", jobId),
+    ]);
+    if (pos.error || labor.error || bills.error || trueUps.error || commissions.error) {
+      orderDeleteDenied(ORDER_KEPT);
+    }
+    draftPoIds = (pos.data ?? []).map((po) => po.id as string);
+    purchaseOrders = (pos.data ?? []).map((po) => ({
+      status: (po.status as string | null) ?? null,
+      receivedQty: receivedQty(
+        (po.items as { received_qty?: number | string | null }[] | null) ?? null,
+      ),
+    }));
+    jobLaborCount = labor.count ?? 0;
+    installerBillCount = bills.count ?? 0;
+    trueUpCount = trueUps.count ?? 0;
+    commissionLedgerCount = commissions.count ?? 0;
+  }
+
+  const decision = orderDestructionBlocker({
+    invoices,
+    purchaseOrders,
+    jobLaborCount,
+    installerBillCount,
+    trueUpCount,
+    commissionLedgerCount,
+  });
+  if (!decision.ok) orderDeleteDenied(decision.block.message);
+
+  if (invoiceIds.length) {
+    const { error } = await admin.from("invoices").delete().in("id", invoiceIds);
+    if (error) {
+      orderDeleteDenied(
+        deleteErrorPreservesHistory(error.message)
+          ? "This order was not deleted. Posted invoice or payment history is still on the books."
+          : "This order was not deleted. A draft invoice could not be removed, so the order was kept.",
+      );
+    }
+  }
+
+  if (jobId) {
+    if (draftPoIds.length) {
+      const { error } = await admin.from("purchase_orders").delete().in("id", draftPoIds);
+      if (error) {
+        orderDeleteDenied(
+          "Draft invoices with no payment history were removed, but a purchase order could not be deleted. The order was kept.",
+        );
+      }
+    }
+
+    const { error: jobError } = await admin.from("jobs").delete().eq("id", jobId);
+    if (jobError) {
+      orderDeleteDenied(
+        "Untouched draft paperwork was removed, but the warehouse job could not be deleted. The order was kept.",
+      );
+    }
+  }
+
+  const { error: itemError } = await admin.from("order_items").delete().eq("order_id", orderId);
+  if (itemError) {
+    orderDeleteDenied("The order paperwork could not be removed. Check the order and try again.");
+  }
+  const { error: orderDeleteError } = await admin.from("orders").delete().eq("id", orderId);
+  if (orderDeleteError) {
+    orderDeleteDenied("The order could not be removed. Check the order and try again.");
+  }
 
   revalidatePath("/orders");
   revalidatePath("/invoices");
