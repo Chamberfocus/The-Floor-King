@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { jobEffectOnCancel } from "@/lib/customer-lifecycle";
+import { jobEffectOnCancel, type WorkflowStageOutcome } from "@/lib/customer-lifecycle";
 import { revalidateOperationalSurfaces } from "@/lib/revalidate-operational";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -21,7 +21,15 @@ import { advanceFromFirstStage, deriveLeadStage,
 import { requireProfile, assertRole } from "@/lib/auth";
 import { ESTIMATE_FOLLOWUP_KIND, maySnoozeCustomerFollowup, snoozeDueAt } from "@/lib/ops-followup";
 import { snoozeAutomatedOfficeTasks } from "@/lib/data/ops-automation";
-import { releaseJobReservations, reverseReceivedPOs } from "@/lib/po-stock";
+import { releaseJobReservations } from "@/lib/po-stock";
+import { cancelJobWithReservations } from "@/lib/job-cancel";
+import {
+  assertFinancialDeletionAllowed,
+  deleteBareDraftPaperwork,
+  reservationReleaseBlocker,
+  reservationStillHeld,
+  unconfirmedMessage,
+} from "@/lib/financial-deletion";
 import { listCustomers } from "@/lib/data/customers";
 import { resolveOrCreateCustomer } from "@/lib/data/customer-resolve";
 import {
@@ -431,10 +439,10 @@ export async function advanceWorkflow(formData: FormData): Promise<void> {
   // lead_stage in lock-step with the workflow stage (one source of truth).
   const { data: allStages } = await supabase
     .from("workflow_stages")
-    .select("id, position, auto_action, name");
+    .select("id, position, auto_action, name, outcome");
   const { data: stage } = await supabase
     .from("workflow_stages")
-    .select("id, name, position, sla_hours, next_action, auto_action")
+    .select("id, name, position, sla_hours, next_action, auto_action, outcome")
     .eq("id", toStageId)
     .maybeSingle();
 
@@ -470,7 +478,7 @@ export async function advanceWorkflow(formData: FormData): Promise<void> {
 
   const leadStage = stage
     ? deriveLeadStage(
-        { name: stage.name, position: stage.position },
+        { name: stage.name, position: stage.position, outcome: stage.outcome ?? null },
         allStages ?? [],
       )
     : undefined;
@@ -521,7 +529,11 @@ export async function advanceWorkflow(formData: FormData): Promise<void> {
     await settleJobsForStage(
       supabase,
       id,
-      { name: stage.name ?? "", position: stage.position ?? 0 },
+      {
+        name: stage.name ?? "",
+        position: stage.position ?? 0,
+        outcome: stage.outcome ?? null,
+      },
       (allStages ?? []).map((sst) => ({
         name: (sst.name as string) ?? "",
         position: (sst.position as number) ?? 0,
@@ -592,10 +604,10 @@ export async function overrideAdvanceWorkflow(formData: FormData): Promise<void>
     .maybeSingle();
   const { data: allStages } = await supabase
     .from("workflow_stages")
-    .select("position, auto_action, name");
+    .select("position, auto_action, name, outcome");
   const { data: stage } = await supabase
     .from("workflow_stages")
-    .select("name, position, sla_hours, next_action")
+    .select("name, position, sla_hours, next_action, outcome")
     .eq("id", toStageId)
     .maybeSingle();
 
@@ -604,7 +616,10 @@ export async function overrideAdvanceWorkflow(formData: FormData): Promise<void>
       ? new Date(Date.now() + stage.sla_hours * 3600 * 1000).toISOString()
       : null;
   const leadStage = stage
-    ? deriveLeadStage({ name: stage.name, position: stage.position }, allStages ?? [])
+    ? deriveLeadStage(
+        { name: stage.name, position: stage.position, outcome: stage.outcome ?? null },
+        allStages ?? [],
+      )
     : undefined;
 
   const { error } = await supabase
@@ -821,14 +836,27 @@ export async function cancelCustomer(formData: FormData): Promise<void> {
   const jobIds = (liveJobs ?? [])
     .filter((j) => jobEffectOnCancel(j.status as string) === "cancel")
     .map((j) => j.id as string);
-  if (jobIds.length) {
-    await releaseJobReservations(supabase, jobIds);
-    await supabase.from("jobs").update({ status: "cancelled" }).in("id", jobIds);
+  const cancelledJobIds: string[] = [];
+  const releaseFailedIds: string[] = [];
+  for (const jobId of jobIds) {
+    const cancelled = await cancelJobWithReservations(supabase, jobId);
+    if (cancelled.ok) cancelledJobIds.push(jobId);
+    else releaseFailedIds.push(jobId);
+  }
+  if (cancelledJobIds.length) {
     await supabase.from("activities").insert({
       customer_id: id,
       user_id: user?.id ?? null,
       type: "system",
-      body: `${jobIds.length} booked job${jobIds.length === 1 ? "" : "s"} cancelled and any reserved material released.`,
+      body: `${cancelledJobIds.length} booked job${cancelledJobIds.length === 1 ? "" : "s"} cancelled and any reserved material released.`,
+    });
+  }
+  if (releaseFailedIds.length) {
+    await supabase.from("activities").insert({
+      customer_id: id,
+      user_id: user?.id ?? null,
+      type: "system",
+      body: `${releaseFailedIds.length} job${releaseFailedIds.length === 1 ? "" : "s"} stayed unchanged because reserved material could not be released.`,
     });
   }
 
@@ -865,10 +893,10 @@ export async function reopenCustomer(formData: FormData): Promise<void> {
   if (cust?.workflow_stage_id) {
     const { data: all } = await supabase
       .from("workflow_stages")
-      .select("id, position, auto_action, name");
+      .select("id, position, auto_action, name, outcome");
     const current = (all ?? []).find(
       (s) => s.id === cust.workflow_stage_id,
-    ) as { name: string | null; position: number } | undefined;
+    ) as { name: string | null; position: number; outcome?: WorkflowStageOutcome | null } | undefined;
     if (current) stage = deriveLeadStage(current, all ?? []);
   }
 
@@ -890,8 +918,9 @@ export async function reopenCustomer(formData: FormData): Promise<void> {
 }
 
 /**
- * Permanently delete a customer and everything attached (estimates, jobs,
- * invoices, messages, history) via cascade. Admin/office only; irreversible.
+ * Delete a customer only when that cannot remove posted financial history.
+ * Bare drafts may go. Invoices, payments, labor, and receipts stay.
+ * Admin/office only.
  */
 export async function deleteCustomer(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
@@ -909,57 +938,44 @@ export async function deleteCustomer(formData: FormData): Promise<void> {
     .maybeSingle();
   if (!me || !["admin", "office"].includes(me.role as string)) return;
 
-  // POs, expenses, and stock movements are set-null (not cascade) on a customer
-  // delete, so they'd linger and keep counting as spend/COGS in Business Pulse.
-  // Remove them first — by customer and by the customer's estimates/jobs — so
-  // deleting a customer truly wipes their financial footprint. (Invoices,
-  // payments, jobs, estimates, labor all cascade-delete on their own.)
-  const [{ data: ests }, { data: jbs }] = await Promise.all([
-    supabase.from("estimates").select("id").eq("customer_id", id),
-    supabase.from("jobs").select("id").eq("customer_id", id),
-  ]);
-  const estIds = (ests ?? []).map((e) => e.id as string);
-  const jobIds = (jbs ?? []).map((j) => j.id as string);
+  const customerErrorUrl = (message: string) =>
+    `/customers/${id}?customer_error=${encodeURIComponent(message)}`;
 
-  // Before wiping anything, put inventory back so the left hand knows what the
-  // right did: (1) free any stock this customer's jobs had reserved, and
-  // (2) undo the on-hand a received PO added. Both read records we're about to
-  // delete, so they must run FIRST.
-  if (jobIds.length) await releaseJobReservations(supabase, jobIds);
-
-  const poIdSet = new Set<string>();
-  const collectPoIds = (rows: { id: unknown }[] | null) => {
-    for (const r of rows ?? []) if (r.id) poIdSet.add(r.id as string);
-  };
-  collectPoIds(
-    (await supabase.from("purchase_orders").select("id").eq("customer_id", id))
-      .data,
-  );
-  if (estIds.length)
-    collectPoIds(
-      (
-        await supabase
-          .from("purchase_orders")
-          .select("id")
-          .in("estimate_id", estIds)
-      ).data,
-    );
-  if (jobIds.length)
-    collectPoIds(
-      (await supabase.from("purchase_orders").select("id").in("job_id", jobIds))
-        .data,
-    );
-  const poIds = [...poIdSet];
-  if (poIds.length) {
-    await reverseReceivedPOs(supabase, poIds);
-    await supabase.from("purchase_orders").delete().in("id", poIds);
-  }
-  if (jobIds.length) {
-    // F6-P3B: do not hard-delete expense history. job_id FK sets null when jobs are removed.
-    await supabase.from("stock_movements").delete().in("job_id", jobIds);
+  let admin: ReturnType<typeof createAdminClient>;
+  try {
+    admin = createAdminClient();
+  } catch {
+    redirect(customerErrorUrl(unconfirmedMessage("customer")));
   }
 
-  await supabase.from("customers").delete().eq("id", id);
+  const gate = await assertFinancialDeletionAllowed(admin, "customer", { customerId: id });
+  if (!gate.ok) redirect(customerErrorUrl(gate.message));
+
+  const jobIds = gate.snapshot.jobIds;
+  if (jobIds.length) await releaseJobReservations(admin, jobIds);
+  const held = await reservationStillHeld(admin, jobIds);
+  if (!held.ok || held.qty > 0) {
+    redirect(
+      customerErrorUrl(
+        reservationReleaseBlocker("customer", held.ok ? held.qty : 1)?.message ??
+          unconfirmedMessage("customer"),
+      ),
+    );
+  }
+
+  const again = await assertFinancialDeletionAllowed(admin, "customer", { customerId: id });
+  if (!again.ok) redirect(customerErrorUrl(again.message));
+
+  const removed = await deleteBareDraftPaperwork(admin, "customer", again.snapshot);
+  if (!removed.ok) redirect(customerErrorUrl(removed.message));
+
+  if (again.snapshot.estimateIds.length) {
+    const { error } = await admin.from("estimates").delete().in("id", again.snapshot.estimateIds);
+    if (error) redirect(customerErrorUrl(unconfirmedMessage("customer")));
+  }
+
+  const { error: customerError } = await admin.from("customers").delete().eq("id", id);
+  if (customerError) redirect(customerErrorUrl(unconfirmedMessage("customer")));
 
   refreshCustomerViews();
   redirect("/customers");

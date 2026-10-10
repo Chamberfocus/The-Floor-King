@@ -4,7 +4,10 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { deriveLeadStage } from "@/lib/workflow-engine";
-import { stageNameMeansLost } from "@/lib/customer-lifecycle";
+import {
+  selectLostPlacementStage,
+  type WorkflowStageOutcome,
+} from "@/lib/customer-lifecycle";
 
 export interface StageFormState {
   error: string | null;
@@ -58,7 +61,7 @@ export async function resyncAllStages(): Promise<{
   const admin = createAdminClient();
   const { data: stages } = await admin
     .from("workflow_stages")
-    .select("id, name, position, auto_action, default_owner")
+    .select("id, name, position, auto_action, default_owner, outcome")
     .order("position", { ascending: true });
   if (!stages || !stages.length)
     return { ok: false, error: "No stages configured yet." };
@@ -70,7 +73,16 @@ export async function resyncAllStages(): Promise<{
     name: (s.name as string) ?? null,
   }));
   const byAuto = (aa: string) => stages.find((s) => s.auto_action === aa);
-  const lostStage = stages.find((s) => stageNameMeansLost(s.name as string));
+  const lostStage = selectLostPlacementStage(
+    stages as {
+      id: string;
+      name: string | null;
+      position: number;
+      outcome: WorkflowStageOutcome | null;
+      auto_action: string | null;
+      default_owner: string | null;
+    }[],
+  );
   const first = stages[0];
   // Reverse map: a customer with no workflow stage is placed by its legacy stage.
   const targetFor = (leg: string | null) => {
@@ -97,7 +109,11 @@ export async function resyncAllStages(): Promise<{
     }
     if (!wf) continue;
     const lead = deriveLeadStage(
-      { name: (wf.name as string) ?? null, position: wf.position as number },
+      {
+        name: (wf.name as string) ?? null,
+        position: wf.position as number,
+        outcome: (wf.outcome as WorkflowStageOutcome | null) ?? null,
+      },
       anchors,
     );
     const patch: Record<string, unknown> = { stage: lead };
@@ -140,6 +156,8 @@ export async function createStage(
     next_action: str(formData.get("next_action")) || null,
     sla_hours: slaHours(formData),
     position,
+    // A new label is not a Lost or Parked stage. Outcome stays system-managed.
+    outcome: "active" as const,
   };
   const owner_duty = str(formData.get("owner_duty")) || null;
   let { error } = await supabase.from("workflow_stages").insert({ ...row, owner_duty });
@@ -158,6 +176,8 @@ export async function updateStage(
   if (!id) return { error: "Missing stage." };
   if (!name) return { error: "Stage name is required." };
   const supabase = await createClient();
+  // Display fields only. The semantic column is not part of this patch,
+  // so a rename cannot retarget Lost or Parked or replay settlement.
   const row = {
     name,
     color: str(formData.get("color")) || "zinc",

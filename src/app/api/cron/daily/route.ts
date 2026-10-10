@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { authorizeDailyCronRequest } from "@/lib/request-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { customerIsArchived } from "@/lib/customer-operational";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
@@ -67,12 +68,14 @@ async function outstandingBalance(
  * Scheduled jobs (Vercel Cron):
  *  - Thank-you email ~2h after an estimate is sent.
  *  - Day-before reminder for installs scheduled tomorrow.
- * Protected by CRON_SECRET (Vercel sends it as a Bearer token).
+ * Fail closed: CRON_SECRET must be set, the bearer must match, and the
+ * runtime must be Vercel production. Otherwise this returns before any
+ * service-role client is constructed.
  */
 export async function GET(request: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  if (secret && request.headers.get("authorization") !== `Bearer ${secret}`) {
-    return new NextResponse("Unauthorized", { status: 401 });
+  const auth = authorizeDailyCronRequest(request);
+  if (!auth.ok) {
+    return NextResponse.json({ ok: false, error: auth.code }, { status: auth.status });
   }
 
   let admin;

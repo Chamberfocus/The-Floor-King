@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertRole } from "@/lib/auth";
 import { applyPoStatus, notifyBackordered } from "@/app/(app)/purchase-orders/actions";
-import { applyPoLineReceiptDelta } from "@/lib/po-stock";
+import { postPoReceiptLines } from "@/lib/po-stock";
+import { syncRolledOnHand } from "@/lib/data/stock-rolls";
 import { employeeReceiptError } from "@/lib/po-facts";
 import { QUEUE_LIST_UNAVAILABLE, logQueueFailure } from "@/lib/ops-scale";
 import { listPageWindow, WORK_QUEUE_PAGE_SIZE } from "@/lib/work-queues";
@@ -83,41 +84,48 @@ export async function receivePoLines(input: {
   }
 
   const now = new Date().toISOString();
-  for (const l of input.lines) {
-    const row = byId.get(l.itemId)!;
-    const qty = n(l.receivedQty);
+  // One transaction for every line in this check-in. A later line failure
+  // rolls back the earlier lines and does not stamp them.
+  const posted = await postPoReceiptLines(
+    db as never,
+    input.poId,
+    input.lines.map((l) => ({
+      po_item_id: l.itemId,
+      target_received_qty: n(l.receivedQty),
+      note: l.note.trim() || input.note.trim() || null,
+      stamp_received_qty: true,
+      received_by: profile.id,
+      receiving_note: l.note.trim() || null,
+    })),
+  );
+  if (!posted.ok) {
+    return { error: employeeReceiptError(posted.error) };
+  }
 
-    // Post inventory first, then stamp. A failed ledger must not leave a
-    // receive stamp without a movement (retry would then no-op the delta).
-    if (row.product_id) {
+  const productIds = [
+    ...new Set(
+      input.lines
+        .map((l) => byId.get(l.itemId)?.product_id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    ),
+  ];
+  if (productIds.length) {
+    const { data: prods } = await db
+      .from("products")
+      .select("id, stock_kind")
+      .in("id", productIds);
+    for (const p of prods ?? []) {
+      if (p.stock_kind !== "rolled") continue;
       try {
-        await applyPoLineReceiptDelta(db as never, {
-          poId: input.poId,
-          poItemId: l.itemId,
-          productId: row.product_id as string,
-          orderedQty: n(row.quantity),
-          targetReceivedQty: qty,
-          note: l.note.trim() || input.note.trim() || null,
-        });
+        await syncRolledOnHand(p.id as string, db as never);
       } catch (e) {
         return {
           error: employeeReceiptError(
-            e instanceof Error ? e.message : "This receipt could not be recorded. Try again.",
+            e instanceof Error ? e.message : "Rolled stock could not be synced.",
           ),
         };
       }
     }
-
-    await db
-      .from("po_items")
-      .update({
-        received_qty: qty,
-        received_at: now,
-        received_by: profile.id,
-        receiving_note: l.note.trim() || null,
-      })
-      .eq("id", l.itemId)
-      .eq("po_id", input.poId);
   }
 
   const { data: items } = await db
