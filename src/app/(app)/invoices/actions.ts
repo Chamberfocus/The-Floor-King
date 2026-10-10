@@ -4,7 +4,11 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { employeePaymentError } from "@/lib/payment-safety";
+import {
+  employeePaymentError,
+  PAYMENT_VOID_RPC_REQUIRED_MESSAGE,
+  paymentVoidRpcUnavailable,
+} from "@/lib/payment-safety";
 import {
   type SaveInvoiceInput,
 } from "@/lib/invoice-calc";
@@ -1366,7 +1370,8 @@ export async function voidPayment(formData: FormData): Promise<void> {
     return;
   }
 
-  // Prefer F4 atomic void+outbox RPC; fall back to direct update pre-0163.
+  // void_invoice_payment_safe is the only void path. A missing function must
+  // not mark the payment void with a direct update.
   const { data: voidRes, error: voidRpcErr } = await supabase.rpc(
     "void_invoice_payment_safe",
     {
@@ -1376,46 +1381,24 @@ export async function voidPayment(formData: FormData): Promise<void> {
     },
   );
   if (voidRpcErr) {
-    if (voidRpcErr.message.includes("void_invoice_payment_safe")) {
-      const { error } = await supabase
-        .from("payments")
-        .update({
-          status: "void",
-          voided_at: new Date().toISOString(),
-          voided_by: user?.id ?? null,
-          void_reason: reason,
-        })
-        .eq("id", id);
-      if (error) {
-        console.error("[voidInvoicePayment]", error.code);
-        fail(
-          error.message.includes("status")
-            ? "Payment void migration (0158) is not applied yet. Apply it in Supabase before voiding payments."
-            : employeePaymentError(
-                error.message,
-                "This payment could not be voided. Refresh and try again.",
-              ),
-        );
-      }
-    } else {
-      console.error("[voidInvoicePayment]", voidRpcErr.code);
-      fail(
-        employeePaymentError(
-          voidRpcErr.message,
-          "This payment could not be voided. Refresh and try again.",
-        ),
-      );
-    }
-  } else {
-    const res = voidRes as { ok?: boolean; error?: string };
-    if (!res?.ok) {
-      fail(
-        employeePaymentError(
-          res?.error,
-          "This payment could not be voided. Refresh and try again.",
-        ),
-      );
-    }
+    console.error("[voidInvoicePayment]", voidRpcErr.code);
+    fail(
+      paymentVoidRpcUnavailable(voidRpcErr.message)
+        ? PAYMENT_VOID_RPC_REQUIRED_MESSAGE
+        : employeePaymentError(
+            voidRpcErr.message,
+            "This payment could not be voided. Refresh and try again.",
+          ),
+    );
+  }
+  const res = voidRes as { ok?: boolean; error?: string };
+  if (!res?.ok) {
+    fail(
+      employeePaymentError(
+        res?.error,
+        "This payment could not be voided. Refresh and try again.",
+      ),
+    );
   }
 
   await recomputeStatus(supabase, invoiceId);

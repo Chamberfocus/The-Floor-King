@@ -19,6 +19,14 @@ export const PAYMENT_NONPOSITIVE_MESSAGE =
 export const PAYMENT_VOID_REQUIRED_MESSAGE =
   "Payments can’t be deleted. Void the payment to preserve history.";
 
+export const PAYMENT_VOID_RPC_REQUIRED_MESSAGE =
+  "This payment was not voided. The safe void function is required, and the payment row was not changed.";
+
+/** True when PostgREST reports that void_invoice_payment_safe is missing. */
+export function paymentVoidRpcUnavailable(message: string | null | undefined): boolean {
+  return (message ?? "").includes("void_invoice_payment_safe");
+}
+
 export const PAYMENT_SAVE_FAILED_MESSAGE =
   "This payment could not be recorded. Refresh and verify the balance before retrying.";
 
