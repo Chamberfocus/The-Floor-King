@@ -11,6 +11,7 @@ import { sendSms } from "@/lib/sms";
 import { addDaysYmd } from "@/lib/scheduling";
 import { to12, formatDate } from "@/lib/format";
 import { releaseJobReservations } from "@/lib/po-stock";
+import { cancelJobWithReservations } from "@/lib/job-cancel";
 import {
   moveToAutoActionStage,
   advanceToNamedStage,
@@ -1253,6 +1254,10 @@ export async function updateJob(
     );
     if (blocked) return { error: blocked };
   }
+  if (newStatus === "cancelled") {
+    const cancelled = await cancelJobWithReservations(supabase, id);
+    if (!cancelled.ok) return { error: cancelled.error };
+  }
 
   const patch = {
     title: nullable(formData.get("title")),
@@ -1269,11 +1274,19 @@ export async function updateJob(
       "deliver") as JobDeliveryType,
   };
   const expectedUpdatedAt = str(formData.get("expected_updated_at"));
-  let update = supabase.from("jobs").update(patch).eq("id", id).eq("status", from);
-  if (expectedUpdatedAt) update = update.eq("updated_at", expectedUpdatedAt);
-  const guarded = prior.completed_at
-    ? update.eq("completed_at", prior.completed_at as string)
-    : update.is("completed_at", null);
+  let update = supabase.from("jobs").update(patch).eq("id", id);
+  if (newStatus === "cancelled") {
+    update = update.eq("status", "cancelled");
+  } else {
+    update = update.eq("status", from);
+    if (expectedUpdatedAt) update = update.eq("updated_at", expectedUpdatedAt);
+  }
+  const guarded =
+    newStatus === "cancelled"
+      ? update
+      : prior.completed_at
+        ? update.eq("completed_at", prior.completed_at as string)
+        : update.is("completed_at", null);
   const { data: saved, error } = await guarded.select("id").maybeSingle();
   if (error) {
     console.error("[updateJob]", error.code);
@@ -1293,10 +1306,7 @@ export async function updateJob(
       // merely booked.
       await advanceToNamedStage(customerId, STAGE_INSTALL_IN_PROGRESS, id);
   }
-  // Same unwind as the quick-status path — cancelling from the edit form must
-  // free the reserved material too, or the two routes disagree.
   if (newStatus === "cancelled") {
-    await releaseJobReservations(supabase, [id]);
     revalidatePath("/inventory");
     revalidatePath("/warehouse");
   }
@@ -1355,6 +1365,19 @@ async function commitJobStatus(
     const blocked = await refuseNewActiveWorkForJob(supabase, id);
     if (blocked) return { error: blocked };
   }
+  if (status === "cancelled") {
+    const cancelled = await cancelJobWithReservations(supabase, id);
+    if (!cancelled.ok) return { error: cancelled.error };
+    const { data: job } = await supabase
+      .from("jobs")
+      .select("customer_id")
+      .eq("id", id)
+      .maybeSingle();
+    revalidatePath("/inventory");
+    revalidatePath("/warehouse");
+    revalidateJobEverywhere(id, (job?.customer_id as string | null) ?? null);
+    return { error: null };
+  }
   const patch = jobStatusUpdatePatch(
     status,
     (prior?.completed_at as string | null) ?? null,
@@ -1384,15 +1407,6 @@ async function commitJobStatus(
     else if (status === "in_progress")
       await advanceToNamedStage(customerId, STAGE_INSTALL_IN_PROGRESS, id);
   }
-  // Cancelling used to change the status and nothing else, so the material
-  // stayed reserved against a job that will never happen — inventory read as
-  // committed and the next job couldn't have it.
-  if (status === "cancelled") {
-    await releaseJobReservations(supabase, [id]);
-    revalidatePath("/inventory");
-    revalidatePath("/warehouse");
-  }
-
   if (status === "completed") {
     const {
       data: { user: actor },
