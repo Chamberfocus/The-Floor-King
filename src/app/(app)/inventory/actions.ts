@@ -490,41 +490,45 @@ export async function receiveStockPOLine(formData: FormData): Promise<void> {
     .maybeSingle();
   const rolled = prod?.stock_kind === "rolled";
 
-  // On order decreases by what arrived.
+  const receipt = rolled
+    ? await db.rpc("receive_inventory_safe", {
+        p_product_id: productId,
+        p_qty: recv,
+        p_note: `Received roll from stock PO · ${recv} ${it.unit}`,
+        p_po_id: poId || null,
+        p_po_item_id: itemId,
+        p_created_by: actorId,
+        p_create_roll: true,
+        p_roll_kind: "roll",
+        p_roll_unit: ((it.unit as string) || (prod?.unit as string) || "").trim(),
+        p_roll_width_ft: numv(formData.get("width_ft")) || null,
+        p_roll_location: str(formData.get("location")) || null,
+      })
+    : await db.rpc("receive_inventory_safe", {
+        p_product_id: productId,
+        p_qty: recv,
+        p_note: `Received from stock PO`,
+        p_po_id: poId || null,
+        p_po_item_id: itemId,
+        p_created_by: actorId,
+      });
+  const receiptOk =
+    !receipt.error &&
+    !!receipt.data &&
+    typeof receipt.data === "object" &&
+    (receipt.data as { ok?: boolean }).ok === true;
+  if (!receiptOk) return;
+
+  // On order decreases only after the stock movement posted.
   await db
     .from("products")
     .update({ on_order: r2(Math.max(0, (Number(prod?.on_order) || 0) - recv)) })
     .eq("id", productId);
 
-  if (rolled) {
-    await db.rpc("receive_inventory_safe", {
-      p_product_id: productId,
-      p_qty: recv,
-      p_note: `Received roll from stock PO · ${recv} ${it.unit}`,
-      p_po_id: poId || null,
-      p_po_item_id: itemId,
-      p_created_by: actorId,
-      p_create_roll: true,
-      p_roll_kind: "roll",
-      p_roll_unit: ((it.unit as string) || (prod?.unit as string) || "").trim(),
-      p_roll_width_ft: numv(formData.get("width_ft")) || null,
-      p_roll_location: str(formData.get("location")) || null,
-    });
-  } else {
-    await db.rpc("receive_inventory_safe", {
-      p_product_id: productId,
-      p_qty: recv,
-      p_note: `Received from stock PO`,
-      p_po_id: poId || null,
-      p_po_item_id: itemId,
-      p_created_by: actorId,
-    });
-  }
-
   const newReceived = r2((Number(it.received_qty) || 0) + recv);
   await db.from("po_items").update({ received_qty: newReceived }).eq("id", itemId);
 
-  // Fully received across all lines → mark the PO received.
+  // Fully received across all lines → mark the PO received only after stock posted.
   const { data: lines } = await db.from("po_items").select("quantity, received_qty").eq("po_id", poId);
   const allIn = (lines ?? []).every((l) => (Number(l.received_qty) || 0) >= (Number(l.quantity) || 0));
   if (allIn) await db.from("purchase_orders").update({ status: "received" }).eq("id", poId);
