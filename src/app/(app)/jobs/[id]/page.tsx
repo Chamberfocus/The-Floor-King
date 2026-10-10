@@ -139,6 +139,7 @@ export default async function JobPage({
     preview?: string;
     schedule_error?: string;
     purchasing_message?: string;
+    job_error?: string;
     tab?: string;
   }>;
 }) {
@@ -146,6 +147,7 @@ export default async function JobPage({
   const sp = await searchParams;
   const justCreated = sp.created === "1";
   const scheduleError = sp.schedule_error?.trim() || null;
+  const jobError = sp.job_error?.trim() || null;
   const purchasingMessage = sp.purchasing_message?.trim() || null;
   // Reached with ?print (from the customer file's one-click Work Order shortcut)
   // → open the print dialog on the existing work-order doc, unchanged.
@@ -503,6 +505,14 @@ export default async function JobPage({
           className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
         >
           {employeeScheduleError(scheduleError)}
+        </div>
+      ) : null}
+      {jobError ? (
+        <div
+          role="alert"
+          className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
+          {jobError}
         </div>
       ) : null}
       {purchasingMessage ? (
@@ -1782,7 +1792,7 @@ export default async function JobPage({
                 variant="destructive"
                 size="sm"
                 title={`Delete "${job.title || "this job"}"?`}
-                description="This permanently deletes the job and everything on it — photos, crew pay, and materials prep. This can't be undone."
+                description="This removes a bare draft job only. Invoices, payments, labor, installer bills, and received material stay on the books."
                 confirmLabel="Delete job"
                 destructive
               >

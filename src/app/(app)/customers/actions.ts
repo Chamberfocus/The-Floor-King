@@ -21,7 +21,14 @@ import { advanceFromFirstStage, deriveLeadStage,
 import { requireProfile, assertRole } from "@/lib/auth";
 import { ESTIMATE_FOLLOWUP_KIND, maySnoozeCustomerFollowup, snoozeDueAt } from "@/lib/ops-followup";
 import { snoozeAutomatedOfficeTasks } from "@/lib/data/ops-automation";
-import { releaseJobReservations, reverseReceivedPOs } from "@/lib/po-stock";
+import { releaseJobReservations } from "@/lib/po-stock";
+import {
+  assertFinancialDeletionAllowed,
+  deleteBareDraftPaperwork,
+  reservationReleaseBlocker,
+  reservationStillHeld,
+  unconfirmedMessage,
+} from "@/lib/financial-deletion";
 import { listCustomers } from "@/lib/data/customers";
 import { resolveOrCreateCustomer } from "@/lib/data/customer-resolve";
 import {
@@ -890,8 +897,9 @@ export async function reopenCustomer(formData: FormData): Promise<void> {
 }
 
 /**
- * Permanently delete a customer and everything attached (estimates, jobs,
- * invoices, messages, history) via cascade. Admin/office only; irreversible.
+ * Delete a customer only when that cannot remove posted financial history.
+ * Bare drafts may go. Invoices, payments, labor, and receipts stay.
+ * Admin/office only.
  */
 export async function deleteCustomer(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
@@ -909,57 +917,44 @@ export async function deleteCustomer(formData: FormData): Promise<void> {
     .maybeSingle();
   if (!me || !["admin", "office"].includes(me.role as string)) return;
 
-  // POs, expenses, and stock movements are set-null (not cascade) on a customer
-  // delete, so they'd linger and keep counting as spend/COGS in Business Pulse.
-  // Remove them first — by customer and by the customer's estimates/jobs — so
-  // deleting a customer truly wipes their financial footprint. (Invoices,
-  // payments, jobs, estimates, labor all cascade-delete on their own.)
-  const [{ data: ests }, { data: jbs }] = await Promise.all([
-    supabase.from("estimates").select("id").eq("customer_id", id),
-    supabase.from("jobs").select("id").eq("customer_id", id),
-  ]);
-  const estIds = (ests ?? []).map((e) => e.id as string);
-  const jobIds = (jbs ?? []).map((j) => j.id as string);
+  const customerErrorUrl = (message: string) =>
+    `/customers/${id}?customer_error=${encodeURIComponent(message)}`;
 
-  // Before wiping anything, put inventory back so the left hand knows what the
-  // right did: (1) free any stock this customer's jobs had reserved, and
-  // (2) undo the on-hand a received PO added. Both read records we're about to
-  // delete, so they must run FIRST.
-  if (jobIds.length) await releaseJobReservations(supabase, jobIds);
-
-  const poIdSet = new Set<string>();
-  const collectPoIds = (rows: { id: unknown }[] | null) => {
-    for (const r of rows ?? []) if (r.id) poIdSet.add(r.id as string);
-  };
-  collectPoIds(
-    (await supabase.from("purchase_orders").select("id").eq("customer_id", id))
-      .data,
-  );
-  if (estIds.length)
-    collectPoIds(
-      (
-        await supabase
-          .from("purchase_orders")
-          .select("id")
-          .in("estimate_id", estIds)
-      ).data,
-    );
-  if (jobIds.length)
-    collectPoIds(
-      (await supabase.from("purchase_orders").select("id").in("job_id", jobIds))
-        .data,
-    );
-  const poIds = [...poIdSet];
-  if (poIds.length) {
-    await reverseReceivedPOs(supabase, poIds);
-    await supabase.from("purchase_orders").delete().in("id", poIds);
-  }
-  if (jobIds.length) {
-    // F6-P3B: do not hard-delete expense history. job_id FK sets null when jobs are removed.
-    await supabase.from("stock_movements").delete().in("job_id", jobIds);
+  let admin: ReturnType<typeof createAdminClient>;
+  try {
+    admin = createAdminClient();
+  } catch {
+    redirect(customerErrorUrl(unconfirmedMessage("customer")));
   }
 
-  await supabase.from("customers").delete().eq("id", id);
+  const gate = await assertFinancialDeletionAllowed(admin, "customer", { customerId: id });
+  if (!gate.ok) redirect(customerErrorUrl(gate.message));
+
+  const jobIds = gate.snapshot.jobIds;
+  if (jobIds.length) await releaseJobReservations(admin, jobIds);
+  const held = await reservationStillHeld(admin, jobIds);
+  if (!held.ok || held.qty > 0) {
+    redirect(
+      customerErrorUrl(
+        reservationReleaseBlocker("customer", held.ok ? held.qty : 1)?.message ??
+          unconfirmedMessage("customer"),
+      ),
+    );
+  }
+
+  const again = await assertFinancialDeletionAllowed(admin, "customer", { customerId: id });
+  if (!again.ok) redirect(customerErrorUrl(again.message));
+
+  const removed = await deleteBareDraftPaperwork(admin, "customer", again.snapshot);
+  if (!removed.ok) redirect(customerErrorUrl(removed.message));
+
+  if (again.snapshot.estimateIds.length) {
+    const { error } = await admin.from("estimates").delete().in("id", again.snapshot.estimateIds);
+    if (error) redirect(customerErrorUrl(unconfirmedMessage("customer")));
+  }
+
+  const { error: customerError } = await admin.from("customers").delete().eq("id", id);
+  if (customerError) redirect(customerErrorUrl(unconfirmedMessage("customer")));
 
   refreshCustomerViews();
   redirect("/customers");
