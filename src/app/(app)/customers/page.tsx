@@ -120,6 +120,7 @@ export default async function CustomersPage({
       position: s.position ?? 0,
       auto_action: s.auto_action ?? null,
       owner_duty: s.owner_duty ?? null,
+      outcome: s.outcome ?? null,
     })),
     members: members.map((m) => ({
       id: m.id,

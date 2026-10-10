@@ -1053,7 +1053,7 @@ export default async function CustomerPage({
               />
               <QuickActions
                 customerId={customer.id}
-                stages={stages.map((s) => ({ id: s.id, name: s.name }))}
+                stages={stages.map((s) => ({ id: s.id, name: s.name, outcome: s.outcome ?? null }))}
                 currentStageId={currentStage?.id ?? null}
                 currentStageName={currentStage?.name ?? null}
                 currentOwnerId={customer.workflow_owner_id ?? null}

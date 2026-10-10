@@ -4,7 +4,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { StageAutoAction, LeadStage } from "@/lib/types";
-import { jobEffectOnLost, stageNameMeansLost, stageNameMeansParked } from "@/lib/customer-lifecycle";
+import {
+  jobEffectOnLost,
+  selectDeclineStage,
+  stageIsLost,
+  stageIsParked,
+  type WorkflowStageOutcome,
+} from "@/lib/customer-lifecycle";
 import { releaseJobReservations } from "@/lib/po-stock";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -40,6 +46,7 @@ interface StageRow {
   position: number;
   sla_hours: number | null;
   default_owner: string | null;
+  outcome?: WorkflowStageOutcome | null;
 }
 
 interface CustRow {
@@ -60,10 +67,10 @@ interface AnchorRow {
  * stage names, which the user can rename) plus position ordering.
  */
 export function deriveLeadStage(
-  target: { name: string | null; position: number },
+  target: { name: string | null; position: number; outcome?: WorkflowStageOutcome | null },
   all: AnchorRow[],
 ): LeadStage {
-  if (stageNameMeansLost(target.name)) return "lost";
+  if (stageIsLost(target)) return "lost";
 
   const posOf = (aa: string): number | null => {
     const s = all.find((x) => x.auto_action === aa);
@@ -229,10 +236,10 @@ async function applyMove(
 export async function settleJobsForStage(
   supabase: DB,
   customerId: string,
-  stage: { name: string; position: number },
+  stage: { name: string; position: number; outcome?: WorkflowStageOutcome | null },
   allStages: { name: string; position: number }[],
 ): Promise<void> {
-  const lost = stageNameMeansLost(stage.name);
+  const lost = stageIsLost(stage);
   // Where "the install has happened" begins, read from the stage list rather
   // than hard-coded, so renaming or renumbering stages can't silently break it.
   const installedPos =
@@ -308,7 +315,7 @@ export async function moveToAutoActionStage(
   if (!supabase) return;
   const { data: stages } = await supabase
     .from("workflow_stages")
-    .select("id, name, position, sla_hours, default_owner, auto_action")
+    .select("id, name, position, sla_hours, default_owner, auto_action, outcome")
     .order("position", { ascending: true });
   const list = (stages ?? []) as (StageRow & { auto_action: string })[];
   const target = list.find((s) => s.auto_action === autoAction);
@@ -346,7 +353,7 @@ export async function advanceFromAutoAction(
 
   const { data: stages } = await supabase
     .from("workflow_stages")
-    .select("id, name, position, sla_hours, default_owner, auto_action")
+    .select("id, name, position, sla_hours, default_owner, auto_action, outcome")
     .order("position", { ascending: true });
   const list = (stages ?? []) as (StageRow & { auto_action: string })[];
   const from = list.find((s) => s.auto_action === fromAutoAction);
@@ -385,7 +392,7 @@ export async function advanceToNamedStage(
   if (!cust) return;
   const { data: stages } = await supabase
     .from("workflow_stages")
-    .select("id, name, position, sla_hours, default_owner")
+    .select("id, name, position, sla_hours, default_owner, outcome")
     .order("position", { ascending: true });
   const list = (stages ?? []) as StageRow[];
   const target = list.find((s) => re.test((s.name ?? "").toLowerCase()));
@@ -395,6 +402,37 @@ export async function advanceToNamedStage(
     : null;
   const currentPos = current ? current.position : -Infinity;
   if (currentPos >= target.position) return; // already there or further along
+  await applyMove(supabase, unit, cust, target);
+}
+
+/**
+ * Decline (and any other Lost handoff) moves forward to the stage whose
+ * outcome is lost. A null outcome may still match the old decline label.
+ * Same forward-only rule as advanceToNamedStage. Does not write money.
+ */
+export async function advanceToLostStage(
+  customerId: string,
+  jobId?: string | null,
+): Promise<void> {
+  if (AUTO_ADVANCE_DISABLED) return;
+  if (!customerId) return;
+  const supabase = engineDb();
+  if (!supabase) return;
+  const unit: StageTarget = stageTarget(customerId, jobId);
+  const cust = await loadTarget(supabase, unit);
+  if (!cust) return;
+  const { data: stages } = await supabase
+    .from("workflow_stages")
+    .select("id, name, position, sla_hours, default_owner, outcome")
+    .order("position", { ascending: true });
+  const list = (stages ?? []) as StageRow[];
+  const target = selectDeclineStage(list);
+  if (!target) return;
+  const current = cust.workflow_stage_id
+    ? list.find((s) => s.id === cust.workflow_stage_id)
+    : null;
+  const currentPos = current ? current.position : -Infinity;
+  if (currentPos >= target.position) return;
   await applyMove(supabase, unit, cust, target);
 }
 
@@ -416,7 +454,7 @@ export async function advanceFromFirstStage(
 
   const { data: stages } = await supabase
     .from("workflow_stages")
-    .select("id, name, position, sla_hours, default_owner")
+    .select("id, name, position, sla_hours, default_owner, outcome")
     .order("position", { ascending: true });
   const list = (stages ?? []) as StageRow[];
   if (list.length < 2) return;
@@ -468,16 +506,14 @@ export async function restartFlowForNewWork(
 
   const { data: stages } = await supabase
     .from("workflow_stages")
-    .select("id, name, position, sla_hours, default_owner, auto_action")
+    .select("id, name, position, sla_hours, default_owner, auto_action, outcome")
     .order("position", { ascending: true });
   const list = (stages ?? []) as (StageRow & { auto_action: string | null })[];
   if (!list.length) return;
 
   const byAction = (a: string) => list.find((s) => s.auto_action === a) ?? null;
   // Off-spine stages (Lost / on-hold) are never a starting point for live work.
-  const mainline = list.filter(
-    (s) => !stageNameMeansLost(s.name) && !stageNameMeansParked(s.name),
-  );
+  const mainline = list.filter((s) => !stageIsLost(s) && !stageIsParked(s));
 
   const target = job.estimateApproved
     ? (byAction("collect_deposit") ?? byAction("build_quote"))
