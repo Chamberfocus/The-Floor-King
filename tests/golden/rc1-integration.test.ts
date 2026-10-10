@@ -403,20 +403,23 @@ describe("Lost and Parked outcomes with the customer lifecycle", () => {
 describe("role permissions and protected operations", () => {
   it("cron and webhook auth fail closed", () => {
     const request = { headers: { get: () => "Bearer secret" } };
-    expect(authorizeDailyCronRequest(request, {}).status).toBe(401);
-    expect(
-      authorizeDailyCronRequest(request, {
-        CRON_SECRET: "secret",
-        VERCEL_ENV: "preview",
-      }).status,
-    ).toBe(403);
-    expect(
-      authorizeDailyCronRequest(request, {
-        CRON_SECRET: "secret",
-        VERCEL_ENV: "production",
-      }).ok,
-    ).toBe(true);
-    expect(authorizeResendWebhook("nope", { RESEND_WEBHOOK_SECRET: "secret" }).status).toBe(401);
+    const missingSecret = authorizeDailyCronRequest(request, {});
+    const preview = authorizeDailyCronRequest(request, {
+      CRON_SECRET: "secret",
+      VERCEL_ENV: "preview",
+    });
+    const production = authorizeDailyCronRequest(request, {
+      CRON_SECRET: "secret",
+      VERCEL_ENV: "production",
+    });
+    const webhook = authorizeResendWebhook("nope", { RESEND_WEBHOOK_SECRET: "secret" });
+    expect(missingSecret.ok).toBe(false);
+    expect(preview.ok).toBe(false);
+    expect(production.ok).toBe(true);
+    expect(webhook.ok).toBe(false);
+    if (!missingSecret.ok) expect(missingSecret.status).toBe(401);
+    if (!preview.ok) expect(preview.status).toBe(403);
+    if (!webhook.ok) expect(webhook.status).toBe(401);
   });
 
   it("delete, void, and receiving check a role before the protected write", () => {
