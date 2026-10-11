@@ -4,8 +4,24 @@
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
+import {
+  connectionEnv,
+  decideResume,
+  dnsSetsAreSafe,
+  executeApplyPlan,
+  inventoryClearSql,
+  inventoryWriteSql,
+  loadMigrationPlan,
+  normalizeIp,
+  parseStagingTarget,
+  proveSqlAllowed,
+  psqlArgv,
+  scrubSecrets,
+  serverIdentityVerdict,
+  STAGING_HOST,
+  STAGING_REF,
+} from "../../scripts/staging-migrate.mjs";
 
-const STAGING_REF = "lsrapxmkspocxeeakkcx";
 const PRODUCTION_REF = "ayqcaloqsklvskkudvbs";
 const STAGING_URL = `postgresql://postgres:not-a-secret@db.${STAGING_REF}.supabase.co:5432/postgres`;
 
@@ -99,11 +115,219 @@ describe("staging migration gate", () => {
     expect(proveSql).toContain("JOB_FINANCIAL_HISTORY");
     expect(proveSql).toContain("INV_OVER_RECEIVE");
     expect(proveSql).toContain("RC1 install follow-up");
-    expect(source).toContain("The test file must end with ROLLBACK.");
+    expect(proveSqlAllowed(proveSql).code).toBe("PROVE_SQL_OK");
 
     const prove = run(["prove"], { STAGING_DATABASE_URL: STAGING_URL });
     expect(prove.status).not.toBe(0);
     expect(prove.stderr).toContain("Refusing to run database tests");
     expect(prove.stdout).not.toContain("Running RC1 transaction tests");
+  });
+
+  it("refuses the pooler and a misleading host before any connection", () => {
+    const pooler = `postgresql://postgres.${STAGING_REF}:not-a-secret@aws-0-us-east-1.pooler.supabase.com:5432/postgres`;
+    const pooled = run(["check-gates", "--authorize-staging-apply"], {
+      STAGING_DATABASE_URL: pooler,
+      FLOOR_KING_STAGING_APPLY: STAGING_REF,
+    });
+    expect(pooled.status).toBe(2);
+    expect(pooled.stdout).toContain("gate: POOLER_REFUSED");
+    expect(pooled.stdout).toContain("connect: no");
+
+    const disguised = `postgresql://postgres:not-a-secret@192.0.2.1:5432/postgres?options=${STAGING_REF}`;
+    const hidden = run(["apply", "--authorize-staging-apply"], {
+      STAGING_DATABASE_URL: disguised,
+      FLOOR_KING_STAGING_APPLY: STAGING_REF,
+    });
+    expect(hidden.status).not.toBe(0);
+    expect(hidden.stderr).toContain("Refusing to connect");
+    expect(hidden.stdout).not.toContain("Applying ");
+    expect(hidden.stdout).not.toContain("Server identity");
+  });
+
+  it("refuses prove against the production host even when apply is authorized", () => {
+    const productionUrl = `postgresql://postgres:not-a-secret@db.${PRODUCTION_REF}.supabase.co:5432/postgres`;
+    const result = run(["prove", "--authorize-staging-apply"], {
+      STAGING_DATABASE_URL: productionUrl,
+      FLOOR_KING_STAGING_APPLY: STAGING_REF,
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("PRODUCTION_REF");
+    expect(result.stdout).not.toContain("Running RC1 transaction tests");
+  });
+});
+
+type PlanFile = { filename: string; sha256: string; execution: string };
+
+describe("staging execution safety", () => {
+  const hash = (seed: string) => seed.repeat(64).slice(0, 64);
+  const plan = [
+    { filename: "0001_init.sql", sha256: hash("a"), execution: "single-transaction" },
+    { filename: "0190_flooring_knowledge_engine.sql", sha256: hash("b"), execution: "file-managed" },
+    { filename: "0491_atomic_po_receive.sql", sha256: hash("c"), execution: "single-transaction" },
+  ];
+
+  it("confirms server identity from DNS addresses, not from the URL", () => {
+    const staging = ["2001:db8::10", "192.0.2.10"];
+    const production = ["2001:db8::20"];
+    expect(serverIdentityVerdict("2001:db8:0:0:0:0:0:10", staging, production).code).toBe(
+      "SERVER_IS_STAGING",
+    );
+    expect(serverIdentityVerdict("2001:db8::20", staging, production).code).toBe(
+      "SERVER_IS_PRODUCTION",
+    );
+    expect(serverIdentityVerdict("203.0.113.5", staging, production).code).toBe(
+      "SERVER_NOT_STAGING",
+    );
+    expect(dnsSetsAreSafe(staging, staging).code).toBe("DNS_OVERLAP");
+    expect(normalizeIp("::ffff:192.0.2.10")).toBe("192.0.2.10");
+  });
+
+  it("does not resume a file left in applying, including one with its own transaction", () => {
+    const recorded = new Map([
+      ["0001_init.sql", { sha256: hash("a"), status: "applied" }],
+      ["0190_flooring_knowledge_engine.sql", { sha256: hash("b"), status: "applying" }],
+    ]);
+    const calls: string[] = [];
+    const outcome = executeApplyPlan(plan, recorded, {
+      markApplying: () => calls.push("mark-applying"),
+      runFile: () => {
+        calls.push("run");
+        return { ok: true };
+      },
+      clearApplying: () => calls.push("clear"),
+      markApplied: () => calls.push("mark-applied"),
+    });
+    expect(outcome.code).toBe("INTERRUPTED");
+    expect(outcome.filename).toBe("0190_flooring_knowledge_engine.sql");
+    expect(calls).toEqual([]);
+  });
+
+  it("stops on the first SQL failure and does not record that file as applied", () => {
+    const ran: string[] = [];
+    const outcome = executeApplyPlan(plan, new Map(), {
+      markApplying: (row: PlanFile) => ran.push(`applying:${row.filename}`),
+      runFile: (row: PlanFile) => {
+        ran.push(`run:${row.filename}`);
+        return { ok: row.execution !== "file-managed" };
+      },
+      clearApplying: (row: PlanFile) => ran.push(`clear:${row.filename}`),
+      markApplied: (row: PlanFile) => ran.push(`applied:${row.filename}`),
+    });
+    expect(outcome.code).toBe("SQL_FAILED");
+    expect(outcome.filename).toBe("0190_flooring_knowledge_engine.sql");
+    expect(ran).toEqual([
+      "applying:0001_init.sql",
+      "run:0001_init.sql",
+      "applied:0001_init.sql",
+      "applying:0190_flooring_knowledge_engine.sql",
+      "run:0190_flooring_knowledge_engine.sql",
+    ]);
+    expect(
+      outcome.actions
+        .filter((action) => action.filename === "0190_flooring_knowledge_engine.sql")
+        .map((action) => action.type),
+    ).toEqual(["mark-applying", "stop"]);
+    expect(outcome.actions.some((action) => action.filename === "0491_atomic_po_receive.sql")).toBe(
+      false,
+    );
+  });
+
+  it("clears only a rolled-back single-transaction failure and keeps hashes in order", () => {
+    const ran: string[] = [];
+    const failing = executeApplyPlan(plan, new Map(), {
+      markApplying: (row: PlanFile) => ran.push(`applying:${row.filename}`),
+      runFile: (row: PlanFile) => {
+        ran.push(`run:${row.filename}`);
+        return { ok: false };
+      },
+      clearApplying: (row: PlanFile) => ran.push(`clear:${row.filename}`),
+      markApplied: (row: PlanFile) => ran.push(`applied:${row.filename}`),
+    });
+    expect(failing.actions.map((action) => action.type)).toEqual([
+      "mark-applying",
+      "clear-applying",
+      "stop",
+    ]);
+    expect(ran).toEqual(["applying:0001_init.sql", "run:0001_init.sql", "clear:0001_init.sql"]);
+
+    const recorded = new Map<string, { sha256: string; status: string }>();
+    const first = executeApplyPlan(plan, recorded, {
+      markApplying: () => undefined,
+      runFile: () => ({ ok: true }),
+      clearApplying: () => undefined,
+      markApplied: () => undefined,
+    });
+    expect(first.actions.map((action) => action.type)).toEqual([
+      "mark-applying",
+      "mark-applied",
+      "mark-applying",
+      "mark-applied",
+      "mark-applying",
+      "mark-applied",
+    ]);
+    const second = executeApplyPlan(plan, recorded, {
+      markApplying: () => {
+        throw new Error("should not apply twice");
+      },
+      runFile: () => {
+        throw new Error("should not apply twice");
+      },
+      clearApplying: () => undefined,
+      markApplied: () => {
+        throw new Error("should not apply twice");
+      },
+    });
+    expect(second.actions.map((action) => action.type)).toEqual(["skip", "skip", "skip"]);
+    expect(decideResume(recorded, [{ ...plan[0], sha256: hash("z") }]).code).toBe("HASH_MISMATCH");
+    expect(
+      decideResume(new Map([["0491_atomic_po_receive.sql", { sha256: hash("c"), status: "applied" }]]), plan)
+        .code,
+    ).toBe("GAP");
+  });
+
+  it("keeps passwords out of psql arguments and scrubs them from output", () => {
+    const target = parseStagingTarget(STAGING_URL);
+    expect(target.ok).toBe(true);
+    if (!target.ok) return;
+    const argv = psqlArgv(["-f", "supabase/migrations/0001_init.sql"]);
+    expect(argv.join(" ")).not.toContain("not-a-secret");
+    expect(argv).not.toContain("-d");
+    const env = connectionEnv(
+      { PATH: "/usr/bin", PGHOST: PRODUCTION_REF, STAGING_DATABASE_URL: STAGING_URL },
+      target,
+      "2001:db8::10",
+    );
+    expect(env.PGHOST).toBe(STAGING_HOST);
+    expect(env.PGHOSTADDR).toBe("2001:db8::10");
+    expect(env.PGSSLMODE).toBe("verify-full");
+    expect("STAGING_DATABASE_URL" in env).toBe(false);
+    expect(env.PGPASSWORD).toBe("not-a-secret");
+    const scrubbed = scrubSecrets(`connection failed for not-a-secret at ${STAGING_URL}`, [target.password]);
+    expect(scrubbed).not.toContain("not-a-secret");
+    expect(scrubbed).toContain(STAGING_HOST);
+    expect(inventoryWriteSql("0001_init.sql", hash("a"), "applied")).toContain("status = 'applying'");
+    expect(inventoryClearSql("0001_init.sql")).toContain("status = 'applying'");
+    expect(() => inventoryWriteSql("not a file", hash("a"), "applying")).toThrow("REFUSING_SQL_TOKEN");
+  });
+
+  it("accepts the real migration set and the rollback-only prove script", () => {
+    const loaded = loadMigrationPlan();
+    expect(loaded.files).toHaveLength(488);
+    expect(loaded.backwards).toEqual([]);
+    expect(loaded.plan.some((row) => row.execution === "unsafe-transaction")).toBe(false);
+    expect(loaded.plan.filter((row) => row.enumAdd).every((row) => row.execution === "autocommit")).toBe(
+      true,
+    );
+    expect(proveSqlAllowed(readFileSync("scripts/staging/rc1-transaction-tests.sql", "utf8")).code).toBe(
+      "PROVE_SQL_OK",
+    );
+    const source = readFileSync("scripts/staging-migrate.mjs", "utf8");
+    const applyFn = source.slice(source.indexOf("function commandApply"));
+    const proveFn = source.slice(source.indexOf("function commandProve"));
+    expect(applyFn.indexOf("openStagingConnection")).toBeGreaterThan(-1);
+    expect(applyFn.indexOf("openStagingConnection")).toBeLessThan(applyFn.indexOf("executeApplyPlan"));
+    expect(proveFn.indexOf("proveSqlAllowed")).toBeLessThan(proveFn.indexOf("openStagingConnection"));
+    expect(proveFn.indexOf("openStagingConnection")).toBeLessThan(proveFn.indexOf('["-f", PROVE_SQL]'));
+    expect(source).not.toContain('"-d"');
   });
 });

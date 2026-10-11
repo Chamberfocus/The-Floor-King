@@ -3,7 +3,7 @@
 This prepares an automated apply for draft PR #72. It does not apply SQL, connect to a database, change Vercel, or merge the pull request.
 
 Production project ref: `ayqcaloqsklvskkudvbs`. That ref is refused wherever it appears.
-Staging project ref: `lsrapxmkspocxeeakkcx`. Apply and prove run only when the connection string identifies that ref and a second authorization is present.
+Staging project ref: `lsrapxmkspocxeeakkcx`. Apply and prove run only when the URL host is exactly `db.lsrapxmkspocxeeakkcx.supabase.co` on port 5432, a second authorization is present, and the connected server address matches public DNS for that host.
 
 `supabase_migrations.schema_migrations` is not the apply history. SQL Editor runs are not the apply history. The only resume record is `public.floor_king_migration_inventory`, and only `apply` writes it.
 
@@ -13,11 +13,15 @@ The 488 files from `0001_init.sql` through `0491_atomic_po_receive.sql` can be a
 
 They cannot be applied to vanilla PostgreSQL. `0001_init.sql` references `auth.users` and creates a trigger on it. Later files reference `auth.uid()`, `auth.jwt()`, `storage.buckets`, and `storage.objects`, and they grant to `anon`, `authenticated`, and `service_role`.
 
-An empty database is one where `profiles`, `customers`, `jobs`, `invoices`, and `workflow_stages` are all absent and `floor_king_migration_inventory` is absent. `apply` creates the inventory table and then runs every file.
+An empty database is one where `profiles`, `customers`, `jobs`, `invoices`, and `workflow_stages` are all absent and both `floor_king_database_identity` and `floor_king_migration_inventory` are absent. `apply` seals the identity and creates the inventory table, then runs every file.
 
-A database that already has one of those tables and does not have the inventory table is partial and untracked. `apply` refuses it. SQL Editor history cannot be reconstructed. Use a new empty database on `lsrapxmkspocxeeakkcx`.
+A database that already has one of those tables and does not have both records is partial and untracked. `apply` refuses it. SQL Editor history cannot be reconstructed. Use a new empty database on `lsrapxmkspocxeeakkcx`.
 
-When the inventory table exists, `apply` skips a file whose recorded sha256 matches, refuses a recorded hash that differs, and refuses a gap where a later file is recorded and an earlier file is not.
+Before each file, `apply` commits an inventory row with status `applying`. It sets that row to `applied` only after `psql` exits 0. A failed file is never marked applied. `psql` is started with `ON_ERROR_STOP=1`, and the runner exits on the first non-zero status, so later files do not start.
+
+A file wrapped in `psql -1` rolls back when it fails. The runner then deletes that file's `applying` row, so the same file can be tried again. A file that contains its own `BEGIN` and `COMMIT`, and a file that adds an enum value, can leave committed work behind after an error or a crash. Those rows stay `applying`. The next run refuses to continue. Use a new empty staging database.
+
+When every recorded row is `applied`, `apply` skips a file whose sha256 still matches, refuses a recorded hash that differs, and refuses a gap where a later file is recorded and an earlier file is not. Each file is therefore applied once, in filename order.
 
 ## Execution shape
 
@@ -54,29 +58,33 @@ npm run staging:dry-run
 Gate check, no connection:
 
 ```bash
-STAGING_DATABASE_URL='postgresql://postgres.lsrapxmkspocxeeakkcx:PASSWORD@db.lsrapxmkspocxeeakkcx.supabase.co:5432/postgres' \
+STAGING_DATABASE_URL='postgresql://postgres:PASSWORD@db.lsrapxmkspocxeeakkcx.supabase.co:5432/postgres' \
 node scripts/staging-migrate.mjs check-gates
 ```
 
-Read-only inventory, only after the URL is the staging ref. This command connects and changes nothing:
+`check-gates` does not connect. Pooler hosts are refused. The direct user is `postgres`.
+
+Read-only inventory connects, compares `inet_server_addr()` with public DNS, and writes nothing:
 
 ```bash
-STAGING_DATABASE_URL='postgresql://postgres.lsrapxmkspocxeeakkcx:PASSWORD@db.lsrapxmkspocxeeakkcx.supabase.co:5432/postgres' \
+STAGING_DATABASE_URL='postgresql://postgres:PASSWORD@db.lsrapxmkspocxeeakkcx.supabase.co:5432/postgres' \
 node scripts/staging-migrate.mjs inventory
 ```
 
-Apply is a separate authorization. Do not run it until that authorization is given. The password stays in the shell for that command. Do not write it into `.env.local` or Vercel.
+The password is passed to `psql` as `PGPASSWORD`, not on the command line, and it is removed from any `psql` output the runner prints. Do not write it into `.env.local` or Vercel.
+
+Apply is a separate authorization. Do not run it until inventory reports `Server identity: SERVER_IS_STAGING` and `Database state: empty`.
 
 ```bash
-STAGING_DATABASE_URL='postgresql://postgres.lsrapxmkspocxeeakkcx:PASSWORD@db.lsrapxmkspocxeeakkcx.supabase.co:5432/postgres' \
+STAGING_DATABASE_URL='postgresql://postgres:PASSWORD@db.lsrapxmkspocxeeakkcx.supabase.co:5432/postgres' \
 FLOOR_KING_STAGING_APPLY=lsrapxmkspocxeeakkcx \
 node scripts/staging-migrate.mjs apply --authorize-staging-apply
 ```
 
-Then the same two variables, with `prove` instead of `apply`. `scripts/staging/rc1-transaction-tests.sql` ends with `ROLLBACK`.
+Then the same two variables, with `prove` instead of `apply`. `scripts/staging/rc1-transaction-tests.sql` checks `floor_king_database_identity` before it inserts any rows, and it ends with `ROLLBACK`. It has no `COMMIT`.
 
 ```bash
-STAGING_DATABASE_URL='postgresql://postgres.lsrapxmkspocxeeakkcx:PASSWORD@db.lsrapxmkspocxeeakkcx.supabase.co:5432/postgres' \
+STAGING_DATABASE_URL='postgresql://postgres:PASSWORD@db.lsrapxmkspocxeeakkcx.supabase.co:5432/postgres' \
 FLOOR_KING_STAGING_APPLY=lsrapxmkspocxeeakkcx \
 node scripts/staging-migrate.mjs prove --authorize-staging-apply
 ```
@@ -85,7 +93,7 @@ node scripts/staging-migrate.mjs prove --authorize-staging-apply
 
 ## Database tests
 
-`prove` checks that the SQL file ends with `ROLLBACK`, then runs it with `ON_ERROR_STOP`. The script inserts fictional customers, jobs, invoices, payments, labor, and purchase orders. It sets `request.jwt.claims` to `{"role":"service_role"}` so the accounting role gate can see a service-role request. If that setting is not visible to `auth.jwt()`, the first assertion fails and nothing is committed.
+`prove` refuses the file unless it ends with `ROLLBACK`, names the identity seal, and contains no `COMMIT`. The runner also repeats the server-identity check and requires the sealed project ref to be `lsrapxmkspocxeeakkcx` before it starts the file. The script then inserts fictional customers, jobs, invoices, payments, labor, and purchase orders. It sets `request.jwt.claims` to `{"role":"service_role"}` so the accounting role gate can see a service-role request. If that setting is not visible to `auth.jwt()`, the assertion fails and the open transaction rolls back.
 
 | Migration | What the test requires |
 | --- | --- |
@@ -100,14 +108,14 @@ node scripts/staging-migrate.mjs prove --authorize-staging-apply
 1. In the Supabase dashboard, confirm the open project ref is `lsrapxmkspocxeeakkcx`.
 2. Use a new empty database on that project. If tables already exist and `floor_king_migration_inventory` does not, stop.
 3. Confirm Auth is enabled. Create the `job-files` storage bucket. Leave `documents` and `branding` to the SQL files.
-4. Export only the staging connection string as `STAGING_DATABASE_URL` in that shell.
-5. Run `npm run staging:dry-run`.
+4. Export only the direct staging connection string as `STAGING_DATABASE_URL` in that shell. The host is `db.lsrapxmkspocxeeakkcx.supabase.co`. The user is `postgres`. The machine needs IPv6, or the project's IPv4 add-on, because pooler URLs are refused.
+5. Run `npm run staging:dry-run`, then `node scripts/staging-migrate.mjs inventory`. Inventory must report `SERVER_IS_STAGING` and `Database state: empty`.
 6. After a separate approval, run the `apply` command above, then `prove`.
 7. Create synthetic staff users in staging Auth. Point a local app at the staging keys. Leave the existing Preview deployment unused until its Supabase URL is proven to be `lsrapxmkspocxeeakkcx`.
 
 ## Complexity
 
-One supervised pass of 488 files. The runner stops on the first error. A second run skips files whose inventory sha256 still matches. The long files are the flooring-knowledge series and `0481_job_true_up.sql`. This is one ordered `psql` pass, not 488 manual pastes.
+One supervised pass of 488 files. The runner stops on the first error and does not mark that file applied. A later run skips files whose inventory sha256 still matches. It refuses to continue when any row is still `applying`. The long files are the flooring-knowledge series and `0481_job_true_up.sql`. This is one ordered `psql` pass, not 488 manual pastes.
 
 ## Not done here
 

@@ -6,6 +6,25 @@
 
 begin;
 
+do $rc1_identity$
+begin
+  if to_regclass('public.floor_king_database_identity') is null then
+    raise exception 'RC1_ASSERT: refusing tests because the staging identity seal is missing';
+  end if;
+  if (select project_ref from public.floor_king_database_identity where id = 1)
+     is distinct from 'lsrapxmkspocxeeakkcx' then
+    raise exception 'RC1_ASSERT: refusing tests on the production project';
+  end if;
+  if exists (
+    select 1
+    from public.floor_king_database_identity
+    where project_ref = 'ayqcaloqsklvskkudvbs'
+  ) then
+    raise exception 'RC1_ASSERT: refusing tests on the production project';
+  end if;
+end
+$rc1_identity$;
+
 select set_config('request.jwt.claims', '{"role":"service_role"}', true);
 select set_config('request.jwt.claim', '{"role":"service_role"}', true);
 
