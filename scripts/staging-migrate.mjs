@@ -4,8 +4,9 @@
  *
  * dry-run and check-gates never open a database connection.
  * inventory, apply, and prove connect only after the URL names the direct
- * staging host. They then require the connected server address to match
- * public DNS for that host and to differ from the production host.
+ * staging host or the staging session pooler. They then require the connected
+ * server address to match public DNS for the direct staging host and to differ
+ * from the production host.
  * They do not read .env.local.
  *
  * supabase_migrations.schema_migrations is not the apply history.
@@ -24,6 +25,8 @@ export const STAGING_REF = "lsrapxmkspocxeeakkcx";
 export const PRODUCTION_REF = "ayqcaloqsklvskkudvbs";
 export const STAGING_HOST = `db.${STAGING_REF}.supabase.co`;
 export const PRODUCTION_HOST = `db.${PRODUCTION_REF}.supabase.co`;
+const POOLER_HOST_RE = /^[a-z0-9-]+\.pooler\.supabase\.com$/;
+const SSL_ROOT = join(dirname(fileURLToPath(import.meta.url)), "staging", "supabase-root-2021.crt");
 const APPLY_FLAG = "--authorize-staging-apply";
 const APPLY_ENV = "FLOOR_KING_STAGING_APPLY";
 const FILE_RE = /^[0-9]{4}_[a-z0-9_]+\.sql$/;
@@ -93,7 +96,7 @@ export function loadMigrationPlan() {
 
 export function normalizeIp(value) {
   if (value == null) return null;
-  let raw = String(value).trim().replace(/^"(.*)"$/, "$1").replace(/%.*$/, "");
+  let raw = String(value).trim().replace(/^"(.*)"$/, "$1").replace(/%.*$/, "").replace(/\/\d+$/, "");
   if (raw.startsWith("[") && raw.endsWith("]")) raw = raw.slice(1, -1);
   const mapped = raw.toLowerCase().startsWith("::ffff:") ? raw.slice(7) : null;
   if (mapped && isIP(mapped) === 4) return mapped;
@@ -131,15 +134,29 @@ export function parseStagingTarget(url) {
     return { ok: false, code: "URL_UNPARSEABLE", ref: null };
   }
   const host = parsed.hostname.toLowerCase();
-  if (host.endsWith(".pooler.supabase.com")) {
-    return { ok: false, code: "POOLER_REFUSED", ref: null };
-  }
   const port = parsed.port === "" ? "5432" : parsed.port;
   if (port !== "5432") return { ok: false, code: "PORT_NOT_DIRECT", ref: null };
   const database = decodeURIComponent(parsed.pathname.replace(/^\//, ""));
   if (database !== "postgres") return { ok: false, code: "DATABASE_NOT_POSTGRES", ref: null };
-  if (host !== STAGING_HOST) return { ok: false, code: "WRONG_PROJECT", ref: null };
   const user = decodeURIComponent(parsed.username);
+  const password = decodeURIComponent(parsed.password);
+  if (POOLER_HOST_RE.test(host)) {
+    if (user !== `postgres.${STAGING_REF}`) {
+      return { ok: false, code: "POOLER_REFUSED", ref: null };
+    }
+    return {
+      ok: true,
+      code: "STAGING",
+      ref: STAGING_REF,
+      user,
+      password,
+      host,
+      port,
+      database,
+      via: "pooler",
+    };
+  }
+  if (host !== STAGING_HOST) return { ok: false, code: "WRONG_PROJECT", ref: null };
   if (user !== "postgres" && user !== `postgres.${STAGING_REF}`) {
     return { ok: false, code: "USER_NOT_STAGING", ref: null };
   }
@@ -148,10 +165,11 @@ export function parseStagingTarget(url) {
     code: "STAGING",
     ref: STAGING_REF,
     user,
-    password: decodeURIComponent(parsed.password),
+    password,
     host: STAGING_HOST,
     port,
     database,
+    via: "direct",
   };
 }
 
@@ -270,13 +288,19 @@ export function connectionEnv(baseEnv, target, hostAddr) {
     if (key === "STAGING_DATABASE_URL" || key === "SUPABASE_DB_URL") continue;
     env[key] = value;
   }
-  env.PGHOST = STAGING_HOST;
-  env.PGHOSTADDR = hostAddr;
+  if (target.via === "pooler") {
+    env.PGHOST = target.host;
+    env.PGSSLROOTCERT = SSL_ROOT;
+  } else {
+    env.PGHOST = STAGING_HOST;
+    env.PGHOSTADDR = hostAddr;
+  }
   env.PGPORT = "5432";
   env.PGUSER = target.user;
   env.PGPASSWORD = target.password;
   env.PGDATABASE = "postgres";
   env.PGSSLMODE = "verify-full";
+  env.PGOPTIONS = "-c statement_timeout=0";
   env.PGAPPNAME = "floor-king-staging-migrate";
   return env;
 }
@@ -355,7 +379,7 @@ function requireStagingTarget(env) {
   const target = parseStagingTarget(databaseUrl(env));
   if (!target.ok) {
     refuse(
-      `Refusing to connect (${target.code}). The URL host must be ${STAGING_HOST} port 5432 and must not contain ${PRODUCTION_REF}.`,
+      `Refusing to connect (${target.code}). The URL must be ${STAGING_HOST} or the staging session pooler on port 5432, and must not contain ${PRODUCTION_REF}.`,
     );
   }
   return target;
@@ -388,17 +412,28 @@ function dohLookup(name) {
   return { ok: addresses.length > 0, addresses };
 }
 
-function psql(extraArgs, env, secrets) {
+function isConnectFailure(result) {
+  if ((result.stdout || "").trim()) return false;
+  return /could not translate host name|could not connect to server|Temporary failure in name resolution|Name or service not known|timeout expired/i.test(
+    result.stderr || "",
+  );
+}
+
+function psql(extraArgs, env, secrets, attempt = 0) {
   const result = spawnSync("psql", psqlArgv(extraArgs), {
     env,
     encoding: "utf8",
   });
   const stdout = scrubSecrets(result.stdout || "", secrets);
   const stderr = scrubSecrets(result.stderr || "", secrets);
-  if (result.error) {
-    return { status: 1, stdout, stderr: scrubSecrets(result.error.message, secrets) };
+  const shaped = result.error
+    ? { status: 1, stdout, stderr: scrubSecrets(result.error.message, secrets) }
+    : { status: result.status === 0 ? 0 : result.status || 1, stdout, stderr };
+  if (shaped.status !== 0 && isConnectFailure(shaped) && attempt < 5) {
+    spawnSync("sleep", [String(2 ** attempt)]);
+    return psql(extraArgs, env, secrets, attempt + 1);
   }
-  return { status: result.status === 0 ? 0 : result.status || 1, stdout, stderr };
+  return shaped;
 }
 
 function writeResult(result) {
@@ -430,28 +465,43 @@ function openStagingConnection(env) {
   if (!sets.ok) {
     refuse(`Refusing to connect (${sets.code}). Staging and production public addresses must both resolve and must not overlap. No migration file was executed.`);
   }
-  let last = null;
-  for (const hostAddr of sets.staging) {
-    const envForAddr = connectionEnv(process.env, target, hostAddr);
-    const probe = psql(["-t", "-A", "-c", PROBE_SQL], envForAddr, [target.password]);
-    if (probe.status !== 0) {
-      last = probe;
-      continue;
-    }
-    const [serverAddr, systemId] = probe.stdout.trim().split("|");
-    const verdict = serverIdentityVerdict(serverAddr, stagingDns.addresses, productionDns.addresses);
-    if (!verdict.ok) {
+  if (target.via === "pooler") {
+    const proved = proveServer(connectionEnv(process.env, target, null), target, stagingDns, productionDns);
+    if (!proved.ok) {
+      if (proved.probe) writeResult(proved.probe);
       refuse(
-        `Refusing to continue (${verdict.code}). The connected server address does not match public DNS for ${STAGING_HOST}. No migration file was executed.`,
+        `Refusing to connect (CONNECT_FAILED). The session pooler did not accept a connection whose server address matches ${STAGING_HOST}. No migration file was executed.`,
       );
     }
-    if (!/^\d+$/.test(systemId || "")) {
-      refuse("Refusing to continue (SYSTEM_ID_MISSING). No migration file was executed.");
+    return { target, hostAddr: null, serverAddr: proved.serverAddr, systemId: proved.systemId };
+  }
+  let last = null;
+  for (const hostAddr of sets.staging) {
+    const proved = proveServer(connectionEnv(process.env, target, hostAddr), target, stagingDns, productionDns);
+    if (!proved.ok) {
+      last = proved.probe;
+      continue;
     }
-    return { target, hostAddr, serverAddr: verdict.server, systemId };
+    return { target, hostAddr, serverAddr: proved.serverAddr, systemId: proved.systemId };
   }
   if (last) writeResult(last);
   refuse(`Refusing to connect (CONNECT_FAILED). No public address of ${STAGING_HOST} accepted a connection. No migration file was executed.`);
+}
+
+function proveServer(envForAddr, target, stagingDns, productionDns) {
+  const probe = psql(["-t", "-A", "-c", PROBE_SQL], envForAddr, [target.password]);
+  if (probe.status !== 0) return { ok: false, probe };
+  const [serverAddr, systemId] = probe.stdout.trim().split("|");
+  const verdict = serverIdentityVerdict(serverAddr, stagingDns.addresses, productionDns.addresses);
+  if (!verdict.ok) {
+    refuse(
+      `Refusing to continue (${verdict.code}). The connected server address does not match public DNS for ${STAGING_HOST}. No migration file was executed.`,
+    );
+  }
+  if (!/^\d+$/.test(systemId || "")) {
+    refuse("Refusing to continue (SYSTEM_ID_MISSING). No migration file was executed.");
+  }
+  return { ok: true, serverAddr: verdict.server, systemId };
 }
 
 const SEAL_AND_INVENTORY = (systemId, serverAddr) => `

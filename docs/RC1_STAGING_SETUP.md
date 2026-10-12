@@ -3,13 +3,13 @@
 This prepares an automated apply for draft PR #72. It does not apply SQL, connect to a database, change Vercel, or merge the pull request.
 
 Production project ref: `ayqcaloqsklvskkudvbs`. That ref is refused wherever it appears.
-Staging project ref: `lsrapxmkspocxeeakkcx`. Apply and prove run only when the URL host is exactly `db.lsrapxmkspocxeeakkcx.supabase.co` on port 5432, a second authorization is present, and the connected server address matches public DNS for that host.
+Staging project ref: `lsrapxmkspocxeeakkcx`. Apply and prove run only when the URL is the direct host `db.lsrapxmkspocxeeakkcx.supabase.co` or the session pooler for user `postgres.lsrapxmkspocxeeakkcx` on port 5432, a second authorization is present, and the connected server address matches public DNS for the direct host. Port 6543 is refused.
 
 `supabase_migrations.schema_migrations` is not the apply history. SQL Editor runs are not the apply history. The only resume record is `public.floor_king_migration_inventory`, and only `apply` writes it.
 
 ## Readiness
 
-The 488 files from `0001_init.sql` through `0491_atomic_po_receive.sql` can be applied to an empty Supabase project in filename order. Filename order does not go backwards. The bundle sha256 of `filename:sha256` lines is `adef49d4ef39ffaf60d989a9560b0c68bed5db42f1d9328d44c28cb508d6238d`.
+The 488 files from `0001_init.sql` through `0491_atomic_po_receive.sql` can be applied to an empty Supabase project in filename order. Filename order does not go backwards. The bundle sha256 of `filename:sha256` lines is `4fab9c57624969d84e859d037b4182255fc5fa0d29e6ea846409a1bfee2bfe23`.
 
 They cannot be applied to vanilla PostgreSQL. `0001_init.sql` references `auth.users` and creates a trigger on it. Later files reference `auth.uid()`, `auth.jwt()`, `storage.buckets`, and `storage.objects`, and they grant to `anon`, `authenticated`, and `service_role`.
 
@@ -62,7 +62,7 @@ STAGING_DATABASE_URL='postgresql://postgres:PASSWORD@db.lsrapxmkspocxeeakkcx.sup
 node scripts/staging-migrate.mjs check-gates
 ```
 
-`check-gates` does not connect. Pooler hosts are refused. The direct user is `postgres`.
+`check-gates` does not connect. The session pooler is accepted only for user `postgres.lsrapxmkspocxeeakkcx` on port 5432. Port 6543 is refused. The direct user is `postgres`.
 
 Read-only inventory connects, compares `inet_server_addr()` with public DNS, and writes nothing:
 
@@ -108,7 +108,7 @@ node scripts/staging-migrate.mjs prove --authorize-staging-apply
 1. In the Supabase dashboard, confirm the open project ref is `lsrapxmkspocxeeakkcx`.
 2. Use a new empty database on that project. If tables already exist and `floor_king_migration_inventory` does not, stop.
 3. Confirm Auth is enabled. Create the `job-files` storage bucket. Leave `documents` and `branding` to the SQL files.
-4. Export only the direct staging connection string as `STAGING_DATABASE_URL` in that shell. The host is `db.lsrapxmkspocxeeakkcx.supabase.co`. The user is `postgres`. The machine needs IPv6, or the project's IPv4 add-on, because pooler URLs are refused.
+4. Export the staging connection string as `STAGING_DATABASE_URL` in that shell. Use the session pooler (`postgres.lsrapxmkspocxeeakkcx` at `aws-0-us-east-1.pooler.supabase.com` port 5432) when the machine has no IPv6. The direct host remains `db.lsrapxmkspocxeeakkcx.supabase.co`.
 5. Run `npm run staging:dry-run`, then `node scripts/staging-migrate.mjs inventory`. Inventory must report `SERVER_IS_STAGING` and `Database state: empty`.
 6. After a separate approval, run the `apply` command above, then `prove`.
 7. Create synthetic staff users in staging Auth. Point a local app at the staging keys. Leave the existing Preview deployment unused until its Supabase URL is proven to be `lsrapxmkspocxeeakkcx`.

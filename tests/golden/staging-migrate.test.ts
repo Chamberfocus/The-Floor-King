@@ -123,15 +123,27 @@ describe("staging migration gate", () => {
     expect(prove.stdout).not.toContain("Running RC1 transaction tests");
   });
 
-  it("refuses the pooler and a misleading host before any connection", () => {
+  it("accepts the staging session pooler and refuses other pooler URLs before any connection", () => {
     const pooler = `postgresql://postgres.${STAGING_REF}:not-a-secret@aws-0-us-east-1.pooler.supabase.com:5432/postgres`;
     const pooled = run(["check-gates", "--authorize-staging-apply"], {
       STAGING_DATABASE_URL: pooler,
       FLOOR_KING_STAGING_APPLY: STAGING_REF,
     });
-    expect(pooled.status).toBe(2);
-    expect(pooled.stdout).toContain("gate: POOLER_REFUSED");
+    expect(pooled.status).toBe(0);
+    expect(pooled.stdout).toContain("gate: STAGING");
     expect(pooled.stdout).toContain("connect: no");
+
+    const wrongUser = "postgresql://postgres:not-a-secret@aws-0-us-east-1.pooler.supabase.com:5432/postgres";
+    const refusedUser = run(["check-gates"], { STAGING_DATABASE_URL: wrongUser });
+    expect(refusedUser.status).toBe(2);
+    expect(refusedUser.stdout).toContain("gate: POOLER_REFUSED");
+    expect(refusedUser.stdout).toContain("connect: no");
+
+    const transactionPooler = `postgresql://postgres.${STAGING_REF}:not-a-secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres`;
+    const refusedPort = run(["check-gates"], { STAGING_DATABASE_URL: transactionPooler });
+    expect(refusedPort.status).toBe(2);
+    expect(refusedPort.stdout).toContain("gate: PORT_NOT_DIRECT");
+    expect(refusedPort.stdout).toContain("connect: no");
 
     const disguised = `postgresql://postgres:not-a-secret@192.0.2.1:5432/postgres?options=${STAGING_REF}`;
     const hidden = run(["apply", "--authorize-staging-apply"], {
@@ -180,6 +192,9 @@ describe("staging execution safety", () => {
     );
     expect(dnsSetsAreSafe(staging, staging).code).toBe("DNS_OVERLAP");
     expect(normalizeIp("::ffff:192.0.2.10")).toBe("192.0.2.10");
+    expect(normalizeIp("2600:1f18:45ac:6d01:3fcd:66f1:3794:3951/128")).toBe(
+      "2600:1f18:45ac:6d01:3fcd:66f1:3794:3951",
+    );
   });
 
   it("does not resume a file left in applying, including one with its own transaction", () => {
@@ -300,6 +315,18 @@ describe("staging execution safety", () => {
     expect(env.PGHOST).toBe(STAGING_HOST);
     expect(env.PGHOSTADDR).toBe("2001:db8::10");
     expect(env.PGSSLMODE).toBe("verify-full");
+    const pooledTarget = parseStagingTarget(
+      `postgresql://postgres.${STAGING_REF}:not-a-secret@aws-0-us-east-1.pooler.supabase.com:5432/postgres`,
+    );
+    expect(pooledTarget.ok).toBe(true);
+    if (pooledTarget.ok) {
+      const pooledEnv = connectionEnv({ PATH: "/usr/bin" }, pooledTarget, "2001:db8::10");
+      expect(pooledEnv.PGHOST).toBe("aws-0-us-east-1.pooler.supabase.com");
+      expect(pooledEnv.PGHOSTADDR).toBeUndefined();
+      expect(pooledEnv.PGUSER).toBe(`postgres.${STAGING_REF}`);
+      expect(pooledEnv.PGSSLMODE).toBe("verify-full");
+      expect(pooledEnv.PGSSLROOTCERT).toContain("supabase-root-2021.crt");
+    }
     expect("STAGING_DATABASE_URL" in env).toBe(false);
     expect(env.PGPASSWORD).toBe("not-a-secret");
     const scrubbed = scrubSecrets(`connection failed for not-a-secret at ${STAGING_URL}`, [target.password]);
