@@ -1,10 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // The employee test site is this dev server behind a Cloudflare quick tunnel.
-  // Next blocks dev-only module scripts (and the picker, stage buttons, and
-  // other client components) unless that host is allowed. Production ignores this.
-  allowedDevOrigins: ["*.trycloudflare.com"],
+  // Next blocks dev-only module scripts unless the browser host is listed.
+  // Localhost is the development server. The tunnel pattern is only so an
+  // existing temporary preview can hydrate. Production ignores this list.
+  allowedDevOrigins: ["localhost", "127.0.0.1", "*.trycloudflare.com"],
   // unpdf bundles its own pdf.js; keep it external so the serverless function
   // loads it at runtime instead of trying to bundle it.
   // ssh2 (under ssh2-sftp-client, used to collect supplier 832 price catalogs)

@@ -334,7 +334,7 @@ describe("Phase A mobile tabs and + New", () => {
       "task",
     ]);
     expect(quickCreateForRole("admin").map((action) => action.href)).toEqual([
-      "/customers/new",
+      "/new-customer",
       "/estimates/start",
       "/calendar",
       "/jobs/new",
