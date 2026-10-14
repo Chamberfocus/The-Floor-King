@@ -9,7 +9,7 @@ Staging project ref: `lsrapxmkspocxeeakkcx`. Apply and prove run only when the U
 
 ## Readiness
 
-The 488 files from `0001_init.sql` through `0491_atomic_po_receive.sql` can be applied to an empty Supabase project in filename order. Filename order does not go backwards. The bundle sha256 of `filename:sha256` lines is `4fab9c57624969d84e859d037b4182255fc5fa0d29e6ea846409a1bfee2bfe23`.
+The 489 files from `0001_init.sql` through `0492_accounting_outbox_posts_journals.sql` can be applied to an empty Supabase project in filename order. Filename order does not go backwards. The bundle sha256 of `filename:sha256` lines is `29ba8421528c64d1275f48e14e59c13f1aad2e65735da4dec807b47a7665ad81`.
 
 They cannot be applied to vanilla PostgreSQL. `0001_init.sql` references `auth.users` and creates a trigger on it. Later files reference `auth.uid()`, `auth.jwt()`, `storage.buckets`, and `storage.objects`, and they grant to `anon`, `authenticated`, and `service_role`.
 
@@ -27,7 +27,7 @@ When every recorded row is `applied`, `apply` skips a file whose sha256 still ma
 
 | Mode | Files | How `apply` runs them |
 | --- | ---: | --- |
-| single-transaction | 196 | `psql -1` so a failure rolls the file back |
+| single-transaction | 197 | `psql -1` so a failure rolls the file back |
 | file-managed (`begin;` / `commit;` in the file) | 288 | no extra `-1`, so the file's own `commit` is the boundary |
 | autocommit (`ALTER TYPE ... ADD VALUE`) | 4 | no extra `-1` |
 
@@ -115,8 +115,10 @@ node scripts/staging-migrate.mjs prove --authorize-staging-apply
 
 ## Complexity
 
-One supervised pass of 488 files. The runner stops on the first error and does not mark that file applied. A later run skips files whose inventory sha256 still matches. It refuses to continue when any row is still `applying`. The long files are the flooring-knowledge series and `0481_job_true_up.sql`. This is one ordered `psql` pass, not 488 manual pastes.
+One supervised pass of 489 files. The runner stops on the first error and does not mark that file applied. A later run skips files whose inventory sha256 still matches. It refuses to continue when any row is still `applying`. The long files are the flooring-knowledge series and `0481_job_true_up.sql`. This is one ordered `psql` pass, not 489 manual pastes.
 
-## Not done here
+## What has already run
 
-No database was contacted. `apply` and `prove` were not run. Production was not used. Vercel was not changed. PR #72 was not merged.
+Dry-run does not connect. `apply` has not replayed this bundle, and `prove` has not been run through the runner. Production was not used. Vercel was not changed. PR #72 was not merged.
+
+`0492_accounting_outbox_posts_journals.sql` was applied on staging `lsrapxmkspocxeeakkcx` with one `psql -1` session. `floor_king_migration_inventory` on that database still lists 488 applied files through `0491_atomic_po_receive.sql` and does not list `0492`. The `0492` functions are present. `posting_enabled` and `books_of_record` stayed false. Do not insert a lone `0492` inventory row: the runner treats a later recorded file with an earlier file missing as a gap. Re-applying `0492` is `CREATE OR REPLACE` and does not turn posting on. This staging database is not empty, so do not run `apply` against it as an empty-database load.
