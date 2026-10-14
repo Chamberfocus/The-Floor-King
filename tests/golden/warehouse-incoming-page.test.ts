@@ -59,6 +59,20 @@ describe("warehouse incoming page", () => {
     expect(sql).toContain("'duplicate', true");
   });
 
+  it("accepts a warehouse job only after the acknowledgement inside prep", () => {
+    const ui = src("src/app/(app)/warehouse/warehouse-job-actions.tsx");
+    const page = src("src/app/(app)/warehouse/page.tsx");
+    const action = src("src/app/(app)/jobs/actions.ts");
+    expect(page).toContain("Materials, prep &amp; delivery");
+    expect(ui).toContain("Accept &amp; prep");
+    expect(ui).toContain("Accept this job");
+    expect(ui).toContain("Accept job");
+    expect(ui).toContain('fd.set("ack", ack ? "on" : "")');
+    const start = action.indexOf("export async function acceptWarehouseJob");
+    const body = action.slice(start, start + 500);
+    expect(body).toContain('ack !== "on"');
+  });
+
   it("does not treat a received purchase order as warehouse-ready", () => {
     const receiving = src("src/app/(app)/warehouse/receiving-actions.ts");
     expect(receiving).not.toContain("warehouse_ready_at");
