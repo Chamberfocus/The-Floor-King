@@ -61,7 +61,7 @@ Apply order on a proven staging project, after a human confirms the dashboard re
 5. Do not copy production customers, payments, invoices, or inventory. Create synthetic staff logins and sample jobs on staging.
 6. Then run database-level checks for `0488`–`0491`: a posted invoice cannot be deleted, a cancel rolls back when a reservation release fails, a multi-line receipt rolls back when one line fails, and a missing `void_invoice_payment_safe` does not mark a payment void.
 
-`0492` was applied on staging `lsrapxmkspocxeeakkcx` with `psql`. It is not in `floor_king_migration_inventory` there. Staging posting flags stayed false. No SQL from this branch has been executed on production.
+`0492` is recorded on staging `lsrapxmkspocxeeakkcx`. The official staging runner skipped 488 files whose inventory sha256 still matched and applied `0492_accounting_outbox_posts_journals.sql` once. Inventory is now 489 applied rows and 0 applying. The recorded sha256 matches the file. The six function bodies match the file. `posting_enabled` and `books_of_record` stayed false, and journals stayed at 0. No SQL from this branch has been executed on production.
 
 ## Employee operations while QuickBooks stays official
 
