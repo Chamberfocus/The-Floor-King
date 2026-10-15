@@ -12,9 +12,9 @@
 
 | Item | Value |
 |------|--------|
-| Architecture | Vercel Cron (production only) → `pg_dump` of `public` → stream Storage objects → upload to private Google Drive |
+| Architecture | Scheduled call to the production site → `pg_dump` of `public` → upload to private Google Drive |
 | Executor | Vercel Function `GET/POST /api/cron/backup` (`maxDuration` 300s) |
-| Schedule | `15 8 * * *` (08:15 UTC ≈ 04:15 America/New_York) |
+| Schedule | GitHub Actions `15 8 * * *` (08:15 UTC ≈ 04:15 America/New_York) calls `https://floorking-crm.vercel.app/api/cron/backup` with a short-lived GitHub identity token. Vercel Cron is still registered at the same time, and Standard Protection stops that call before the function runs. |
 | Google auth | Vercel OIDC → Google STS → impersonate `floor-king-crm-backup@floor-king-crm.iam.gserviceaccount.com` |
 | Permanent Google keys | **None.** No service-account JSON. No `credential_source.file`. |
 | Drive root | Folder **Floor King CRM Backups** id `1bUgNiTHpXuJaMTAsbpRayJdOT_icUjeD` (Restricted) |
@@ -155,7 +155,7 @@ If `psql` / `pg_restore` is installed, you may additionally restore into a local
 - `Logs/health.json` in Drive.
 - Failure email to the owner with an error code (no customer PII, no secrets).
 
-Ordinary CRM roles cannot invoke `/api/cron/backup`. Preview/dev OIDC subjects are rejected.
+Ordinary CRM roles cannot invoke `/api/cron/backup`. Preview/dev OIDC subjects are rejected. The daily GitHub Actions workflow authenticates with a short-lived token for repository `Chamberfocus/The-Floor-King`, workflow `.github/workflows/production-backup.yml` on `main`. `CRON_SECRET` remains the Vercel Cron check and is not revealed or replaced.
 
 ---
 

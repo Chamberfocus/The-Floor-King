@@ -238,32 +238,34 @@ describe("backup OIDC / Google auth", () => {
 });
 
 describe("backup endpoint authorization", () => {
-  it("fails closed without CRON_SECRET and rejects anonymous/wrong bearer", () => {
+  it("fails closed without CRON_SECRET and rejects anonymous/wrong bearer", async () => {
     expect(
-      authorizeBackupCronRequest({ headers: { get: () => "Bearer x" } }, {}),
+      await authorizeBackupCronRequest({ headers: { get: () => "Bearer x" } }, {}),
     ).toEqual({ ok: false, status: 401, code: "CRON_SECRET_MISSING" });
     expect(
-      authorizeBackupCronRequest(
+      await authorizeBackupCronRequest(
         { headers: { get: () => "Bearer nope" } },
         { CRON_SECRET: "secret", VERCEL_ENV: "production" },
       ),
     ).toEqual({ ok: false, status: 401, code: "CRON_UNAUTHORIZED" });
   });
 
-  it("rejects preview/dev even with a valid cron secret", () => {
+  it("rejects preview/dev even with a valid cron secret", async () => {
     expect(
-      authorizeBackupCronRequest(
+      await authorizeBackupCronRequest(
         { headers: { get: () => "Bearer secret" } },
         { CRON_SECRET: "secret", VERCEL_ENV: "preview" },
       ),
     ).toEqual({ ok: false, status: 403, code: "PRODUCTION_ONLY" });
   });
 
-  it("accepts production cron bearer", () => {
+  it("accepts production cron bearer", async () => {
     expect(
-      authorizeBackupCronRequest(
-        { headers: { get: () => "Bearer secret" } },
-        { CRON_SECRET: "secret", VERCEL_ENV: "production" },
+      (
+        await authorizeBackupCronRequest(
+          { headers: { get: () => "Bearer secret" } },
+          { CRON_SECRET: "secret", VERCEL_ENV: "production" },
+        )
       ).ok,
     ).toBe(true);
   });
