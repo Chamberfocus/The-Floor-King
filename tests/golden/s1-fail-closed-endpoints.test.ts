@@ -151,14 +151,16 @@ describe("Resend webhook authorization", () => {
 });
 
 describe("backup authorization stays on its own helper", () => {
-  it("still fails closed, still allows the non-production override, and is not wired to daily cron", () => {
+  it("still fails closed, still allows the non-production override, and is not wired to daily cron", async () => {
     expect(
-      authorizeBackupCronRequest({ headers: headers("Bearer x") }, {}),
+      await authorizeBackupCronRequest({ headers: headers("Bearer x") }, {}),
     ).toEqual({ ok: false, status: 401, code: "CRON_SECRET_MISSING" });
     expect(
-      authorizeBackupCronRequest(
-        { headers: headers("Bearer secret") },
-        { CRON_SECRET: "secret", VERCEL_ENV: "preview", BACKUP_ALLOW_NON_PRODUCTION: "1" },
+      (
+        await authorizeBackupCronRequest(
+          { headers: headers("Bearer secret") },
+          { CRON_SECRET: "secret", VERCEL_ENV: "preview", BACKUP_ALLOW_NON_PRODUCTION: "1" },
+        )
       ).ok,
     ).toBe(true);
     expect(backupAuth).toContain("BACKUP_ALLOW_NON_PRODUCTION");

@@ -1,6 +1,6 @@
 # CRM launch RC1 integration
 
-Branch `cursor/crm-launch-rc1` starts at `main` `7e479384` and merges PRs #65–#71 in that order. It is not merged to `main` and it is not deployed. Production has not been changed.
+Branch `cursor/crm-launch-rc1` starts at `main` `7e479384`, merges PRs #65–#71, and includes the backup schedule from `main` `e4b2dbce`. It is not merged to `main` and the new app is not deployed. On 2026-10-16 the owner applied `0487`–`0492` on production project `ayqcaloqsklvskkudvbs`. Posting stayed off.
 
 ## Included repairs
 
@@ -50,7 +50,7 @@ Production project ref: `ayqcaloqsklvskkudvbs`.
 Staging project ref named by the owner: `lsrapxmkspocxeeakkcx`.
 Those refs are different Supabase projects. This branch does not connect to either one. The earlier 0487 staging note in `docs/0487_STAGING_VALIDATION.md` does not record a project ref, so it is not evidence that `lsrapxmkspocxeeakkcx` already has 0487 or the rest of the schema.
 
-The repo has 489 migration files, from `0001_init.sql` through `0492_accounting_outbox_posts_journals.sql`. An empty database has none of the tables or functions those later files call. `0487`–`0492` are the last six files, not a standalone schema. The repository copy of `main` ends at `0486_reserve_and_start_refuse_archived.sql`. Whether the production database has that same watermark is not verified from this branch. Do not connect to production to guess.
+The repo has 489 migration files, from `0001_init.sql` through `0492_accounting_outbox_posts_journals.sql`. An empty database has none of the tables or functions those later files call. `0487`–`0492` are the last six files, not a standalone schema. The repository copy of `main` ends at `0486_reserve_and_start_refuse_archived.sql`. On 2026-10-16 the owner confirmed production is PostgreSQL 17.6 with `profiles` and migration `0486` present, then applied `0487`–`0492`. The check row shows `cancel_job_with_reservations`, `receive_po_lines_safe`, and `acct_post_outbox_item_safe` present, with `posting_enabled` and `books_of_record` false. That SQL Editor run did not write `floor_king_migration_inventory`.
 
 Apply order on a proven staging project, after a human confirms the dashboard ref:
 
@@ -61,7 +61,7 @@ Apply order on a proven staging project, after a human confirms the dashboard re
 5. Do not copy production customers, payments, invoices, or inventory. Create synthetic staff logins and sample jobs on staging.
 6. Then run database-level checks for `0488`–`0491`: a posted invoice cannot be deleted, a cancel rolls back when a reservation release fails, a multi-line receipt rolls back when one line fails, and a missing `void_invoice_payment_safe` does not mark a payment void.
 
-`0492` is recorded on staging `lsrapxmkspocxeeakkcx`. The official staging runner skipped 488 files whose inventory sha256 still matched and applied `0492_accounting_outbox_posts_journals.sql` once. Inventory is now 489 applied rows and 0 applying. The recorded sha256 matches the file. The six function bodies match the file. `posting_enabled` and `books_of_record` stayed false, and journals stayed at 0. No SQL from this branch has been executed on production.
+`0492` is recorded on staging `lsrapxmkspocxeeakkcx`. The official staging runner skipped 488 files whose inventory sha256 still matched and applied `0492_accounting_outbox_posts_journals.sql` once. Inventory is now 489 applied rows and 0 applying. The recorded sha256 matches the file. The six function bodies match the file. `posting_enabled` and `books_of_record` stayed false, and journals stayed at 0. Production now has the same six files applied by the owner in the SQL Editor. The production inventory table was not updated by that run.
 
 ## Employee operations while QuickBooks stays official
 
@@ -88,17 +88,15 @@ Employees use the accounts already on the production project. This release does 
 
 Do not run this until the owner approves this pull request. Do not create a Vercel project. The existing site is the `floorking-crm` project.
 
-1. Confirm a recent Drive backup SUCCESS for production (`FLOOR_KING_BACKUP_RECOVERY_RUNBOOK.md`). This branch cannot see that Drive folder. A backup is not production-proven until that SUCCESS exists and a restore has been checked on an isolated project. Never restore onto production.
-2. Confirm the production schema already contains `0001` through `0486` and does not contain a divergent copy of those files. If it is behind `0486`, stop. Applying only `0487`–`0492` would fail. If tables exist and `floor_king_migration_inventory` does not, do not run the empty-database `apply` path.
-3. Apply only the missing files, in order: `0487_workflow_stage_outcome.sql`, `0488_order_delete_preserves_financial_history.sql`, `0489_cancel_job_with_reservations.sql`, `0490_job_delete_preserves_financial_history.sql`, `0491_atomic_po_receive.sql`, `0492_accounting_outbox_posts_journals.sql`. Leave every posting flag false.
-4. Deploy this branch to the existing Vercel project after that SQL. The app reads `workflow_stages.outcome`, cancels jobs with `cancel_job_with_reservations`, and receives purchase orders with `receive_po_lines_safe`. Deploying the app before those functions exist breaks those actions. Do not add Resend, Twilio, Telnyx, Stripe, or Google Maps keys. `vercel.json` crons stay `/api/cron/daily` and `/api/cron/backup`.
+1. Recovery point: the owner confirmed Supabase daily physical backups for `ayqcaloqsklvskkudvbs`, latest 2026-10-16 14:28:03 UTC. The custom Google Drive backup still fails with `PG_DUMP:auth` and is not the launch gate. Never restore a backup onto the live project.
+2. Schema through `0486` was confirmed on that production database before the six new files were applied.
+3. `0487`–`0492` are already applied. Do not run them again. `posting_enabled` and `books_of_record` are false.
+4. After the owner approves this pull request, merge it into `main`. That deploys the existing Vercel project `floorking-crm`. The app reads `workflow_stages.outcome`, cancels jobs with `cancel_job_with_reservations`, and receives purchase orders with `receive_po_lines_safe`. Do not add Resend, Twilio, Telnyx, Stripe, or Google Maps keys. `vercel.json` crons stay `/api/cron/daily` and `/api/cron/backup`.
 5. Smoke one existing employee login: open a customer, an estimate, a purchase order, inventory, the calendar, a job, and an invoice. Confirm Accounting still shows posting OFF and books of record NO. Confirm QuickBooks is unchanged.
 
 ## Rollback
 
-If the new deployment is bad and the SQL was not applied, roll the Vercel deployment back to `main` `7e479384`.
-
-If `0487`–`0492` were applied and the new app is bad, roll Vercel back to `7e479384` and leave the SQL in place. Those files do not enable posting. The previous app does not call the new functions. The new delete guards reject some deletes the old screens used to perform. That is the safe direction during a live day. Do not drop `0487`–`0491` to undo the release.
+If the new deployment is bad, roll the Vercel deployment back to the current production deployment, `e4b2dbce`, and leave the SQL in place. Those files do not enable posting. The previous app does not call the new functions. The new delete guards reject some deletes the old screens used to perform. That is the safe direction during a live day. Do not drop `0487`–`0491` to undo the release.
 
 Remove `0492` only when posting is off and the outbox and journals are empty. Restore `enqueue_accounting_outbox_safe` from `0177_f6_p5_financial_reporting_control_center.sql` and `installer_labor_record_vendor_event` from `0174_f6_p3a_installer_labor_accounting.sql`, then drop `acct_post_outbox_item_safe(uuid)`, `acct_vendor_bill_posting_payload(uuid, jsonb)`, `acct_outbox_posting_plan(jsonb)`, and `acct_outbox_idempotency_key(jsonb)`. Do not change posting flags in that script.
 
