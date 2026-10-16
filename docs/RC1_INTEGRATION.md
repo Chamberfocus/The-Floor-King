@@ -67,7 +67,7 @@ Apply order on a proven staging project, after a human confirms the dashboard re
 
 Customers, estimates, purchasing, inventory, scheduling, jobs, and invoices commit their own rows when `posting_enabled` is false. `enqueue_accounting_outbox_safe` returns null before it inserts an outbox row or a journal. `0492` does not change that early return. Invoices and manual payments are operational CRM records. They are not the official ledger. QuickBooks stays the official accounting system.
 
-Do not set `posting_enabled`, any event posting flag, or `books_of_record`. The admin settings form cannot turn those flags on; a direct SQL update still could, and this release does not include one. Do not enter opening balances. Do not request accountant validation. Do not configure email, SMS, or live card processing. Card payments recorded in the CRM stay manual records.
+Automatic posting and books of record stay off until opening balances from QuickBooks and a cutover date are saved. The Accounting screen then lets an admin turn posting on, record sign-off, and only after that mark the CRM as the official books. Do not configure email, SMS, or live card processing. Card payments recorded in the CRM stay manual records.
 
 Role access already in the app:
 
@@ -80,7 +80,7 @@ Role access already in the app:
 | Inventory | admin, office, warehouse, sales_manager |
 | Warehouse | admin, office, warehouse |
 | Purchase orders | admin, office |
-| Accounting page | admin, office. The posting controls are admin-only and disabled for this release. |
+| Accounting page | admin, office. Posting controls are admin-only and stay locked until opening balances and a cutover date are saved. |
 
 Employees use the accounts already on the production project. This release does not create logins and does not read the production user list.
 

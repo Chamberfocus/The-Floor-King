@@ -16,6 +16,10 @@ import {
   todayIso,
 } from "@/lib/data/accounting-reports";
 import {
+  QUICKBOOKS_STAYS_OFFICIAL,
+  replacementControlsEditable,
+} from "@/lib/accounting/integrity";
+import {
   ACCOUNTING_NOT_BOOKS_MESSAGE,
 } from "@/lib/accounting/types";
 import { formatMoney } from "@/lib/format";
@@ -70,6 +74,7 @@ export default async function AccountingControlCenterPage() {
     fetchCutoverSnapshot(),
   ]);
   const auditEvents = await listFinancialAuditEvents({ limit: 25 });
+  const replacement = replacementControlsEditable(settings);
   const nav = controlCenterNavItems().filter((i) => i.href !== "/accounting");
   const exceptionCount =
     exceptions.counts.critical +
@@ -129,8 +134,8 @@ export default async function AccountingControlCenterPage() {
           <strong>{settings.books_of_record ? "YES" : "NO"}</strong>
         </div>
         <div className="mt-2 text-xs text-muted-foreground">
-          F6-P5 control center does not enable posting. External books remain
-          official until cutover validation.
+          {QUICKBOOKS_STAYS_OFFICIAL} Invoices and payments already save.
+          Automatic posting waits for opening balances and a cutover date.
         </div>
       </div>
 
@@ -282,35 +287,69 @@ export default async function AccountingControlCenterPage() {
           action={updateAccountingSettingsAction}
           className="space-y-3 rounded-lg border p-4 text-sm"
         >
-          <h2 className="font-medium">Admin settings</h2>
+          <h2 className="font-medium">Replace QuickBooks</h2>
           <p className="text-xs text-muted-foreground">
-            Posting and books of record stay off while QuickBooks is the
-            official ledger. This release does not enable accounting posting.
-            Saving cash method or cutover date does not change those flags.
+            {QUICKBOOKS_STAYS_OFFICIAL} Set the cutover date, then open the
+            chart of accounts and enter opening balances from QuickBooks.
+            Automatic posting and your sign-off unlock after those balances
+            are saved. Books of record unlocks only after posting and sign-off.
           </p>
+          <ol className="list-decimal space-y-1 pl-5 text-xs">
+            <li>
+              <Link href="/accounting/chart-of-accounts" className="underline">
+                Chart of accounts
+              </Link>
+              {" — "}
+              {accounts.length > 0 ? "ready" : "empty"}
+            </li>
+            <li>
+              <Link href="/accounting/opening-balances" className="underline">
+                Opening balances
+              </Link>
+              {" — "}
+              {settings.opening_balances_entered ? "entered" : "not entered"}
+            </li>
+            <li>
+              Cutover date — {settings.cutover_date ?? "not set"}
+            </li>
+            <li>
+              Automatic posting — {settings.posting_enabled ? "on" : "off"}
+            </li>
+            <li>
+              Your sign-off — {settings.accountant_validated ? "recorded" : "not recorded"}
+            </li>
+            <li>
+              Books of record — {settings.books_of_record ? "on" : "off"}
+            </li>
+          </ol>
           <label className="flex items-center gap-2">
             <input
               type="checkbox"
               name="posting_enabled"
               defaultChecked={settings.posting_enabled}
-              disabled
+              disabled={!replacement.posting}
             />
-            Master: Enable automatic event posting (after cutover validation)
+            Master: Enable automatic event posting
           </label>
           <div className="grid gap-1 md:grid-cols-2">
             {(
               [
-                ["invoice_posting_enabled", "Invoice pilot", settings.invoice_posting_enabled],
-                ["payment_posting_enabled", "Payment pilot", settings.payment_posting_enabled],
-                ["credit_posting_enabled", "Credit/refund pilot", settings.credit_posting_enabled],
-                ["ap_posting_enabled", "AP/bill pilot", settings.ap_posting_enabled],
-                ["expense_posting_enabled", "Expense pilot", settings.expense_posting_enabled],
-                ["deposit_posting_enabled", "Deposit pilot", settings.deposit_posting_enabled],
-                ["installer_posting_enabled", "Installer pilot", settings.installer_posting_enabled],
+                ["invoice_posting_enabled", "Invoices", settings.invoice_posting_enabled],
+                ["payment_posting_enabled", "Payments", settings.payment_posting_enabled],
+                ["credit_posting_enabled", "Credits and refunds", settings.credit_posting_enabled],
+                ["ap_posting_enabled", "Bills", settings.ap_posting_enabled],
+                ["expense_posting_enabled", "Expenses", settings.expense_posting_enabled],
+                ["deposit_posting_enabled", "Deposits", settings.deposit_posting_enabled],
+                ["installer_posting_enabled", "Installer labor", settings.installer_posting_enabled],
               ] as const
             ).map(([name, label, checked]) => (
               <label key={name} className="flex items-center gap-2">
-                <input type="checkbox" name={name} defaultChecked={checked} disabled />
+                <input
+                  type="checkbox"
+                  name={name}
+                  defaultChecked={checked}
+                  disabled={!replacement.posting}
+                />
                 {label}
               </label>
             ))}
@@ -320,18 +359,27 @@ export default async function AccountingControlCenterPage() {
               type="checkbox"
               name="inventory_posting_enabled"
               defaultChecked={settings.inventory_posting_enabled}
-              disabled
+              disabled={!replacement.posting}
             />
-            Enable perpetual inventory ledger posting
+            Inventory ledger posting
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              name="accountant_validated"
+              defaultChecked={settings.accountant_validated}
+              disabled={!replacement.signOff}
+            />
+            I have checked these opening balances against QuickBooks
           </label>
           <label className="flex items-center gap-2">
             <input
               type="checkbox"
               name="books_of_record"
               defaultChecked={settings.books_of_record}
-              disabled
+              disabled={!replacement.books}
             />
-            Mark as books of record (gated)
+            Make Floor King CRM the official books
           </label>
           <label className="block">
             Cutover date

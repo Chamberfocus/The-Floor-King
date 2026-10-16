@@ -11,7 +11,11 @@ import {
 } from "@/lib/data/accounting";
 import { buildOpeningBalanceJournal } from "@/lib/accounting/builders";
 import { assessJournalBalance } from "@/lib/accounting/journal";
-import { assessBooksOfRecordEnable } from "@/lib/accounting/integrity";
+import {
+  replacementControlsEditable,
+  resolveQuickBooksReplacementSettings,
+  type QuickBooksReplacementFlags,
+} from "@/lib/accounting/integrity";
 import { assessPitrAttestation } from "@/lib/accounting/pitr-attestation";
 
 export async function updateAccountingSettingsAction(formData: FormData) {
@@ -21,76 +25,56 @@ export async function updateAccountingSettingsAction(formData: FormData) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const posting_enabled = formData.get("posting_enabled") === "on";
-  const inventory_posting_enabled =
-    formData.get("inventory_posting_enabled") === "on";
-  const invoice_posting_enabled =
-    formData.get("invoice_posting_enabled") === "on";
-  const payment_posting_enabled =
-    formData.get("payment_posting_enabled") === "on";
-  const credit_posting_enabled =
-    formData.get("credit_posting_enabled") === "on";
-  const ap_posting_enabled = formData.get("ap_posting_enabled") === "on";
-  const expense_posting_enabled =
-    formData.get("expense_posting_enabled") === "on";
-  const deposit_posting_enabled =
-    formData.get("deposit_posting_enabled") === "on";
-  const installer_posting_enabled =
-    formData.get("installer_posting_enabled") === "on";
-  const books_of_record = formData.get("books_of_record") === "on";
   const cutover_date = String(formData.get("cutover_date") || "").trim() || null;
   const default_cash_method =
     String(formData.get("default_cash_method") || "undeposited") === "cash"
       ? "cash"
       : "undeposited";
 
-  // Books of record stay off until openings and accountant validation are
-  // actually recorded. Those flags are read from the current row — they are
-  // not set by this form.
   const current = await getAccountingSettings();
-  // Employee release: QuickBooks stays the official ledger. This form cannot
-  // turn posting or books of record on. Flags already stored are left as they are.
-  const postingTurnOnRefused =
-    (posting_enabled && !current.posting_enabled) ||
-    (inventory_posting_enabled && !current.inventory_posting_enabled) ||
-    (invoice_posting_enabled && !current.invoice_posting_enabled) ||
-    (payment_posting_enabled && !current.payment_posting_enabled) ||
-    (credit_posting_enabled && !current.credit_posting_enabled) ||
-    (ap_posting_enabled && !current.ap_posting_enabled) ||
-    (expense_posting_enabled && !current.expense_posting_enabled) ||
-    (deposit_posting_enabled && !current.deposit_posting_enabled) ||
-    (installer_posting_enabled && !current.installer_posting_enabled) ||
-    (books_of_record && !current.books_of_record);
-  if (postingTurnOnRefused) {
-    throw new Error(
-      "This release does not enable accounting posting or books of record. QuickBooks stays the official ledger.",
-    );
-  }
-  const booksGate = assessBooksOfRecordEnable({
-    requested: books_of_record,
-    postingEnabled: posting_enabled,
-    cutoverDate: cutover_date,
+  const editable = replacementControlsEditable(current);
+  const checked = (name: string) => formData.get(name) === "on";
+  const requestedFlag = (
+    name: keyof QuickBooksReplacementFlags,
+    canEdit: boolean,
+  ) => (canEdit ? checked(name) : Boolean(current[name as keyof typeof current]));
+
+  const requested: QuickBooksReplacementFlags = {
+    posting_enabled: requestedFlag("posting_enabled", editable.posting),
+    inventory_posting_enabled: requestedFlag("inventory_posting_enabled", editable.posting),
+    invoice_posting_enabled: requestedFlag("invoice_posting_enabled", editable.posting),
+    payment_posting_enabled: requestedFlag("payment_posting_enabled", editable.posting),
+    credit_posting_enabled: requestedFlag("credit_posting_enabled", editable.posting),
+    ap_posting_enabled: requestedFlag("ap_posting_enabled", editable.posting),
+    expense_posting_enabled: requestedFlag("expense_posting_enabled", editable.posting),
+    deposit_posting_enabled: requestedFlag("deposit_posting_enabled", editable.posting),
+    installer_posting_enabled: requestedFlag("installer_posting_enabled", editable.posting),
+    books_of_record: requestedFlag("books_of_record", editable.books),
+    accountant_validated: requestedFlag("accountant_validated", editable.signOff),
+    cutover_date,
+  };
+  const resolved = resolveQuickBooksReplacementSettings({
+    current,
+    requested,
     openingBalancesEntered: current.opening_balances_entered,
-    accountantValidated: current.accountant_validated,
   });
-  if (books_of_record && !booksGate.ok) {
-    throw new Error(booksGate.error);
-  }
+  if (!resolved.ok) throw new Error(resolved.error);
 
   const { error } = await supabase
     .from("accounting_settings")
     .update({
-      posting_enabled: current.posting_enabled,
-      inventory_posting_enabled: current.inventory_posting_enabled,
-      invoice_posting_enabled: current.invoice_posting_enabled,
-      payment_posting_enabled: current.payment_posting_enabled,
-      credit_posting_enabled: current.credit_posting_enabled,
-      ap_posting_enabled: current.ap_posting_enabled,
-      expense_posting_enabled: current.expense_posting_enabled,
-      deposit_posting_enabled: current.deposit_posting_enabled,
-      installer_posting_enabled: current.installer_posting_enabled,
-      books_of_record: current.books_of_record,
-      cutover_date,
+      posting_enabled: resolved.next.posting_enabled,
+      inventory_posting_enabled: resolved.next.inventory_posting_enabled,
+      invoice_posting_enabled: resolved.next.invoice_posting_enabled,
+      payment_posting_enabled: resolved.next.payment_posting_enabled,
+      credit_posting_enabled: resolved.next.credit_posting_enabled,
+      ap_posting_enabled: resolved.next.ap_posting_enabled,
+      expense_posting_enabled: resolved.next.expense_posting_enabled,
+      deposit_posting_enabled: resolved.next.deposit_posting_enabled,
+      installer_posting_enabled: resolved.next.installer_posting_enabled,
+      books_of_record: resolved.next.books_of_record,
+      accountant_validated: resolved.next.accountant_validated,
+      cutover_date: resolved.next.cutover_date,
       default_cash_method,
       updated_at: new Date().toISOString(),
       updated_by: user?.id ?? null,

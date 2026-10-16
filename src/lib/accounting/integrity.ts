@@ -203,6 +203,120 @@ export function assessBooksOfRecordEnable(args: {
   return { ok: true, booksOfRecord: true };
 }
 
+export const QUICKBOOKS_STAYS_OFFICIAL =
+  "QuickBooks stays the official ledger until books of record is on.";
+
+export const POSTING_TURN_ON_REQUIRES_SETUP =
+  "Enter opening balances from QuickBooks and set a cutover date before automatic posting.";
+
+export const CUTOVER_DATE_REQUIRED_WHILE_POSTING =
+  "Keep a cutover date once posting, sign-off, or books of record is on.";
+
+export const SIGN_OFF_REQUIRES_SETUP =
+  "Record your sign-off after opening balances and a cutover date are saved.";
+
+const POSTING_FLAG_KEYS = [
+  "posting_enabled",
+  "inventory_posting_enabled",
+  "invoice_posting_enabled",
+  "payment_posting_enabled",
+  "credit_posting_enabled",
+  "ap_posting_enabled",
+  "expense_posting_enabled",
+  "deposit_posting_enabled",
+  "installer_posting_enabled",
+] as const;
+
+type PostingFlagKey = (typeof POSTING_FLAG_KEYS)[number];
+
+export interface QuickBooksReplacementFlags {
+  posting_enabled: boolean;
+  inventory_posting_enabled: boolean;
+  invoice_posting_enabled: boolean;
+  payment_posting_enabled: boolean;
+  credit_posting_enabled: boolean;
+  ap_posting_enabled: boolean;
+  expense_posting_enabled: boolean;
+  deposit_posting_enabled: boolean;
+  installer_posting_enabled: boolean;
+  books_of_record: boolean;
+  accountant_validated: boolean;
+  cutover_date: string | null;
+}
+
+export function replacementControlsEditable(current: {
+  cutover_date: string | null;
+  opening_balances_entered: boolean;
+  posting_enabled: boolean;
+  accountant_validated: boolean;
+}): { setupReady: boolean; posting: boolean; signOff: boolean; books: boolean } {
+  const setupReady = Boolean(current.cutover_date) && current.opening_balances_entered;
+  return {
+    setupReady,
+    posting: setupReady,
+    signOff: setupReady,
+    books: setupReady && current.posting_enabled && current.accountant_validated,
+  };
+}
+
+/** Save path for the QuickBooks replacement. Does not turn posting on by itself. */
+export function resolveQuickBooksReplacementSettings(args: {
+  current: QuickBooksReplacementFlags;
+  requested: QuickBooksReplacementFlags;
+  openingBalancesEntered: boolean;
+}):
+  | { ok: true; next: QuickBooksReplacementFlags }
+  | { ok: false; error: string } {
+  const cutover = args.requested.cutover_date?.trim() || null;
+  const setupReady = Boolean(cutover) && args.openingBalancesEntered;
+
+  if (
+    !cutover &&
+    (args.current.posting_enabled ||
+      args.current.accountant_validated ||
+      args.current.books_of_record)
+  ) {
+    return { ok: false, error: CUTOVER_DATE_REQUIRED_WHILE_POSTING };
+  }
+
+  const next: QuickBooksReplacementFlags = { ...args.current, cutover_date: cutover };
+
+  for (const key of POSTING_FLAG_KEYS) {
+    const want = args.requested[key];
+    if (want && !args.current[key] && !setupReady) {
+      return { ok: false, error: POSTING_TURN_ON_REQUIRES_SETUP };
+    }
+    next[key] = setupReady ? want : args.current[key];
+  }
+
+  if (
+    args.requested.accountant_validated &&
+    !args.current.accountant_validated &&
+    !setupReady
+  ) {
+    return { ok: false, error: SIGN_OFF_REQUIRES_SETUP };
+  }
+  next.accountant_validated = setupReady
+    ? args.requested.accountant_validated
+    : args.current.accountant_validated;
+
+  if (args.requested.books_of_record && !args.current.books_of_record) {
+    const gate = assessBooksOfRecordEnable({
+      requested: true,
+      postingEnabled: next.posting_enabled,
+      cutoverDate: cutover,
+      openingBalancesEntered: args.openingBalancesEntered,
+      accountantValidated: next.accountant_validated,
+    });
+    if (!gate.ok) return { ok: false, error: gate.error };
+    next.books_of_record = true;
+  } else if (!args.requested.books_of_record) {
+    next.books_of_record = false;
+  }
+
+  return { ok: true, next };
+}
+
 /** Convenience: partial-pay + credit-applied lifecycle for tests. */
 export function buildPartialPayCreditLifecycle(args: {
   mappings: AccountMappingDict;
