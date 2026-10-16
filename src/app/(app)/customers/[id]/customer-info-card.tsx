@@ -36,6 +36,9 @@ export function CustomerInfoCard({ customer, sources = [] }: { customer: Custome
   }
 
   const hasAddress = customer.street || customer.city;
+  const sourceLabel =
+    sources.find((s) => s.id === customer.source_id)?.label ??
+    (customer.source ? LEAD_SOURCE_LABELS[customer.source] : null);
 
   return (
     <Card>
@@ -84,12 +87,10 @@ export function CustomerInfoCard({ customer, sources = [] }: { customer: Custome
           </p>
         ) : null}
 
-        {customer.source ? (
+        {sourceLabel ? (
           <p className="border-t pt-3 text-muted-foreground">
             Lead source:{" "}
-            <span className="text-foreground">
-              {LEAD_SOURCE_LABELS[customer.source]}
-            </span>
+            <span className="text-foreground">{sourceLabel}</span>
           </p>
         ) : null}
 

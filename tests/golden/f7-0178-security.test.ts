@@ -247,8 +247,9 @@ describe("0178 security correction — receiving still delta-correct", () => {
     ).toEqual({ ok: true, delta: 0 });
   });
 
-  it("receiving posts applyPoLineReceiptDelta", () => {
-    expect(receivingActions).toContain("applyPoLineReceiptDelta");
+  it("receiving posts one receipt batch", () => {
+    expect(receivingActions).toContain("postPoReceiptLines");
+    expect(receivingActions).not.toContain("applyPoLineReceiptDelta");
   });
 });
 

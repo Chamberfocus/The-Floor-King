@@ -55,7 +55,13 @@ export const dynamic = "force-dynamic";
 export default async function OrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; view?: string; page?: string; focus?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    view?: string;
+    page?: string;
+    focus?: string;
+    order_error?: string;
+  }>;
 }) {
   const profile = await requireProfile();
   if (!["admin", "office"].includes(profile.role)) redirect("/");
@@ -312,15 +318,15 @@ export default async function OrdersPage({
             <form action={deleteOrder} className="mt-2 flex flex-col items-end gap-2">
               <input type="hidden" name="order_id" value={o.id} />
               <span className="max-w-xs text-right text-xs text-muted-foreground">
-                Permanently delete this order and everything it created —
-                {o.job_id ? " its warehouse job," : ""} its invoice &amp; payments,
-                and any purchase orders. This can&apos;t be undone.
+                Removes this order only when it has no posted money. Issued invoices,
+                payments, credits, deposits, write-offs, and received purchase orders
+                stay on the books.
               </span>
               <ConfirmButton
                 size="sm"
                 variant="destructive"
-                title={`Delete ${who}'s order and everything it created?`}
-                description="Permanently deletes the order, its warehouse job, its invoice & payments, and any purchase orders raised for it. This can't be undone."
+                title={`Delete ${who}'s order?`}
+                description="Removes the order only when it has no posted money. Issued invoices, payments, and received purchase orders stay on the books."
                 confirmLabel="Delete order"
                 destructive
               >
@@ -340,6 +346,14 @@ export default async function OrdersPage({
         title="Customer Orders"
         description="Carpet orders submitted by customers. Warehouse checks stock first; approve only after that result. In-stock approvals go to the warehouse to cut &amp; stage."
       />
+      {sp.order_error ? (
+        <p
+          role="alert"
+          className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
+          {sp.order_error}
+        </p>
+      ) : null}
       <OrderLinkCard companyName={COMPANY_NAME} />
       <WorkQueueBar
         action="/orders"

@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { authorizeResendWebhook } from "@/lib/request-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 
@@ -42,9 +43,9 @@ function tagValue(tags: unknown, name: string): string | null {
 }
 
 export async function POST(request: NextRequest) {
-  const secret = process.env.RESEND_WEBHOOK_SECRET;
-  if (secret && request.nextUrl.searchParams.get("key") !== secret) {
-    return new NextResponse("Unauthorized", { status: 401 });
+  const auth = authorizeResendWebhook(request.nextUrl.searchParams.get("key"));
+  if (!auth.ok) {
+    return NextResponse.json({ ok: false, error: auth.code }, { status: auth.status });
   }
 
   let payload: {

@@ -174,4 +174,17 @@ describe("accounting stays off until a real cutover", () => {
     expect(action).not.toContain("openingBalancesEntered: false");
     expect(action).not.toContain("accountantValidated: false");
   });
+
+  it("the settings action cannot turn posting or books of record on", () => {
+    const action = src("src/app/(app)/accounting/actions.ts");
+    expect(action).toContain(
+      "This release does not enable accounting posting or books of record. QuickBooks stays the official ledger.",
+    );
+    expect(action).toContain("posting_enabled: current.posting_enabled");
+    expect(action).toContain("books_of_record: current.books_of_record");
+    const page = src("src/app/(app)/accounting/page.tsx");
+    expect(page).toContain("This release does not enable accounting posting.");
+    expect(page).toContain('name="posting_enabled"');
+    expect(page).toContain('name="books_of_record"');
+  });
 });

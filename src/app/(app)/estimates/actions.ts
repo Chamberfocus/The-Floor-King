@@ -6,6 +6,13 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireProfile, assertRole } from "@/lib/auth";
 import { releaseJobReservations } from "@/lib/po-stock";
+import {
+  assertFinancialDeletionAllowed,
+  deleteBareDraftPaperwork,
+  reservationReleaseBlocker,
+  reservationStillHeld,
+  unconfirmedMessage,
+} from "@/lib/financial-deletion";
 import { syncPosForEstimate } from "@/app/(app)/purchase-orders/actions";
 import {
   num,
@@ -33,7 +40,7 @@ import { APPROVE_OPTION_REQUIRED_MESSAGE } from "@/lib/estimate-approve-ui";
 import {
   moveToAutoActionStage,
   advanceFromAutoAction,
-  advanceToNamedStage,
+  advanceToLostStage,
 } from "@/lib/workflow-engine";
 import { ensureJobForEstimate } from "@/app/(app)/jobs/actions";
 import { getCustomerSourceStatus } from "@/lib/data/lead-sources";
@@ -847,10 +854,38 @@ export async function createEstimateFromWizard(
   return { error: null, id: estimate.id };
 }
 
-/** Delete every DRAFT estimate (fast cleanup of test/unsent quotes). */
+/** Delete DRAFT estimates that have no job, invoice, purchase order, or approval snapshot. */
 export async function deleteAllDraftEstimates(): Promise<void> {
   const supabase = await createClient();
-  await supabase.from("estimates").delete().eq("status", "draft");
+  const { data: drafts, error } = await supabase
+    .from("estimates")
+    .select("id")
+    .eq("status", "draft");
+  if (error || !drafts?.length) {
+    revalidatePath("/estimates");
+    redirect("/estimates");
+  }
+  const ids = drafts.map((row) => row.id as string);
+  const blocked = new Set<string>();
+  const mark = (rows: { estimate_id?: string | null }[] | null) => {
+    for (const row of rows ?? []) if (row.estimate_id) blocked.add(row.estimate_id);
+  };
+  const [jobs, invoices, purchaseOrders, snapshots] = await Promise.all([
+    supabase.from("jobs").select("estimate_id").in("estimate_id", ids),
+    supabase.from("invoices").select("estimate_id").in("estimate_id", ids),
+    supabase.from("purchase_orders").select("estimate_id").in("estimate_id", ids),
+    supabase.from("estimate_approval_snapshots").select("estimate_id").in("estimate_id", ids),
+  ]);
+  if (jobs.error || invoices.error || purchaseOrders.error || snapshots.error) {
+    revalidatePath("/estimates");
+    redirect("/estimates");
+  }
+  mark(jobs.data);
+  mark(invoices.data);
+  mark(purchaseOrders.data);
+  mark(snapshots.data);
+  const free = ids.filter((id) => !blocked.has(id));
+  if (free.length) await supabase.from("estimates").delete().in("id", free);
   revalidatePath("/estimates");
   revalidatePath("/dashboard");
   revalidatePath("/pulse");
@@ -1013,7 +1048,7 @@ export async function onEstimateDeclined(
   const LIVE = ["draft", "sent", "changes_requested", "approved"];
   if (others.some((o) => LIVE.includes(o.status))) return;
 
-  await advanceToNamedStage(customerId, /lost|declin/i);
+  await advanceToLostStage(customerId);
   // Stop the daily nudge chasing a dead lead, and let the coarse stage agree
   // with the detailed one.
   await supabase
@@ -1051,7 +1086,16 @@ export async function unapproveEstimate(
   const id = str(formData.get("id"));
   if (!id) return;
   await assertRole(["admin", "office", "sales_manager"]);
-  const supabase = await createClient();
+  const blocked = (message: string) =>
+    `/estimates/${id}?undo=blocked&why=${encodeURIComponent(message)}`;
+
+  let admin: ReturnType<typeof createAdminClient>;
+  try {
+    admin = createAdminClient();
+  } catch {
+    redirect(blocked(unconfirmedMessage("approval")));
+  }
+  const supabase = admin;
 
   const { data: est } = await supabase
     .from("estimates")
@@ -1060,59 +1104,41 @@ export async function unapproveEstimate(
     .maybeSingle();
   if (!est || est.status !== "approved") return;
 
-  const { data: jobs } = await supabase
-    .from("jobs")
-    .select("id, status, scheduled_date, completed_at, actual_labor_cost")
-    .eq("estimate_id", id);
+  const gate = await assertFinancialDeletionAllowed(
+    admin,
+    "approval",
+    { estimateIds: [id] },
+    { blockAnyInvoice: true },
+  );
+  if (!gate.ok) redirect(blocked(gate.message));
 
-  for (const j of jobs ?? []) {
-    // Anything that means the world has moved on.
-    const blockers: string[] = [];
-    if (j.status === "completed") blockers.push("the job is completed");
-    if (j.scheduled_date) blockers.push("the install is booked");
-    if (j.actual_labor_cost != null) blockers.push("labor has been costed");
-
-    const { count: invCount } = await supabase
-      .from("invoices")
-      .select("id", { count: "exact", head: true })
-      .eq("job_id", j.id);
-    if ((invCount ?? 0) > 0) blockers.push("an invoice has been raised");
-
-    const { data: received } = await supabase
-      .from("purchase_orders")
-      .select("id, status")
-      .eq("estimate_id", id)
-      .in("status", ["received", "closed"]);
-    if (received?.length) blockers.push("material has been received");
-
-    if (blockers.length) {
-      redirect(
-        `/estimates/${id}?undo=blocked&why=${encodeURIComponent(blockers.join("; "))}`,
-      );
-    }
+  const jobIds = gate.snapshot.jobIds;
+  if (jobIds.length) await releaseJobReservations(admin, jobIds);
+  const held = await reservationStillHeld(admin, jobIds);
+  if (!held.ok || held.qty > 0) {
+    redirect(
+      blocked(
+        reservationReleaseBlocker("approval", held.ok ? held.qty : 1)?.message ??
+          unconfirmedMessage("approval"),
+      ),
+    );
   }
 
-  const jobIds = (jobs ?? []).map((j) => j.id as string);
+  const again = await assertFinancialDeletionAllowed(
+    admin,
+    "approval",
+    { estimateIds: [id] },
+    { blockAnyInvoice: true },
+  );
+  if (!again.ok) redirect(blocked(again.message));
 
-  // Give back anything the approval reserved, and drop the POs it auto-raised.
-  // Only DRAFTS — an issued PO has a number the supplier has seen, and voiding
-  // that is a deliberate act, not a side effect of undoing a click.
-  let releasedPos = 0;
-  if (jobIds.length) await releaseJobReservations(supabase, jobIds);
-  const { data: draftPos } = await supabase
-    .from("purchase_orders")
-    .select("id")
-    .eq("estimate_id", id)
-    .eq("status", "draft");
-  if (draftPos?.length) {
-    const ids = draftPos.map((p) => p.id as string);
-    await supabase.from("po_items").delete().in("po_id", ids);
-    await supabase.from("purchase_orders").delete().in("id", ids);
-    releasedPos = ids.length;
-  }
-  if (jobIds.length) await supabase.from("jobs").delete().in("id", jobIds);
+  const removed = await deleteBareDraftPaperwork(admin, "approval", again.snapshot, {
+    preserveInvoices: true,
+  });
+  if (!removed.ok) redirect(blocked(removed.message));
+  const releasedPos = again.snapshot.facts.purchaseOrders.length;
 
-  await supabase
+  const { error: statusError } = await supabase
     .from("estimates")
     .update({
       status: "sent",
@@ -1121,6 +1147,7 @@ export async function unapproveEstimate(
       approval_stale: false,
     })
     .eq("id", id);
+  if (statusError) redirect(blocked(unconfirmedMessage("approval")));
 
   // Put the customer back where they were: awaiting an answer, not Won. The
   // engine only moves forward, so this is written directly.
@@ -1188,16 +1215,16 @@ export async function deleteEstimate(formData: FormData): Promise<void> {
   // orphan them — instead we delete them (their children cascade), then the
   // estimate (its options + line items cascade). Service-role client so the
   // cleanup can't be half-blocked by row-level security.
-  let admin;
+  const deleteError = (message: string) =>
+    `/estimates/${id}?delete_error=${encodeURIComponent(message)}`;
+
+  let admin: ReturnType<typeof createAdminClient>;
   try {
     admin = createAdminClient();
   } catch {
-    admin = await createClient(); // fall back (may leave orphans under RLS)
+    redirect(deleteError(unconfirmedMessage("estimate")));
   }
 
-  // Read the estimate ONCE, before anything is removed: the customer (some
-  // delete buttons don't pass it), the title for the log, and whether this was
-  // the approved one — none of which can be looked up afterwards.
   const { data: estRow } = await admin
     .from("estimates")
     .select("customer_id, title, status")
@@ -1207,94 +1234,30 @@ export async function deleteEstimate(formData: FormData): Promise<void> {
   const estTitle = (estRow?.title as string) || "";
   const wasApproved = estRow?.status === "approved";
 
-  const { data: jobRows } = await admin.from("jobs").select("id").eq("estimate_id", id);
-  const jobIds = (jobRows ?? []).map((j) => j.id as string);
+  const gate = await assertFinancialDeletionAllowed(admin, "estimate", { estimateIds: [id] });
+  if (!gate.ok) redirect(deleteError(gate.message));
 
-  /**
-   * Give back whatever the estimate reserved BEFORE its jobs disappear.
-   *
-   * Approving an estimate reserves stock against its jobs. Deleting the
-   * estimate dropped the jobs without ever releasing that hold, so the material
-   * stayed reserved to a work order that no longer existed — invisible, and
-   * only findable by counting the shelf. unapproveEstimate has always done
-   * this; delete never did.
-   */
-  if (jobIds.length) {
-    try {
-      await releaseJobReservations(admin as never, jobIds);
-    } catch {
-      // Reservations are best-effort — never block the delete on them.
-    }
+  const jobIds = gate.snapshot.jobIds;
+  if (jobIds.length) await releaseJobReservations(admin, jobIds);
+  const held = await reservationStillHeld(admin, jobIds);
+  if (!held.ok || held.qty > 0) {
+    redirect(
+      deleteError(
+        reservationReleaseBlocker("estimate", held.ok ? held.qty : 1)?.message ??
+          unconfirmedMessage("estimate"),
+      ),
+    );
   }
 
-  const del = async (table: string) => {
-    // Delete rows tied directly to the estimate…
-    await admin.from(table).delete().eq("estimate_id", id);
-    // …and rows tied to any of this estimate's work orders.
-    if (jobIds.length) await admin.from(table).delete().in("job_id", jobIds);
-  };
+  const again = await assertFinancialDeletionAllowed(admin, "estimate", { estimateIds: [id] });
+  if (!again.ok) redirect(deleteError(again.message));
 
-  /**
-   * Everything that hangs off this estimate's work orders but is NOT set to
-   * cascade.
-   *
-   * Postgres only cascades where the migration said so. These seven all use
-   * `on delete set null`, which means the row SURVIVES the job with its link
-   * quietly blanked: job photos still in the customer's files, stock movements
-   * still holding inventory down, expenses and supplier bills still on the
-   * books against work that no longer exists. Deleting the estimate looked
-   * clean and wasn't.
-   *
-   * po_items is deliberately absent: a line on a SHARED purchase order can
-   * belong to another customer entirely, and its `for_job_id` going null is the
-   * correct outcome — the order stands, only the attribution goes.
-   */
-  const JOB_SCOPED = [
-    "documents",       // job photos and site files
-    "expenses",        // money out against the job
-    "bills",           // supplier bills
-    "orders",          // material orders
-    "stock_movements", // inventory pulled for the job
-    "stock_rolls",     // rolls allocated to the job
-  ];
-  const removed: Record<string, number> = {};
-  if (jobIds.length) {
-    for (const table of JOB_SCOPED) {
-      // Storage objects have to go with their rows or the files are orphaned
-      // in the bucket with nothing left pointing at them.
-      if (table === "documents") {
-        const { data: docs } = await admin
-          .from("documents")
-          .select("id, path")
-          .in("job_id", jobIds);
-        const paths = (docs ?? []).map((d) => d.path as string).filter(Boolean);
-        if (paths.length) {
-          try {
-            await admin.storage.from("documents").remove(paths);
-          } catch {
-            // A missing object must not stop the row from going.
-          }
-        }
-      }
-      const { count, error } = await admin
-        .from(table)
-        .delete({ count: "exact" })
-        .in("job_id", jobIds);
-      // A table that isn't there yet is fine; anything else is worth knowing.
-      if (!error && count) removed[table] = count;
-    }
-  }
+  const removed = await deleteBareDraftPaperwork(admin, "estimate", again.snapshot);
+  if (!removed.ok) redirect(deleteError(removed.message));
 
-  // The measure visit booked for this estimate goes with it.
   await admin.from("appointments").delete().eq("estimate_id", id);
-
-  await del("purchase_orders"); // PO items cascade
-  await del("invoices"); // invoice items + payments cascade
-  // Work orders — their labor, materials, stock movements, satisfaction, photos
-  // cascade / detach on delete.
-  await admin.from("jobs").delete().eq("estimate_id", id);
-  // Finally the estimate itself (options + line items cascade).
-  await admin.from("estimates").delete().eq("id", id);
+  const { error: estimateError } = await admin.from("estimates").delete().eq("id", id);
+  if (estimateError) redirect(deleteError(unconfirmedMessage("estimate")));
 
   /**
    * Put the customer back where they belong.
@@ -1327,15 +1290,12 @@ export async function deleteEstimate(formData: FormData): Promise<void> {
   // Say what went, so a delete is never silent about the records it took with
   // it — money rows especially.
   if (customerId) {
-    const extras = Object.entries(removed)
-      .map(([k, v]) => `${v} ${k.replace(/_/g, " ")}`)
-      .join(", ");
     await admin.from("activities").insert({
       customer_id: customerId,
       type: "system",
       body: `Estimate deleted${estTitle ? ` — "${estTitle}"` : ""}.${
-        jobIds.length ? ` ${jobIds.length} work order(s) removed.` : ""
-      }${extras ? ` Also removed: ${extras}.` : ""}${
+        jobIds.length ? ` ${jobIds.length} bare draft work order(s) removed.` : ""
+      } Posted invoices, payments, labor, and received material were kept.${
         wasApproved ? " The customer was moved back off the won stage." : ""
       }`,
     });

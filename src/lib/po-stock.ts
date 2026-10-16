@@ -58,6 +58,33 @@ export function planPoReceiveDelta(args: {
   return { ok: true, delta };
 }
 
+/** One receipt batch commits every positive delta, or none of them. */
+export function committedReceiptDeltas(
+  lines: { id: string; delta: number; postOk: boolean }[],
+): { committed: boolean; deltas: { id: string; delta: number }[] } {
+  const posting = lines.filter((line) => line.delta > 0);
+  if (posting.some((line) => !line.postOk)) return { committed: false, deltas: [] };
+  return {
+    committed: true,
+    deltas: posting.map((line) => ({ id: line.id, delta: line.delta })),
+  };
+}
+
+/**
+ * A purchase order becomes received only after the required stock movements
+ * have been posted. A failed batch leaves the previous status in place.
+ */
+export function poStatusAfterRequiredReceipt(args: {
+  previousStatus: string | null;
+  requestedStatus: string;
+  stockPosted: boolean;
+}): string {
+  if (args.requestedStatus === "received" && args.previousStatus !== "received" && !args.stockPosted) {
+    return args.previousStatus ?? "ordered";
+  }
+  return args.requestedStatus;
+}
+
 async function uid(db: DB): Promise<string | null> {
   const {
     data: { user },
@@ -132,27 +159,60 @@ export async function applyPoLineReceiptDelta(
   if (plan.delta <= EPS) return { delta: 0 };
   const delta = plan.delta;
 
-  const userId = await uid(db);
   const rolled = (prod.stock_kind as string) === "rolled";
-  const { data, error } = await db.rpc("receive_inventory_safe", {
-    p_product_id: args.productId,
-    p_qty: delta,
-    p_note: args.note || (rolled ? "Partial receive from PO (rolled)" : "Partial receive from PO"),
-    p_po_id: args.poId,
-    p_po_item_id: args.poItemId,
-    p_created_by: userId,
-    p_idempotency_key: `po_recv:${args.poItemId}:${already}:${delta}`,
-    ...(rolled
-      ? { p_create_roll: true, p_roll_kind: "roll" }
-      : {}),
-  });
-  if (error) throw new Error(error.message);
-  const res = rpcOk(data);
-  if (!res.ok) {
-    throw new Error(res.error || res.code || "Receive inventory failed.");
-  }
+  // receive_inventory_safe runs inside receive_po_lines_safe. One line is one
+  // transaction; a later line failure rolls this line back with it.
+  const posted = await postPoReceiptLines(db, args.poId, [
+    {
+      po_item_id: args.poItemId,
+      target_received_qty: args.targetReceivedQty,
+      note: args.note || (rolled ? "Partial receive from PO (rolled)" : "Partial receive from PO"),
+      idempotency_key: `po_recv:${args.poItemId}:${already}:${delta}`,
+    },
+  ]);
+  if (!posted.ok) throw new Error(posted.error);
   if (rolled) await syncRolledOnHand(args.productId, db);
   return { delta };
+}
+
+type PoReceiptLine = {
+  po_item_id: string;
+  target_received_qty: number;
+  note?: string | null;
+  idempotency_key?: string;
+  stamp_received_qty?: boolean;
+  received_by?: string | null;
+  receiving_note?: string | null;
+};
+
+/**
+ * Post every eligible line in one database transaction.
+ * receive_po_lines_safe calls receive_inventory_safe per line and raises if
+ * any line fails, so earlier lines in the batch do not stay posted.
+ */
+export async function postPoReceiptLines(
+  db: DB,
+  poId: string,
+  lines: PoReceiptLine[],
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!lines.length) return { ok: true };
+  const userId = await uid(db);
+  const { data, error } = await db.rpc("receive_po_lines_safe", {
+    p_po_id: poId,
+    p_lines: lines,
+    p_created_by: userId,
+  });
+  if (error) {
+    return {
+      ok: false,
+      error: error.message.includes("receive_po_lines_safe")
+        ? "Multi-line receiving is not installed yet. Apply migration 0491 first."
+        : error.message,
+    };
+  }
+  const res = rpcOk(data);
+  if (!res.ok) return { ok: false, error: res.error || res.code || "Receive inventory failed." };
+  return { ok: true };
 }
 
 /**
@@ -219,27 +279,36 @@ export async function applyReceiptToStock(
     return;
   }
 
+  const batch: PoReceiptLine[] = [];
   for (const it of rows) {
     const pid = it.product_id as string;
     const p = prodMap.get(pid);
     if (!p || !p.track_stock) continue;
     const ordered = Number(it.quantity) || 0;
     const poItemId = it.id as string;
-    const stamped =
-      it.received_qty != null ? Number(it.received_qty) : null;
-    const target =
-      stamped != null && Number.isFinite(stamped) ? stamped : ordered;
+    const stamped = it.received_qty != null ? Number(it.received_qty) : null;
+    const target = stamped != null && Number.isFinite(stamped) ? stamped : ordered;
+    const already = await ledgerReceivedQty(db, poItemId);
+    const plan = planPoReceiveDelta({
+      orderedQty: ordered,
+      targetReceivedQty: target,
+      alreadyOnLedger: already,
+    });
+    if (!plan.ok) throw new Error(`${plan.code}: ${plan.error}`);
+    if (plan.delta <= EPS) continue;
+    batch.push({
+      po_item_id: poItemId,
+      target_received_qty: target,
+      note: p.stock_kind === "rolled" ? "Received from PO (rolled)" : "Received from PO",
+      idempotency_key: `po_recv:${poItemId}:${already}:${plan.delta}`,
+    });
+    if (p.stock_kind === "rolled") touchedRolled.add(pid);
+  }
 
-    if (sign > 0) {
-      await applyPoLineReceiptDelta(db, {
-        poId,
-        poItemId,
-        productId: pid,
-        orderedQty: ordered,
-        targetReceivedQty: target,
-        note: p.stock_kind === "rolled" ? "Received from PO (rolled)" : "Received from PO",
-      });
-      if (p.stock_kind === "rolled") touchedRolled.add(pid);
+  if (batch.length) {
+    const posted = await postPoReceiptLines(db, poId, batch);
+    if (!posted.ok) {
+      throw new Error(posted.error);
     }
   }
 
@@ -316,13 +385,19 @@ export async function reverseReceivedPOs(
 export async function releaseJobReservations(
   db: DB,
   jobIds: string[],
-): Promise<void> {
-  if (!jobIds.length) return;
-  const { data: moves } = await db
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!jobIds.length) return { ok: true };
+  const { data: moves, error: readError } = await db
     .from("stock_movements")
     .select("job_id, product_id, line_id, kind, qty")
     .in("job_id", jobIds);
-  if (!moves?.length) return;
+  if (readError) {
+    return {
+      ok: false,
+      error: "Reserved material could not be read, so it was not released.",
+    };
+  }
+  if (!moves?.length) return { ok: true };
 
   // Per (job, product, line): outstanding reserved = max(0, (reserve+release) − pulled).
   type Acc = { reserve: number; pulled: number };
@@ -353,7 +428,7 @@ export async function releaseJobReservations(
     const reserved = Math.max(0, round(acc.reserve - acc.pulled));
     if (reserved <= 0) continue;
     // F7: canonical 0176 release — never direct-update products.reserved.
-    await db.rpc("release_inventory_safe", {
+    const { data, error } = await db.rpc("release_inventory_safe", {
       p_product_id: productId,
       p_qty: reserved,
       p_job_id: jobId,
@@ -362,5 +437,12 @@ export async function releaseJobReservations(
       p_idempotency_key: `release:job:${jobId}:product:${productId}:line:${lineId ?? "_"}:${reserved}`,
       p_created_by: userId,
     });
+    if (error || !rpcOk(data).ok) {
+      return {
+        ok: false,
+        error: "Reserved material could not be released.",
+      };
+    }
   }
+  return { ok: true };
 }

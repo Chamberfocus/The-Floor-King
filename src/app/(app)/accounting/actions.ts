@@ -48,6 +48,24 @@ export async function updateAccountingSettingsAction(formData: FormData) {
   // actually recorded. Those flags are read from the current row — they are
   // not set by this form.
   const current = await getAccountingSettings();
+  // Employee release: QuickBooks stays the official ledger. This form cannot
+  // turn posting or books of record on. Flags already stored are left as they are.
+  const postingTurnOnRefused =
+    (posting_enabled && !current.posting_enabled) ||
+    (inventory_posting_enabled && !current.inventory_posting_enabled) ||
+    (invoice_posting_enabled && !current.invoice_posting_enabled) ||
+    (payment_posting_enabled && !current.payment_posting_enabled) ||
+    (credit_posting_enabled && !current.credit_posting_enabled) ||
+    (ap_posting_enabled && !current.ap_posting_enabled) ||
+    (expense_posting_enabled && !current.expense_posting_enabled) ||
+    (deposit_posting_enabled && !current.deposit_posting_enabled) ||
+    (installer_posting_enabled && !current.installer_posting_enabled) ||
+    (books_of_record && !current.books_of_record);
+  if (postingTurnOnRefused) {
+    throw new Error(
+      "This release does not enable accounting posting or books of record. QuickBooks stays the official ledger.",
+    );
+  }
   const booksGate = assessBooksOfRecordEnable({
     requested: books_of_record,
     postingEnabled: posting_enabled,
@@ -58,21 +76,20 @@ export async function updateAccountingSettingsAction(formData: FormData) {
   if (books_of_record && !booksGate.ok) {
     throw new Error(booksGate.error);
   }
-  const safeBooks = booksGate.ok ? booksGate.booksOfRecord : false;
 
   const { error } = await supabase
     .from("accounting_settings")
     .update({
-      posting_enabled,
-      inventory_posting_enabled,
-      invoice_posting_enabled,
-      payment_posting_enabled,
-      credit_posting_enabled,
-      ap_posting_enabled,
-      expense_posting_enabled,
-      deposit_posting_enabled,
-      installer_posting_enabled,
-      books_of_record: safeBooks,
+      posting_enabled: current.posting_enabled,
+      inventory_posting_enabled: current.inventory_posting_enabled,
+      invoice_posting_enabled: current.invoice_posting_enabled,
+      payment_posting_enabled: current.payment_posting_enabled,
+      credit_posting_enabled: current.credit_posting_enabled,
+      ap_posting_enabled: current.ap_posting_enabled,
+      expense_posting_enabled: current.expense_posting_enabled,
+      deposit_posting_enabled: current.deposit_posting_enabled,
+      installer_posting_enabled: current.installer_posting_enabled,
+      books_of_record: current.books_of_record,
       cutover_date,
       default_cash_method,
       updated_at: new Date().toISOString(),

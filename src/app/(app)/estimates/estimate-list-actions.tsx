@@ -114,7 +114,11 @@ export function DeleteEstimateButton({
             </p>
           ) : null}
           <p className="rounded-md bg-destructive/10 px-3 py-2 font-medium text-destructive">
-            This cannot be undone.
+            Posted invoices, payments, labor, and received material are kept.
+            Delete removes a bare draft only.
+            {impact?.payments
+              ? " This estimate has recorded payments, so delete will be refused."
+              : ""}
           </p>
         </div>
         <div className="mt-4 flex justify-end gap-2">
@@ -125,7 +129,7 @@ export function DeleteEstimateButton({
             <input type="hidden" name="id" value={id} />
             {customerId ? <input type="hidden" name="customer_id" value={customerId} /> : null}
             <Button type="submit" variant="destructive" disabled={loading}>
-              <Trash2 className="size-4" /> Delete everything
+              <Trash2 className="size-4" /> Delete draft
             </Button>
           </form>
         </div>

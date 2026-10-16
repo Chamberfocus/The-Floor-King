@@ -9,6 +9,7 @@ import { PhoneInput } from "@/components/ui/phone-input";
 import { Label } from "@/components/ui/label";
 import { SearchPicker } from "@/components/ui/search-picker";
 import { SegmentedField } from "@/components/ui/segmented-field";
+import { AddressFields } from "../customers/address-fields";
 import {
   createCustomerSafe,
   loadSafeCustomerOptions,
@@ -91,26 +92,7 @@ export function FullSafeCustomerForm() {
           <Input id="company" name="company" placeholder="For commercial / builder accounts" />
         </div>
 
-        <div className="space-y-2 sm:col-span-2">
-          <Label htmlFor="street">Job address</Label>
-          <Input id="street" name="street" placeholder="Street address" />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="city">City</Label>
-          <Input id="city" name="city" />
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="state">State</Label>
-            <Input id="state" name="state" defaultValue="OH" maxLength={2} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="zip">ZIP</Label>
-            <Input id="zip" name="zip" />
-          </div>
-        </div>
+        <AddressFields />
 
         <div className="space-y-3 sm:col-span-2">
           <div className="space-y-2">

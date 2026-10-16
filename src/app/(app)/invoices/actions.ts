@@ -4,7 +4,12 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { employeePaymentError } from "@/lib/payment-safety";
+import {
+  employeePaymentError,
+  PAYMENT_VOID_RPC_REQUIRED_MESSAGE,
+  paymentVoidRpcUnavailable,
+} from "@/lib/payment-safety";
+import { invoiceHardDeleteBlocker } from "@/lib/order-deletion";
 import {
   type SaveInvoiceInput,
 } from "@/lib/invoice-calc";
@@ -1366,7 +1371,8 @@ export async function voidPayment(formData: FormData): Promise<void> {
     return;
   }
 
-  // Prefer F4 atomic void+outbox RPC; fall back to direct update pre-0163.
+  // void_invoice_payment_safe is the only void path. A missing function must
+  // not mark the payment void with a direct update.
   const { data: voidRes, error: voidRpcErr } = await supabase.rpc(
     "void_invoice_payment_safe",
     {
@@ -1376,46 +1382,24 @@ export async function voidPayment(formData: FormData): Promise<void> {
     },
   );
   if (voidRpcErr) {
-    if (voidRpcErr.message.includes("void_invoice_payment_safe")) {
-      const { error } = await supabase
-        .from("payments")
-        .update({
-          status: "void",
-          voided_at: new Date().toISOString(),
-          voided_by: user?.id ?? null,
-          void_reason: reason,
-        })
-        .eq("id", id);
-      if (error) {
-        console.error("[voidInvoicePayment]", error.code);
-        fail(
-          error.message.includes("status")
-            ? "Payment void migration (0158) is not applied yet. Apply it in Supabase before voiding payments."
-            : employeePaymentError(
-                error.message,
-                "This payment could not be voided. Refresh and try again.",
-              ),
-        );
-      }
-    } else {
-      console.error("[voidInvoicePayment]", voidRpcErr.code);
-      fail(
-        employeePaymentError(
-          voidRpcErr.message,
-          "This payment could not be voided. Refresh and try again.",
-        ),
-      );
-    }
-  } else {
-    const res = voidRes as { ok?: boolean; error?: string };
-    if (!res?.ok) {
-      fail(
-        employeePaymentError(
-          res?.error,
-          "This payment could not be voided. Refresh and try again.",
-        ),
-      );
-    }
+    console.error("[voidInvoicePayment]", voidRpcErr.code);
+    fail(
+      paymentVoidRpcUnavailable(voidRpcErr.message)
+        ? PAYMENT_VOID_RPC_REQUIRED_MESSAGE
+        : employeePaymentError(
+            voidRpcErr.message,
+            "This payment could not be voided. Refresh and try again.",
+          ),
+    );
+  }
+  const res = voidRes as { ok?: boolean; error?: string };
+  if (!res?.ok) {
+    fail(
+      employeePaymentError(
+        res?.error,
+        "This payment could not be voided. Refresh and try again.",
+      ),
+    );
   }
 
   await recomputeStatus(supabase, invoiceId);
@@ -1584,18 +1568,10 @@ export async function deleteInvoice(formData: FormData): Promise<void> {
     if (!customerId) customerId = (inv.customer_id as string | null) ?? "";
     const jobId = (inv.job_id as string | null) ?? null;
     const status = (inv.status as string) ?? "draft";
-    if (status !== "draft") {
-      fail("Issued invoices cannot be deleted. Void the invoice to cancel it.");
-    }
     const { data: pays } = await admin
       .from("payments")
       .select("id")
       .eq("invoice_id", id);
-    if ((pays ?? []).length) {
-      fail(
-        "This invoice has payment history and can’t be deleted. Void only if unpaid, or keep it for history.",
-      );
-    }
     const [{ data: apps }, { data: depApps }, { data: writeOffs }] =
       await Promise.all([
         admin
@@ -1608,13 +1584,18 @@ export async function deleteInvoice(formData: FormData): Promise<void> {
           .eq("invoice_id", id),
         admin.from("invoice_write_offs").select("id").eq("invoice_id", id),
       ]);
-    if ((apps ?? []).length) {
-      fail("This invoice has credit applications and can’t be deleted. Void instead.");
+    const block = invoiceHardDeleteBlocker({
+      status,
+      paymentCount: (pays ?? []).length,
+      creditApplicationCount: (apps ?? []).length,
+      depositApplicationCount: (depApps ?? []).length,
+      writeOffCount: (writeOffs ?? []).length,
+    });
+    if (block) fail(block.message);
+    const { error: deleteError } = await admin.from("invoices").delete().eq("id", id);
+    if (deleteError) {
+      fail("This invoice was not deleted. Posted financial history stays on the books.");
     }
-    if ((depApps ?? []).length || (writeOffs ?? []).length) {
-      fail("This invoice has deposits or write-offs and can’t be deleted. Void instead.");
-    }
-    await admin.from("invoices").delete().eq("id", id);
     if (jobId) revalidatePath(`/jobs/${jobId}`);
   }
 

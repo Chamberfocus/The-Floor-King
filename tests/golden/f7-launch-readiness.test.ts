@@ -38,14 +38,17 @@ const inventoryPage = readFileSync(
   "utf8",
 );
 const poStock = readFileSync(join(ROOT, "src/lib/po-stock.ts"), "utf8");
-const arch = join(ROOT, "FLOOR_KING_F7_LAUNCH_ARCHITECTURE.md");
-const results = join(ROOT, "FLOOR_KING_F7_LAUNCH_RESULTS.md");
 const verifier = join(ROOT, "scripts/verify-f7-launch-production.mjs");
 
 describe("F7 launch — architecture docs", () => {
-  it("1. architecture + results docs exist", () => {
-    expect(existsSync(arch)).toBe(true);
-    expect(existsSync(results)).toBe(true);
+  it("1. launch verifier exists and posting stays off in the control migration", () => {
+    expect(existsSync(verifier)).toBe(true);
+    const control = readFileSync(
+      join(ROOT, "supabase/migrations/0177_f6_p5_financial_reporting_control_center.sql"),
+      "utf8",
+    );
+    expect(control).toMatch(/Posting stays OFF/i);
+    expect(control).toContain("External books remain official");
   });
 
   it("2. production verifier exists and is read-only", () => {
@@ -214,9 +217,13 @@ describe("F7 duplicates", () => {
 });
 
 describe("F7 accounting safety markers", () => {
-  it("20. architecture docs do not enable posting", () => {
-    const a = readFileSync(arch, "utf8");
-    expect(a).toMatch(/posting flags OFF|posting_enabled.*false/i);
-    expect(a).toContain("NOT CONFIRMED");
+  it("20. control migration does not enable posting", () => {
+    const a = readFileSync(
+      join(ROOT, "supabase/migrations/0177_f6_p5_financial_reporting_control_center.sql"),
+      "utf8",
+    );
+    expect(a).toMatch(/Posting stays OFF/i);
+    expect(a).toContain("Does NOT enable posting");
+    expect(a).not.toMatch(/set\s+posting_enabled\s*=\s*true/i);
   });
 });

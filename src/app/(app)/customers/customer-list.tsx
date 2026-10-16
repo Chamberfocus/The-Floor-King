@@ -22,6 +22,7 @@ import {
   STAGE_COLOR_BADGE,
   inferStageDuty,
   type Customer,
+  type WorkflowStageOutcome,
 } from "@/lib/types";
 import type { QuickAction } from "@/lib/preferences";
 import type { CustomerRowContext } from "@/lib/data/customers";
@@ -41,6 +42,7 @@ export interface ListShared {
     position: number;
     auto_action: string | null;
     owner_duty: string | null;
+    outcome: WorkflowStageOutcome | null;
   }[];
   members: { id: string; name: string; title: string | null; role: string }[];
   reps: { id: string; name: string }[];
@@ -78,7 +80,7 @@ function quickProps(
 
   return {
     customerId: c.id,
-    stages: shared.stages.map((s) => ({ id: s.id, name: s.name })),
+    stages: shared.stages.map((s) => ({ id: s.id, name: s.name, outcome: s.outcome })),
     currentStageId: c.workflow_stage_id ?? null,
     currentStageName: stage?.name ?? null,
     currentOwnerId: c.workflow_owner_id ?? null,

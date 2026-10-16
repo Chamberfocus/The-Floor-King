@@ -10,24 +10,18 @@
  *           and those cancelled jobs release stock through releaseJobReservations.
  *           A job in progress or already completed stays, and so does its stock.
  *
- * Stage display names still classify lost/park until workflow_stages has a
- * stable outcome column. Do not add that column in this phase.
- *
- * Next phase (not this migration): workflow_stages.outcome text, null or one
- * of active, won, lost, parked. Display name stays freely editable. Business
- * logic reads outcome. While outcome is null, keep the name fallback so
- * existing shops do not change behavior the day the column appears. Backfill
- * lost from stageNameMeansLost and parked from stageNameMeansParked. Leave
- * every other stage null (treated as active). Do not overload outcome for
- * "installed" or "follow" — those are pipeline steps, not terminal outcomes.
- * Install, follow-up, balance, and materials keep needing an explicit
- * auto_action or milestone, because a renamed display label must not move them.
+ * workflow_stages.outcome is the Lost/Parked authority (migration 0487).
+ * Display names stay editable. An explicit outcome always beats the label.
+ * Null outcome still uses the old name rules, only so a row that has not been
+ * backfilled keeps today's behavior. active and won are neither Lost nor Parked.
+ * installed, follow-up, balance, and materials are not outcomes. They still
+ * need a milestone. Do not infer them from the label here.
  */
 import { customerIsArchived } from "@/lib/customer-operational";
 
 export type JobLifecycleEffect = "keep" | "cancel";
 
-/** Same words the pipeline already uses. One copy, not one regex per page. */
+/** Same words the pipeline already uses. Name fallback only. Not the authority. */
 export function stageNameMeansLost(name: string | null | undefined): boolean {
   return /lost|declin|dead|cancel/i.test(name ?? "");
 }
@@ -36,6 +30,106 @@ export function stageNameMeansParked(name: string | null | undefined): boolean {
   const n = (name ?? "").toLowerCase();
   if (/material|deliver/.test(n)) return false;
   return /\bwaiting\b|\bon hold\b|\bhold\b|\bpark/.test(n);
+}
+
+/** Stable business outcome on workflow_stages. won is accepted and unused by Lost/Parked. */
+export type WorkflowStageOutcome = "active" | "won" | "lost" | "parked";
+
+export interface StageSemantics {
+  name?: string | null;
+  outcome?: WorkflowStageOutcome | null;
+  position?: number | null;
+}
+
+/**
+ * Lost when the stage says so. A stored outcome wins over the display name.
+ * Null outcome keeps the historical name rule until that row is classified.
+ */
+export function stageIsLost(stage: StageSemantics | null | undefined): boolean {
+  if (!stage) return false;
+  if (stage.outcome === "lost") return true;
+  if (
+    stage.outcome === "active" ||
+    stage.outcome === "won" ||
+    stage.outcome === "parked"
+  ) {
+    return false;
+  }
+  if (stage.outcome != null) return false;
+  return stageNameMeansLost(stage.name);
+}
+
+/**
+ * Parked when the stage says so. Lost, active, and won are not parked.
+ * A materials label is not a parked sale when outcome is still null — the
+ * name rule already excludes material and delivery. An explicit active
+ * outcome stays on the spine even if the new label says "waiting".
+ */
+export function stageIsParked(stage: StageSemantics | null | undefined): boolean {
+  if (!stage) return false;
+  if (stage.outcome === "parked") return true;
+  if (
+    stage.outcome === "active" ||
+    stage.outcome === "won" ||
+    stage.outcome === "lost"
+  ) {
+    return false;
+  }
+  if (stage.outcome != null) return false;
+  return stageNameMeansParked(stage.name);
+}
+
+function byPosition<T extends StageSemantics>(stages: readonly T[]): T[] {
+  return [...stages].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+}
+
+/**
+ * Where a declined estimate moves. Explicit outcome=lost wins, lowest
+ * position first. A null outcome may still match the historical decline
+ * label /lost|declin/. That matcher is narrower than stageNameMeansLost
+ * (it does not treat "dead" or "cancel" as the decline destination).
+ */
+export function selectDeclineStage<T extends StageSemantics>(
+  stages: readonly T[],
+): T | null {
+  const ordered = byPosition(stages);
+  const explicit = ordered.find((s) => s.outcome === "lost");
+  if (explicit) return explicit;
+  return (
+    ordered.find(
+      (s) => s.outcome == null && /lost|declin/i.test(s.name ?? ""),
+    ) ?? null
+  );
+}
+
+/**
+ * Where resync places a legacy customers.stage = lost row.
+ * Explicit outcome=lost first. A null outcome may still match the full
+ * historical Lost name rule. An active stage whose label contains "lost"
+ * is not this destination.
+ */
+export function selectLostPlacementStage<T extends StageSemantics>(
+  stages: readonly T[],
+): T | null {
+  const ordered = byPosition(stages);
+  const explicit = ordered.find((s) => s.outcome === "lost");
+  if (explicit) return explicit;
+  return (
+    ordered.find((s) => s.outcome == null && stageNameMeansLost(s.name)) ?? null
+  );
+}
+
+/**
+ * Classification migration 0487 writes. Lost name, else parked name, else
+ * active. Never won. Mirrors the SQL case so a rename of the rule has one
+ * TypeScript twin to test against.
+ */
+export function backfillOutcomeFromCurrentName(
+  name: string | null | undefined,
+): Exclude<WorkflowStageOutcome, "won"> {
+  if (stageNameMeansLost(name)) return "lost";
+  if (stageNameMeansParked(name)) return "parked";
+  return "active";
 }
 
 export function decideArchive(

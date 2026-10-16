@@ -1,3 +1,7 @@
+import type { WorkflowStageOutcome } from "@/lib/customer-lifecycle";
+
+export type { WorkflowStageOutcome };
+
 /** Roles that govern what a signed-in user can see and do. */
 export type UserRole =
   | "admin"
@@ -1847,6 +1851,8 @@ export interface WorkflowStage {
   default_owner: string | null;
   owner_duty: string | null; // which duty owns this stage (scopes the owner picker); null = anyone
   auto_action: StageAutoAction;
+  /** Lost/Parked authority. Null only before backfill. Labels do not write this. */
+  outcome: WorkflowStageOutcome | null;
   next_action: string | null;
   sla_hours: number;
   created_at: string;

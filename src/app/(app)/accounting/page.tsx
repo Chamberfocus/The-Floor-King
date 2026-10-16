@@ -284,14 +284,16 @@ export default async function AccountingControlCenterPage() {
         >
           <h2 className="font-medium">Admin settings</h2>
           <p className="text-xs text-muted-foreground">
-            Books-of-record remains gated (openings + accountant validation).
-            Do not enable posting casually.
+            Posting and books of record stay off while QuickBooks is the
+            official ledger. This release does not enable accounting posting.
+            Saving cash method or cutover date does not change those flags.
           </p>
           <label className="flex items-center gap-2">
             <input
               type="checkbox"
               name="posting_enabled"
               defaultChecked={settings.posting_enabled}
+              disabled
             />
             Master: Enable automatic event posting (after cutover validation)
           </label>
@@ -308,7 +310,7 @@ export default async function AccountingControlCenterPage() {
               ] as const
             ).map(([name, label, checked]) => (
               <label key={name} className="flex items-center gap-2">
-                <input type="checkbox" name={name} defaultChecked={checked} />
+                <input type="checkbox" name={name} defaultChecked={checked} disabled />
                 {label}
               </label>
             ))}
@@ -318,6 +320,7 @@ export default async function AccountingControlCenterPage() {
               type="checkbox"
               name="inventory_posting_enabled"
               defaultChecked={settings.inventory_posting_enabled}
+              disabled
             />
             Enable perpetual inventory ledger posting
           </label>
@@ -326,6 +329,7 @@ export default async function AccountingControlCenterPage() {
               type="checkbox"
               name="books_of_record"
               defaultChecked={settings.books_of_record}
+              disabled
             />
             Mark as books of record (gated)
           </label>

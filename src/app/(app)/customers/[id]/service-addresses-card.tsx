@@ -87,7 +87,7 @@ export function ServiceAddressesCard({
                         className="h-9"
                       />
                     </div>
-                    <AddressFields defaults={a} />
+                    <AddressFields defaults={a} idPrefix={`sa-${a.id}`} />
                     <div>
                       <Label className="text-xs">Notes</Label>
                       <Input
@@ -121,7 +121,7 @@ export function ServiceAddressesCard({
                 className="h-9"
               />
             </div>
-            <AddressFields />
+            <AddressFields idPrefix="sa-new" />
             <div>
               <Label className="text-xs">Notes (optional)</Label>
               <Input

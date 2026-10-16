@@ -1,4 +1,4 @@
-import { stageNameMeansLost, stageNameMeansParked } from "@/lib/customer-lifecycle";
+import { stageIsLost, stageIsParked, type WorkflowStageOutcome } from "@/lib/customer-lifecycle";
 
 // The ONE shared model of "where is this job in the flow + is this step's action
 // done." Built on the EXISTING pipeline (customers.workflow_stage_id) — this does
@@ -53,13 +53,14 @@ export interface StageLike {
   name: string;
   position: number;
   auto_action?: string | null;
+  outcome?: WorkflowStageOutcome | null;
 }
 
-/** Off-ramp (dead deal) — outside the linear spine. */
-export const isLostStage = (s: { name: string }) => stageNameMeansLost(s.name);
+/** Off-ramp (dead deal) — outside the linear spine. Outcome wins over the label. */
+export const isLostStage = (s: StageLike) => stageIsLost(s);
 /** On-hold park stage — reachable any time, not a numbered step. */
-export const isParkStage = (s: { name: string }) => stageNameMeansParked(s.name);
-export const isOffSpine = (s: { name: string }) => isLostStage(s) || isParkStage(s);
+export const isParkStage = (s: StageLike) => stageIsParked(s);
+export const isOffSpine = (s: StageLike) => isLostStage(s) || isParkStage(s);
 
 /** Human title per step — shared so every surface labels it identically. */
 export const STEP_TITLES: Record<FlowStep, string> = {

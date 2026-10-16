@@ -11,7 +11,7 @@ import { workUnitsFor, type WorkUnit } from "@/lib/work-stage";
 import { listWorkflowStages } from "@/lib/data/workflow";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { stageNameMeansLost } from "@/lib/customer-lifecycle";
+import { stageIsLost } from "@/lib/customer-lifecycle";
 
 export const metadata: Metadata = { title: "Client status" };
 export const dynamic = "force-dynamic";
@@ -56,16 +56,20 @@ const LANES: {
 /**
  * The thirteen stages fold into six lanes by POSITION, so a renamed stage or a
  * new one inserted in the middle lands in the right lane without a code change.
- * Off-spine stages (Lost / Declined) are matched by name, as everywhere else.
+ * Lost is the stable outcome. "Closed" is still a display-name filter.
  */
-function laneFor(stageName: string, position: number): LaneKey | null {
-  if (stageNameMeansLost(stageName)) return null;
-  if (/closed/i.test(stageName)) return null;
-  if (position < 30) return "new";
-  if (position < 50) return "quoting";
-  if (position < 65) return "out";
-  if (position < 105) return "won";
-  if (position < 110) return "onsite";
+function laneFor(stage: {
+  name: string;
+  position: number;
+  outcome?: "active" | "won" | "lost" | "parked" | null;
+}): LaneKey | null {
+  if (stageIsLost(stage)) return null;
+  if (/closed/i.test(stage.name)) return null;
+  if (stage.position < 30) return "new";
+  if (stage.position < 50) return "quoting";
+  if (stage.position < 65) return "out";
+  if (stage.position < 105) return "won";
+  if (stage.position < 110) return "onsite";
   return "paying";
 }
 
@@ -132,7 +136,7 @@ export default async function ClientStatusPage({
       unstaged++;
       continue;
     }
-    const lane = laneFor(st.name, st.position);
+    const lane = laneFor(st);
     if (!lane) {
       closed++;
       continue;

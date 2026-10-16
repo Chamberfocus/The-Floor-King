@@ -196,6 +196,27 @@ describe("buildJobLineSeedRows — copy estimate → job without mutating estima
     expect(rows[0].job_id).toBe("job-1");
     expect(rows[1].id).toBe("line-b");
     expect("job_id" in lines[0]).toBe(false);
+    expect("line_total" in rows[0]).toBe(false);
+  });
+
+  it("drops snapshot money fields that are not job-line columns", () => {
+    const rows = buildJobLineSeedRows(
+      [
+        estLine({
+          id: "line-a",
+          line_type: "mat_labor",
+          category: "carpet",
+          unit: "sq yd",
+          sqft: 240,
+          description: "Carpet",
+        }) as object,
+      ].map((line) => ({ ...line, line_total: 1408, markup: 80, gross_profit: 600 })),
+      "job-1",
+    );
+    expect(rows[0].job_id).toBe("job-1");
+    expect(rows[0]).not.toHaveProperty("line_total");
+    expect(rows[0]).not.toHaveProperty("markup");
+    expect(rows[0]).not.toHaveProperty("gross_profit");
   });
 
   it("second seed gate blocks overwrite of operational edits", () => {

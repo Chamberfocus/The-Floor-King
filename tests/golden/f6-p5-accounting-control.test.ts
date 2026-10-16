@@ -67,8 +67,6 @@ const MIG_DIR = join(ROOT, "supabase/migrations");
 const MIG_NAME = "0177_f6_p5_financial_reporting_control_center.sql";
 const MIG_PATH = join(MIG_DIR, MIG_NAME);
 const sql177 = readFileSync(MIG_PATH, "utf8");
-const archDoc = join(ROOT, "FLOOR_KING_F6_P5_ACCOUNTING_ARCHITECTURE.md");
-
 const cash: GlAccountLike = {
   id: "cash",
   code: "1000",
@@ -236,12 +234,11 @@ describe("F6-P5 migration file + markers", () => {
     expect(existsSync(join(MIG_DIR, "0178_f6_p6.sql"))).toBe(false);
   });
 
-  it("16. architecture doc exists", () => {
-    expect(existsSync(archDoc)).toBe(true);
-    const body = readFileSync(archDoc, "utf8");
-    expect(body).toContain("F6-P5");
-    expect(body).toContain("0177");
-    expect(body).toContain("verify-f6-p5-production.mjs");
+  it("16. reporting control lives in the migration and read-only verifier", () => {
+    expect(existsSync(join(MIG_DIR, "0177_f6_p5_financial_reporting_control_center.sql"))).toBe(true);
+    expect(sql177).toContain("F6-P5");
+    expect(sql177).toContain("Posting stays OFF");
+    expect(existsSync(join(ROOT, "scripts/verify-f6-p5-production.mjs"))).toBe(true);
   });
 
   it("17. period close/reopen reason columns", () => {
@@ -1321,15 +1318,12 @@ describe("F6-P5 control center constants", () => {
     expect(ACCT_FINANCE_GATE).toBe("acct_report_require_finance");
   });
 
-  it("110. architecture doc names reporting contract", () => {
-    const body = readFileSync(archDoc, "utf8");
-    expect(body).toContain("ACCOUNTING SOURCE");
-    expect(body).toContain("OPERATIONAL SOURCE");
-    expect(body).toContain("Warehouse");
-    expect(body).toContain("HISTORICAL AR POLICY");
-    expect(body).toContain("HISTORICAL AP POLICY");
-    expect(body).toContain("RETAINED EARNINGS / FY POLICY");
-    expect(body).toContain("TRIAL BALANCE PERIOD CONTRACT");
+  it("110. migration names the reporting contract", () => {
+    expect(sql177).toContain("unclosed_earnings");
+    expect(sql177).toContain("HISTORICAL_COMMERCIAL_UNSUPPORTED");
+    expect(sql177).toContain("equity_reported = equity_accounts(as_of) + unclosed_earnings(as_of)");
+    expect(sql177).toMatch(/trial balance|Trial Balance/i);
+    expect(sql177).toContain("Warehouse");
   });
 });
 
@@ -1709,11 +1703,10 @@ describe("F6-P5 accuracy correction — TB / P&L / BS / ACL / errors", () => {
     expect(sql177).not.toMatch(/exception\s+when\s+others\s+then[\s\S]{0,80}:=\s*0/i);
   });
 
-  it("149. architecture documents RE / historical AR policies", () => {
-    const arch = readFileSync(archDoc, "utf8");
-    expect(arch).toContain("unclosed_earnings");
-    expect(arch).toContain("HISTORICAL_COMMERCIAL_UNSUPPORTED");
-    expect(arch).toContain("approval_snapshot");
+  it("149. migration documents RE / historical AR policies", () => {
+    expect(sql177).toContain("unclosed_earnings");
+    expect(sql177).toContain("HISTORICAL_COMMERCIAL_UNSUPPORTED");
+    expect(sql177).toContain("approval_snapshot");
   });
 
   it("150. replacement/supplemental flows retain per-invoice commercial", () => {

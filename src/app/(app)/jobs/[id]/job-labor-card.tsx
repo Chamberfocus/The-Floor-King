@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Trash2, Check, Plus } from "lucide-react";
+import { Check, Plus } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -9,13 +9,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ConfirmButton } from "@/components/ui/confirm-button";
 import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/ui/date-field";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { formatMoney } from "@/lib/format";
 import { LABOR_BASIS_LABELS, type JobLabor, type LaborBasis } from "@/lib/types";
-import { addJobLabor, toggleJobLaborPaid, deleteJobLabor } from "../actions";
+import { addJobLabor, toggleJobLaborPaid } from "../actions";
 
 export function JobLaborCard({
   jobId,
@@ -111,21 +110,6 @@ export function JobLaborCard({
                   >
                     <Check className="size-4" />
                   </Button>
-                </form>
-                <form action={deleteJobLabor}>
-                  <input type="hidden" name="id" value={r.id} />
-                  <input type="hidden" name="job_id" value={jobId} />
-                  <ConfirmButton
-                    size="sm"
-                    variant="ghost"
-                    aria-label="Remove"
-                    title={`Delete the ${formatMoney(r.amount)} pay line for ${r.payee || "this crew"}?`}
-                    description="This removes the payout record from the job. This can't be undone."
-                    confirmLabel="Delete pay line"
-                    destructive
-                  >
-                    <Trash2 className="size-4 text-destructive" />
-                  </ConfirmButton>
                 </form>
               </div>
             ))}

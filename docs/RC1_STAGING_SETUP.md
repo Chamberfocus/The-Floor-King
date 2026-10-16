@@ -1,0 +1,124 @@
+# RC1 staging database setup
+
+This prepares an automated apply for draft PR #72. It does not apply SQL, connect to a database, change Vercel, or merge the pull request.
+
+Production project ref: `ayqcaloqsklvskkudvbs`. That ref is refused wherever it appears.
+Staging project ref: `lsrapxmkspocxeeakkcx`. Apply and prove run only when the URL is the direct host `db.lsrapxmkspocxeeakkcx.supabase.co` or the session pooler for user `postgres.lsrapxmkspocxeeakkcx` on port 5432, a second authorization is present, and the connected server address matches public DNS for the direct host. Port 6543 is refused.
+
+`supabase_migrations.schema_migrations` is not the apply history. SQL Editor runs are not the apply history. The only resume record is `public.floor_king_migration_inventory`, and only `apply` writes it.
+
+## Readiness
+
+The 489 files from `0001_init.sql` through `0492_accounting_outbox_posts_journals.sql` can be applied to an empty Supabase project in filename order. Filename order does not go backwards. The bundle sha256 of `filename:sha256` lines is `29ba8421528c64d1275f48e14e59c13f1aad2e65735da4dec807b47a7665ad81`.
+
+They cannot be applied to vanilla PostgreSQL. `0001_init.sql` references `auth.users` and creates a trigger on it. Later files reference `auth.uid()`, `auth.jwt()`, `storage.buckets`, and `storage.objects`, and they grant to `anon`, `authenticated`, and `service_role`.
+
+An empty database is one where `profiles`, `customers`, `jobs`, `invoices`, and `workflow_stages` are all absent and both `floor_king_database_identity` and `floor_king_migration_inventory` are absent. `apply` seals the identity and creates the inventory table, then runs every file.
+
+A database that already has one of those tables and does not have both records is partial and untracked. `apply` refuses it. SQL Editor history cannot be reconstructed. Use a new empty database on `lsrapxmkspocxeeakkcx`.
+
+Before each file, `apply` commits an inventory row with status `applying`. It sets that row to `applied` only after `psql` exits 0. A failed file is never marked applied. `psql` is started with `ON_ERROR_STOP=1`, and the runner exits on the first non-zero status, so later files do not start.
+
+A file wrapped in `psql -1` rolls back when it fails. The runner then deletes that file's `applying` row, so the same file can be tried again. A file that contains its own `BEGIN` and `COMMIT`, and a file that adds an enum value, can leave committed work behind after an error or a crash. Those rows stay `applying`. The next run refuses to continue. Use a new empty staging database.
+
+When every recorded row is `applied`, `apply` skips a file whose sha256 still matches, refuses a recorded hash that differs, and refuses a gap where a later file is recorded and an earlier file is not. Each file is therefore applied once, in filename order.
+
+## Execution shape
+
+| Mode | Files | How `apply` runs them |
+| --- | ---: | --- |
+| single-transaction | 197 | `psql -1` so a failure rolls the file back |
+| file-managed (`begin;` / `commit;` in the file) | 288 | no extra `-1`, so the file's own `commit` is the boundary |
+| autocommit (`ALTER TYPE ... ADD VALUE`) | 4 | no extra `-1` |
+
+The four autocommit files are `0010_installer_warehouse.sql`, `0017_roles_scoping.sql`, `0059_installer_pickup.sql`, and `0113_po_numbers_vendors.sql`. They compare new enum values as text. Wrapping them in an outer transaction is unnecessary and is not done.
+
+No file uses `CREATE INDEX CONCURRENTLY` or `VACUUM`. No file contains `DROP TABLE`. Seven files contain `DELETE` text. Six of those deletes live inside functions (`0155`, `0172`, `0173`, `0174`, `0175`, `0482`) and do not run during apply. `0077_padding_combine.sql` deletes estimate questions by id; on an empty database that matches zero rows. Three hundred files update `public.estimate_questions` by id. On a clean database those updates change zero rows. Guided-estimate question content will not match production. Do not copy production rows to fill those ids.
+
+The runner applies every SQL file that exists. Numbers `0185`, `0188`, and `0480` are not in the repository, so they are not skipped files.
+
+Extensions named in SQL are `pg_trgm` and `btree_gist`, both `create extension if not exists`. Supabase provides both. Five files mention them.
+
+## Beyond the SQL files
+
+Auth is a Supabase platform schema, not something these files create. The project must already have `auth.users`. After the schema is applied, create synthetic staff users in the staging Auth dashboard. Do not import production users.
+
+Storage buckets `documents` (private) and `branding` (public) are inserted by `0019_documents.sql` and `0026_branding.sql`. The `job-files` bucket is not inserted by SQL. `0008_job_files.sql` states it must exist before photo and signature uploads. Create that bucket in the staging dashboard before those uploads. The storage policies themselves are in the SQL.
+
+No other extension is required by the migration files.
+
+## Commands
+
+Dry-run, no connection:
+
+```bash
+npm run staging:dry-run
+```
+
+Gate check, no connection:
+
+```bash
+STAGING_DATABASE_URL='postgresql://postgres:PASSWORD@db.lsrapxmkspocxeeakkcx.supabase.co:5432/postgres' \
+node scripts/staging-migrate.mjs check-gates
+```
+
+`check-gates` does not connect. The session pooler is accepted only for user `postgres.lsrapxmkspocxeeakkcx` on port 5432. Port 6543 is refused. The direct user is `postgres`.
+
+Read-only inventory connects, compares `inet_server_addr()` with public DNS, and writes nothing:
+
+```bash
+STAGING_DATABASE_URL='postgresql://postgres:PASSWORD@db.lsrapxmkspocxeeakkcx.supabase.co:5432/postgres' \
+node scripts/staging-migrate.mjs inventory
+```
+
+The password is passed to `psql` as `PGPASSWORD`, not on the command line, and it is removed from any `psql` output the runner prints. Do not write it into `.env.local` or Vercel.
+
+Apply is a separate authorization. Do not run it until inventory reports `Server identity: SERVER_IS_STAGING` and `Database state: empty`.
+
+```bash
+STAGING_DATABASE_URL='postgresql://postgres:PASSWORD@db.lsrapxmkspocxeeakkcx.supabase.co:5432/postgres' \
+FLOOR_KING_STAGING_APPLY=lsrapxmkspocxeeakkcx \
+node scripts/staging-migrate.mjs apply --authorize-staging-apply
+```
+
+Then the same two variables, with `prove` instead of `apply`. `scripts/staging/rc1-transaction-tests.sql` checks `floor_king_database_identity` before it inserts any rows, and it ends with `ROLLBACK`. It has no `COMMIT`.
+
+```bash
+STAGING_DATABASE_URL='postgresql://postgres:PASSWORD@db.lsrapxmkspocxeeakkcx.supabase.co:5432/postgres' \
+FLOOR_KING_STAGING_APPLY=lsrapxmkspocxeeakkcx \
+node scripts/staging-migrate.mjs prove --authorize-staging-apply
+```
+
+`psql` must be installed on the machine that runs `inventory`, `apply`, or `prove`. Dry-run and check-gates do not need it.
+
+## Database tests
+
+`prove` refuses the file unless it ends with `ROLLBACK`, names the identity seal, and contains no `COMMIT`. The runner also repeats the server-identity check and requires the sealed project ref to be `lsrapxmkspocxeeakkcx` before it starts the file. The script then inserts fictional customers, jobs, invoices, payments, labor, and purchase orders. It sets `request.jwt.claims` to `{"role":"service_role"}` so the accounting role gate can see a service-role request. If that setting is not visible to `auth.jwt()`, the assertion fails and the open transaction rolls back.
+
+| Migration | What the test requires |
+| --- | --- |
+| 0487 | A stage named `RC1 install follow-up` with outcome `lost` stays `lost`. Outcome `nope` is rejected. |
+| 0488 | A sent invoice delete raises `POSTED_INVOICE`. A bare draft invoice can be deleted. A draft with a payment raises `PAYMENT_HISTORY`. A payment delete raises `PAYMENT_HISTORY`. |
+| 0489 | A completed job returns `JOB_COMPLETED` and stays completed. A job with no reservation becomes `cancelled`. A reservation whose release key was already used raises `RESERVATION_RELEASE_FAILED` and the job stays `unscheduled`. |
+| 0490 | Deleting a labor row, or the unscheduled job that owns it, raises `JOB_FINANCIAL_HISTORY`. |
+| 0491 | Receiving a valid first line and an over-quantity second line raises `INV_OVER_RECEIVE` or `PO_RECEIVE_FAILED` and leaves no `stock_movements` for that purchase order. An in-range receive posts a movement and leaves the purchase order `ordered`. |
+
+## Shortest later procedure
+
+1. In the Supabase dashboard, confirm the open project ref is `lsrapxmkspocxeeakkcx`.
+2. Use a new empty database on that project. If tables already exist and `floor_king_migration_inventory` does not, stop.
+3. Confirm Auth is enabled. Create the `job-files` storage bucket. Leave `documents` and `branding` to the SQL files.
+4. Export the staging connection string as `STAGING_DATABASE_URL` in that shell. Use the session pooler (`postgres.lsrapxmkspocxeeakkcx` at `aws-0-us-east-1.pooler.supabase.com` port 5432) when the machine has no IPv6. The direct host remains `db.lsrapxmkspocxeeakkcx.supabase.co`.
+5. Run `npm run staging:dry-run`, then `node scripts/staging-migrate.mjs inventory`. Inventory must report `SERVER_IS_STAGING` and `Database state: empty`.
+6. After a separate approval, run the `apply` command above, then `prove`.
+7. Create synthetic staff users in staging Auth. Point a local app at the staging keys. Leave the existing Preview deployment unused until its Supabase URL is proven to be `lsrapxmkspocxeeakkcx`.
+
+## Complexity
+
+One supervised pass of 489 files. The runner stops on the first error and does not mark that file applied. A later run skips files whose inventory sha256 still matches. It refuses to continue when any row is still `applying`. The long files are the flooring-knowledge series and `0481_job_true_up.sql`. This is one ordered `psql` pass, not 489 manual pastes.
+
+## What has already run
+
+Dry-run does not connect. `apply` has not replayed this bundle, and `prove` has not been run through the runner. Production was not used. Vercel was not changed. PR #72 was not merged.
+
+`0492_accounting_outbox_posts_journals.sql` is now in `floor_king_migration_inventory` on staging `lsrapxmkspocxeeakkcx`. The runner skipped the 488 earlier files, whose sha256 values still matched, and recorded `0492` as applied. Inventory is 489 applied rows and 0 applying. The function bodies match the file. `posting_enabled` and `books_of_record` stayed false. Do not insert an inventory row by hand. A later recorded file with an earlier file missing is a gap, and the runner refuses it. This staging database is not empty, so do not run `apply` against it as an empty-database load.

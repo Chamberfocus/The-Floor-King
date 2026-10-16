@@ -136,10 +136,10 @@ export default async function EstimatePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ print?: string; preview?: string; approval_error?: string; invoice_error?: string; job_error?: string; notify?: string; notify_detail?: string }>;
+  searchParams: Promise<{ print?: string; preview?: string; approval_error?: string; invoice_error?: string; job_error?: string; delete_error?: string; undo?: string; why?: string; notify?: string; notify_detail?: string }>;
 }) {
   const { id } = await params;
-  const { print, preview: previewParam, approval_error: approvalError, invoice_error: invoiceError, job_error: jobError, notify, notify_detail: notifyDetail } = await searchParams;
+  const { print, preview: previewParam, approval_error: approvalError, invoice_error: invoiceError, job_error: jobError, delete_error: deleteError, undo, why, notify, notify_detail: notifyDetail } = await searchParams;
   const preview = previewParam === "1";
   const estimate = await getEstimate(id);
   if (!estimate) notFound();
@@ -346,6 +346,21 @@ export default async function EstimatePage({
         {jobError ? (
           <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
             {jobError}
+          </p>
+        ) : null}
+        {deleteError ? (
+          <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            {deleteError}
+          </p>
+        ) : null}
+        {undo === "blocked" ? (
+          <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            {why || "This approval was not undone."}
+          </p>
+        ) : null}
+        {undo === "ok" ? (
+          <p className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
+            Approval undone. The estimate is back to Sent.
           </p>
         ) : null}
         {invoiceError ? (
@@ -901,7 +916,7 @@ export default async function EstimatePage({
                 variant="outline"
                 size="sm"
                 title="Undo this approval?"
-                description="Puts the estimate back to Sent, removes the job it created, deletes any draft purchase orders and releases reserved material. The customer goes back to Awaiting Customer Response. Refuses if the job has already been invoiced, scheduled, or had material received."
+                description="Puts a bare approval back to Sent, removes the draft job it created, and releases reserved material. Refuses when an invoice, payment, labor bill, scheduled install, or received material already exists."
                 confirmLabel="Undo approval"
               >
                 Undo approval

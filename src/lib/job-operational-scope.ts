@@ -35,11 +35,22 @@ export function shouldSeedJobScope(existingJobLineCount: number): boolean {
  * Preserves estimate line UUIDs so stock_movements / PO links that already key
  * off those ids stay coherent for newly seeded jobs.
  */
+/** Commercial snapshot fields that are not columns on job_line_items. */
+const SNAPSHOT_ONLY_LINE_KEYS = new Set(["line_total", "markup", "gross_profit"]);
+
 export function buildJobLineSeedRows<T extends object>(
   estimateLines: T[],
   jobId: string,
 ): Array<T & { job_id: string }> {
-  return estimateLines.map((l) => ({ ...l, job_id: jobId }));
+  return estimateLines.map((line) => {
+    const row: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(line)) {
+      if (SNAPSHOT_ONLY_LINE_KEYS.has(key)) continue;
+      row[key] = value;
+    }
+    row.job_id = jobId;
+    return row as T & { job_id: string };
+  });
 }
 
 /**
