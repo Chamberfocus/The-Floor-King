@@ -29,6 +29,7 @@ export const OFFICE_ORDER_QUEUE_HINT = {
   receivedWaiting: "CUSTOMER ORDER RECEIVED / WAITING ON WAREHOUSE",
   verified: "WAREHOUSE VERIFIED — READY FOR APPROVAL",
   shortage: "MATERIAL SHORTAGE",
+  invoiced: "INVOICE ON THIS CUSTOMER",
 } as const;
 
 export const WAREHOUSE_ORDER_QUEUE_HINT = {
@@ -145,8 +146,10 @@ export function officeWarehouseStockBanner(stockStatus: OrderStockStatus): {
 export function officeCustomerOrderQueueHint(args: {
   status: string | null | undefined;
   stockStatus: string | null | undefined;
+  invoiceId?: string | null;
 }): string | null {
   if (args.status !== "submitted") return null;
+  if (args.invoiceId) return OFFICE_ORDER_QUEUE_HINT.invoiced;
   if (isUnknownStock(args.stockStatus)) {
     return OFFICE_ORDER_QUEUE_HINT.receivedWaiting;
   }
@@ -154,6 +157,21 @@ export function officeCustomerOrderQueueHint(args: {
     return OFFICE_ORDER_QUEUE_HINT.verified;
   }
   return OFFICE_ORDER_QUEUE_HINT.shortage;
+}
+
+/**
+ * Where a customer-order row opens.
+ * An invoice opens that invoice. Otherwise the order opens its customer.
+ * An order with no customer yet stays on the orders list, focused.
+ */
+export function customerOrderOpenHref(args: {
+  orderId: string;
+  customerId?: string | null;
+  invoiceId?: string | null;
+}): string {
+  if (args.invoiceId) return `/invoices/${args.invoiceId}`;
+  if (args.customerId) return `/customers/${args.customerId}`;
+  return `/orders?focus=${encodeURIComponent(args.orderId)}`;
 }
 
 export function warehouseCustomerOrderQueueHint(args: {

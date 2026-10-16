@@ -22,6 +22,8 @@ import {
 import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
+import { createClient } from "@/lib/supabase/server";
+import { placeInStockOrdersOnCustomerInvoices } from "@/lib/data/order-invoice";
 import { getDashboardCounts, listMyQueue } from "@/lib/data/customers";
 import { getTodayTasks } from "@/lib/data/day-tasks";
 import { listMyOfficeTasks } from "@/lib/data/ops-glue";
@@ -45,6 +47,10 @@ export const dynamic = "force-dynamic";
 export default async function DashboardPage() {
   const profile = await requireProfile();
   if (!["admin", "office", "sales_manager"].includes(profile.role)) redirect("/");
+  if (profile.role === "admin" || profile.role === "office") {
+    const db = await createClient();
+    await placeInStockOrdersOnCustomerInvoices(db, profile.id).catch(() => undefined);
+  }
   const counts = await getDashboardCounts();
   const activeJobs = await getActiveJobCount();
   const outstanding = await getOutstandingInvoiceCount();

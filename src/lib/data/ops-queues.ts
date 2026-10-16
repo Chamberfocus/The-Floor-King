@@ -9,6 +9,7 @@ import { classifyInvoiceCollection, hasActiveDepositOnFile } from "@/lib/ops-fol
 import { opsQueueGroup } from "@/lib/job-operational-state";
 import { getJobOperationalStateForJob } from "@/lib/data/job-ops-state";
 import {
+  customerOrderOpenHref,
   officeCustomerOrderQueueHint,
   orderDisplayNumber,
 } from "@/lib/order-warehouse-gates";
@@ -229,7 +230,9 @@ export async function getOpsTodayQueues(): Promise<OpsQueue[]> {
 
   const { data: submittedOrders } = await supabase
     .from("orders")
-    .select("id, status, stock_status, contact_name, customer:customers(full_name, cancelled_at)")
+    .select(
+      "id, status, stock_status, contact_name, customer_id, invoice_id, customer:customers(full_name, cancelled_at)",
+    )
     .eq("status", "submitted")
     .order("created_at", { ascending: false })
     .limit(24);
@@ -238,9 +241,12 @@ export async function getOpsTodayQueues(): Promise<OpsQueue[]> {
     const oid = o.id as string;
     if (seenOrder.has(oid)) continue;
     seenOrder.add(oid);
+    const customerId = (o.customer_id as string | null) ?? null;
+    const invoiceId = (o.invoice_id as string | null) ?? null;
     const hint = officeCustomerOrderQueueHint({
       status: o.status as string,
       stockStatus: o.stock_status as string,
+      invoiceId,
     });
     if (!hint) continue;
     const c = o.customer as unknown as { full_name?: string; cancelled_at?: string | null } | null;
@@ -248,7 +254,7 @@ export async function getOpsTodayQueues(): Promise<OpsQueue[]> {
     customer_order.items.push({
       id: `corder-${oid}`,
       title: c?.full_name || (o.contact_name as string) || orderDisplayNumber(oid),
-      href: "/orders",
+      href: customerOrderOpenHref({ orderId: oid, customerId, invoiceId }),
       hint,
     });
   }

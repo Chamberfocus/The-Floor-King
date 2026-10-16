@@ -39,6 +39,7 @@ import { listEstimateScheduleFacts, listEstimatesForCustomer } from "@/lib/data/
 import { customerSeesCustomerMoney } from "@/lib/customer-record-access";
 import { listJobsForCustomer, listSchedulingJobsForCustomer, getJobSatisfaction } from "@/lib/data/jobs";
 import { listOrdersForCustomer } from "@/lib/data/orders";
+import { placeInStockOrdersOnCustomerInvoices } from "@/lib/data/order-invoice";
 import { isCashCarryJob } from "@/lib/customer-list";
 import { canStageCustomerOrder } from "@/lib/order-warehouse-gates";
 import {
@@ -236,6 +237,12 @@ export default async function CustomerPage({
         : !!(customer.source_detail_id || customer.source_detail_text)));
 
   const seesMoney = customerSeesCustomerMoney(profile.role);
+  if (profile.role === "admin" || profile.role === "office") {
+    const db = await createClient();
+    await placeInStockOrdersOnCustomerInvoices(db, profile.id, id).catch(
+      () => undefined,
+    );
+  }
   const activities = await listActivities(id);
   const estimates = seesMoney
     ? await listEstimatesForCustomer(id)
@@ -1721,12 +1728,20 @@ export default async function CustomerPage({
                     o.status !== "declined" &&
                     !(o.job_id && cashCarryJobIds.has(o.job_id)),
                 )
-                .map((o) => ({
-                  id: o.id,
-                  status: o.status,
-                  createdAt: o.created_at,
-                  jobId: o.job_id,
-                }))}
+                .map((o) => {
+                  const inv = o.invoice_id
+                    ? invoices.find((row) => row.id === o.invoice_id)
+                    : undefined;
+                  return {
+                    id: o.id,
+                    status: o.status,
+                    createdAt: o.created_at,
+                    jobId: o.job_id,
+                    customerId: customer.id,
+                    invoiceId: seesMoney ? o.invoice_id : null,
+                    invoiceNumber: seesMoney ? inv?.number || null : null,
+                  };
+                })}
             />
           </div>
           </TabSection>

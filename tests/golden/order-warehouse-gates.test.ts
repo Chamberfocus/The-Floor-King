@@ -19,6 +19,7 @@ import {
   approvalDoesNotStageCopy,
   canApproveCustomerOrder,
   canStageCustomerOrder,
+  customerOrderOpenHref,
   customerOrderStagingBlockMessage,
   isUnknownStock,
   officeCustomerOrderQueueHint,
@@ -116,6 +117,30 @@ describe("stock / approval / staging gate unit rules", () => {
     expect(
       officeCustomerOrderQueueHint({ status: "submitted", stockStatus: "out_of_stock" }),
     ).toBe(OFFICE_ORDER_QUEUE_HINT.shortage);
+    expect(
+      officeCustomerOrderQueueHint({
+        status: "submitted",
+        stockStatus: "in_stock",
+        invoiceId: "inv-1",
+      }),
+    ).toBe(OFFICE_ORDER_QUEUE_HINT.invoiced);
+    expect(
+      customerOrderOpenHref({
+        orderId: "order-1",
+        customerId: "cust-1",
+        invoiceId: "inv-1",
+      }),
+    ).toBe("/invoices/inv-1");
+    expect(
+      customerOrderOpenHref({
+        orderId: "order-1",
+        customerId: "cust-1",
+        invoiceId: null,
+      }),
+    ).toBe("/customers/cust-1");
+    expect(
+      customerOrderOpenHref({ orderId: "order-1", customerId: null, invoiceId: null }),
+    ).toBe("/orders?focus=order-1");
     expect(
       warehouseCustomerOrderQueueHint({ status: "submitted", stockStatus: "unknown" }),
     ).toBe(WAREHOUSE_ORDER_QUEUE_HINT.stockCheckNeeded);
@@ -329,8 +354,38 @@ describe("tasks / today queues — derived, no new persistent schema", () => {
   it("office dashboard queue is derived from live orders", () => {
     expect(opsQueues).toContain("customer_order");
     expect(opsQueues).toContain("officeCustomerOrderQueueHint");
+    expect(opsQueues).toContain("customerOrderOpenHref");
+    expect(opsQueues).toContain("customer_id");
+    expect(opsQueues).toContain("invoice_id");
     expect(opsQueues).toContain('.eq("status", "submitted")');
+    expect(opsQueues).not.toContain('href: "/orders"');
     expect(opsQueues).not.toContain("ensureAutomatedOfficeTask");
+  });
+
+  it("verified in-stock orders become the customer invoice without a warehouse write", () => {
+    const dashboard = read("src/app/(app)/dashboard/page.tsx");
+    const customerPage = read("src/app/(app)/customers/[id]/page.tsx");
+    const cashCarry = read("src/app/(app)/customers/[id]/cash-carry-card.tsx");
+    expect(dashboard).toContain("placeInStockOrdersOnCustomerInvoices");
+    expect(ordersPage).toContain("placeInStockOrdersOnCustomerInvoices");
+    expect(customerPage).toContain("placeInStockOrdersOnCustomerInvoices");
+    expect(cashCarry).toContain("customerOrderOpenHref");
+    expect(cashCarry).not.toContain('href={`/orders`}');
+    const approve = orderActions.slice(
+      orderActions.indexOf("export async function approveOrder"),
+      orderActions.indexOf("export async function reportOrderStock"),
+    );
+    expect(approve).toContain("buildInvoiceFromOrder");
+    expect(approve).toContain('if (stockNow === "in_stock")');
+    const stock = orderActions.slice(
+      orderActions.indexOf("export async function reportOrderStock"),
+      orderActions.indexOf("export async function reportOrderStock") + 2200,
+    );
+    expect(stock).not.toContain("buildInvoiceFromOrder");
+    expect(stock).not.toContain("placeInStockOrdersOnCustomerInvoices");
+    expect(stock).not.toContain("invoice_id");
+    expect(read("src/lib/data/order-invoice.ts")).toContain('.eq("stock_status", "in_stock")');
+    expect(read("src/lib/data/order-invoice.ts")).toContain('.is("invoice_id", null)');
   });
 });
 

@@ -9,6 +9,7 @@ import { employeeDbError } from "@/lib/employee-error";
 import { requireProfile } from "@/lib/auth";
 import {
   classifyImportRows,
+  customerIdForOrderContact,
   decidePublicBooking,
   HIDDEN_DUPLICATE_MESSAGE,
   decideStaffCreate,
@@ -392,6 +393,45 @@ export async function resolvePublicBookingCustomer(input: {
     };
   }
   return { customerId: data.id, created: true, error: null };
+}
+
+/**
+ * Existing customer for an order contact. Does not insert a customer.
+ * Skips an archived customer. Returns null when the match is not unique.
+ */
+export async function matchOrderContactCustomer(
+  db: Loose,
+  input: MatchCandidateInput,
+): Promise<string | null> {
+  const name = (input.fullName ?? "").trim();
+  const phone = (input.phone ?? "").trim();
+  const email = (input.email ?? "").trim();
+  if (!name && !phone && !email) return null;
+  const matchInput: MatchCandidateInput = {
+    fullName: name,
+    phone: phone || null,
+    email: email || null,
+  };
+  const id = customerIdForOrderContact(
+    matchInput,
+    findPotentialCustomerMatches(matchInput, await loadPool(db, matchInput)),
+  );
+  if (!id) return null;
+  const live = await followActiveCustomerId(db, id);
+  if (!live) return null;
+  let res = await db
+    .from("customers")
+    .select("id, cancelled_at")
+    .eq("id", live)
+    .limit(1);
+  if (res.error) {
+    res = await db.from("customers").select("id").eq("id", live).limit(1);
+  }
+  const row = (
+    res.data as { id?: string; cancelled_at?: string | null }[] | null
+  )?.[0];
+  if (!row?.id || row.cancelled_at) return null;
+  return row.id;
 }
 
 export async function previewCustomerImport(

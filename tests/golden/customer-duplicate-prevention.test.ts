@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   classifyImportRows,
+  customerIdForOrderContact,
   decidePublicBooking,
   decideStaffCreate,
   filterMatchesForActor,
@@ -292,6 +293,25 @@ describe("TEST 10 — Public booking privacy", () => {
       action: "create_new",
       needsStaffReview: false,
     });
+  });
+
+  it("places an order on one exact customer and refuses two names", () => {
+    const twin: MatchableCustomer = { ...john, id: "cust-twin", email: "other@example.com", phone: "216-555-2222" };
+    expect(
+      customerIdForOrderContact({ fullName: "John Smith" }, findPotentialCustomerMatches({ fullName: "John Smith" }, [john])),
+    ).toBe("cust-john");
+    expect(
+      customerIdForOrderContact(
+        { fullName: "John Smith", phone: "216-555-1111" },
+        findPotentialCustomerMatches({ fullName: "John Smith", phone: "216-555-1111" }, [john]),
+      ),
+    ).toBe("cust-john");
+    expect(
+      customerIdForOrderContact(
+        { fullName: "John Smith" },
+        findPotentialCustomerMatches({ fullName: "John Smith" }, [john, twin]),
+      ),
+    ).toBeNull();
   });
 });
 

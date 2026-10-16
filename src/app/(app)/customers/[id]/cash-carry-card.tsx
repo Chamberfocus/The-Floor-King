@@ -5,6 +5,7 @@ import { JobStatusBadge } from "@/components/job-status-badge";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { formatDate, formatMoney } from "@/lib/format";
 import { ORDER_STATUS_LABELS, type JobStatus, type InvoiceStatus } from "@/lib/types";
+import { customerOrderOpenHref } from "@/lib/order-warehouse-gates";
 
 export type CashCarryJobRow = {
   id: string;
@@ -26,6 +27,9 @@ export type CashCarryOrderRow = {
   status: string;
   createdAt: string;
   jobId: string | null;
+  customerId?: string | null;
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
 };
 
 /**
@@ -92,19 +96,27 @@ export function CashCarryCard({
         {orders.map((o) => (
           <Link
             key={o.id}
-            href={`/orders`}
+            href={customerOrderOpenHref({
+              orderId: o.id,
+              customerId: o.customerId,
+              invoiceId: o.invoiceId,
+            })}
             className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 hover:bg-muted/50"
           >
             <span className="min-w-0">
-              <span className="block font-medium">Pickup order</span>
+              <span className="block font-medium">
+                {o.invoiceId ? o.invoiceNumber || "Invoice" : "Pickup order"}
+              </span>
               <span className="text-xs text-muted-foreground">
                 {formatDate(o.createdAt)}
                 {o.jobId ? " · linked job" : ""}
               </span>
             </span>
             <span className="text-xs font-medium text-muted-foreground">
-              {ORDER_STATUS_LABELS[o.status as keyof typeof ORDER_STATUS_LABELS] ??
-                o.status}
+              {o.invoiceId
+                ? "Invoice"
+                : (ORDER_STATUS_LABELS[o.status as keyof typeof ORDER_STATUS_LABELS] ??
+                  o.status)}
             </span>
           </Link>
         ))}
