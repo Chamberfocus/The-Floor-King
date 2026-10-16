@@ -380,6 +380,30 @@ export function recheckBeforeInsert(args: {
  * Public booking: never leak match details. Auto-link only when exactly one
  * strong (exact phone or exact email) match exists.
  */
+/**
+ * Which existing customer an order belongs on.
+ * One strong phone or email match wins. Otherwise one exact name.
+ * Two matches stay unlinked so the office can choose. Never creates a customer.
+ */
+export function customerIdForOrderContact(
+  input: MatchCandidateInput,
+  matches: ScoredCustomerMatch[],
+): string | null {
+  const strong = matches.filter((m) => m.tier === "strong");
+  if (strong.length === 1) return strong[0]!.id;
+  if (strong.length > 1) return null;
+  const target = normalizePersonName(input.fullName ?? "");
+  if (!target) return null;
+  const ids = [
+    ...new Set(
+      matches
+        .filter((m) => normalizePersonName(m.full_name) === target)
+        .map((m) => m.id),
+    ),
+  ];
+  return ids.length === 1 ? ids[0]! : null;
+}
+
 export function decidePublicBooking(
   matches: ScoredCustomerMatch[],
 ): PublicBookingDecision {

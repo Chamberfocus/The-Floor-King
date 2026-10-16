@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
+import { matchOrderContactCustomer } from "@/lib/data/customer-resolve";
 
 /** One cut, as the customer measured it. */
 export interface OrderCut {
@@ -170,8 +171,22 @@ export async function submitPublicOrder(
     items,
   );
   if (!res) return { error: "Couldn't submit your order. Please try again." };
+  const linked = await matchOrderContactCustomer(admin as unknown as Parameters<typeof matchOrderContactCustomer>[0], {
+    fullName: name,
+    phone,
+    email: input.contactEmail?.trim() || null,
+  }).catch(() => null);
+  if (linked) {
+    await admin
+      .from("orders")
+      .update({ customer_id: linked })
+      .eq("id", res.id)
+      .is("customer_id", null);
+    revalidatePath(`/customers/${linked}`);
+  }
   await notifyOwnerNewOrder(name, items.length, cleanDate(input.dateNeeded));
   revalidatePath("/orders");
+  revalidatePath("/dashboard");
   return { error: null, ok: true };
 }
 
@@ -218,6 +233,8 @@ export async function submitPortalOrder(
     cleanDate(input.dateNeeded),
   );
   revalidatePath("/orders");
+  revalidatePath("/dashboard");
   revalidatePath("/portal");
+  revalidatePath(`/customers/${customerId}`);
   return { error: null, ok: true };
 }

@@ -248,6 +248,7 @@ export async function approveOrder(formData: FormData): Promise<{
       items,
       uid,
     });
+    await buildInvoiceFromOrder(supabase, orderId, uid);
   }
 
   const custName = (latest.contact_name as string) || "Order";
@@ -280,6 +281,7 @@ export async function approveOrder(formData: FormData): Promise<{
   }
 
   revalidatePath("/orders");
+  revalidatePath("/invoices");
   revalidatePath("/warehouse");
   revalidatePath("/jobs");
   revalidatePath("/board");

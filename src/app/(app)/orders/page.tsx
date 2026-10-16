@@ -9,6 +9,8 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
+import { createClient } from "@/lib/supabase/server";
+import { placeInStockOrdersOnCustomerInvoices } from "@/lib/data/order-invoice";
 import { listOrdersQueue, getProductStock, type ProductStock } from "@/lib/data/orders";
 import { WorkQueueBar, WorkQueuePager } from "@/components/work-queue-bar";
 import {
@@ -65,6 +67,8 @@ export default async function OrdersPage({
 }) {
   const profile = await requireProfile();
   if (!["admin", "office"].includes(profile.role)) redirect("/");
+  const db = await createClient();
+  await placeInStockOrdersOnCustomerInvoices(db, profile.id).catch(() => undefined);
   const sp = await searchParams;
   const q = sp.q?.trim() ?? "";
   const view = parseOrderQueue(sp.view);
@@ -126,7 +130,15 @@ export default async function OrdersPage({
       <Card id={`order-${o.id}`} className="scroll-mt-24">
         <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
           <div className="min-w-0">
-            <CardTitle className="text-base">{who}</CardTitle>
+            <CardTitle className="text-base">
+              {o.customer_id ? (
+                <Link href={`/customers/${o.customer_id}`} className="hover:underline">
+                  {who}
+                </Link>
+              ) : (
+                who
+              )}
+            </CardTitle>
             <div className="text-xs text-muted-foreground">
               {contact ? `${contact} · ` : ""}
               {o.source === "public" ? "Public order" : "Portal order"} ·{" "}
@@ -266,6 +278,11 @@ export default async function OrdersPage({
             <div className="flex flex-wrap items-center gap-2 border-t pt-3">
               {/* Approving is a promise, so it asks what the promise is — the
                   warehouse's stock answer pre-picks it. */}
+              {o.invoice_id ? (
+                <Link href={`/invoices/${o.invoice_id}`} className="text-primary hover:underline">
+                  Open invoice →
+                </Link>
+              ) : null}
               <ApproveOrder orderId={o.id} who={who} stockStatus={o.stock_status} />
               <details>
                 <summary className="cursor-pointer text-sm text-muted-foreground hover:text-foreground">Decline</summary>

@@ -1,6 +1,7 @@
 import type { createClient } from "@/lib/supabase/server";
 import type { OrderItem } from "@/lib/types";
 import { applyEligibleDepositsToInvoice } from "@/lib/data/apply-customer-deposits";
+import { matchOrderContactCustomer } from "@/lib/data/customer-resolve";
 import { cutsTotalSqYd } from "@/lib/order-cuts";
 import { catalogRateToBillingUnit, isAreaUnit } from "@/lib/units";
 import { orderInvoiceIdempotencyKey } from "@/lib/financial-idempotency";
@@ -104,4 +105,92 @@ export async function buildInvoiceFromOrder(
     appliedOn: new Date().toISOString().slice(0, 10),
   });
   return inv.id as string;
+}
+
+type OrderContactRow = {
+  id: string;
+  customer_id: string | null;
+  contact_name: string | null;
+  contact_phone: string | null;
+  contact_email: string | null;
+  invoice_id: string | null;
+  stock_status: string | null;
+};
+
+async function attachOrderToMatchedCustomer(
+  db: DB,
+  raw: OrderContactRow,
+): Promise<string | null> {
+  if (raw.customer_id) return raw.customer_id;
+  const customerId = await matchOrderContactCustomer(
+    db as unknown as Parameters<typeof matchOrderContactCustomer>[0],
+    {
+      fullName: raw.contact_name ?? "",
+      phone: raw.contact_phone,
+      email: raw.contact_email,
+    },
+  );
+  if (!customerId) return null;
+  const { data: linked } = await db
+    .from("orders")
+    .update({ customer_id: customerId })
+    .eq("id", raw.id)
+    .is("customer_id", null)
+    .select("customer_id")
+    .maybeSingle();
+  if (linked?.customer_id) return linked.customer_id as string;
+  const { data: latest } = await db
+    .from("orders")
+    .select("customer_id")
+    .eq("id", raw.id)
+    .maybeSingle();
+  return (latest?.customer_id as string | null) ?? null;
+}
+
+/**
+ * Put customer orders on the matching customer, then turn warehouse-verified
+ * in-stock orders into a draft invoice on that customer.
+ * Shortage and unchecked stock stay on the customer and are not invoiced.
+ * Idempotent. Office/admin callers only — warehouse must not call this.
+ */
+export async function placeInStockOrdersOnCustomerInvoices(
+  db: DB,
+  createdBy: string | null,
+  onlyCustomerId?: string | null,
+): Promise<void> {
+  const { data: unlinked } = await db
+    .from("orders")
+    .select(
+      "id, customer_id, contact_name, contact_phone, contact_email, invoice_id, stock_status",
+    )
+    .in("status", ["submitted", "approved"])
+    .is("customer_id", null)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  for (const raw of (unlinked ?? []) as OrderContactRow[]) {
+    try {
+      await attachOrderToMatchedCustomer(db, raw);
+    } catch {
+      // One contact match must not stop the rest.
+    }
+  }
+
+  let ready = db
+    .from("orders")
+    .select("id")
+    .in("status", ["submitted", "approved"])
+    .eq("stock_status", "in_stock")
+    .not("customer_id", "is", null)
+    .is("invoice_id", null)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (onlyCustomerId) ready = ready.eq("customer_id", onlyCustomerId);
+  const { data } = await ready;
+  for (const raw of (data ?? []) as { id: string }[]) {
+    try {
+      await buildInvoiceFromOrder(db, raw.id, createdBy);
+    } catch {
+      // One order must not stop the rest of the queue.
+    }
+  }
 }
