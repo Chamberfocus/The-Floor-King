@@ -46,7 +46,7 @@ async function alertSuccess(info: { backupId: string; dumpBytes: number }) {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = authorizeBackupCronRequest(request);
+  const auth = await authorizeBackupCronRequest(request);
   if (!auth.ok) {
     return NextResponse.json({ ok: false, error: auth.code }, { status: auth.status });
   }

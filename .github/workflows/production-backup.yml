@@ -1,0 +1,57 @@
+name: Production backup
+
+on:
+  schedule:
+    - cron: "15 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: production-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    if: github.repository == 'Chamberfocus/The-Floor-King'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Run the production backup
+        env:
+          AUDIENCE: https://floorking-crm.vercel.app/api/cron/backup
+          BACKUP_URL: https://floorking-crm.vercel.app/api/cron/backup
+        run: |
+          set -euo pipefail
+          audience_q="$(jq -nr --arg a "$AUDIENCE" '$a|@uri')"
+          token="$(
+            curl --fail --silent --show-error \
+              --header "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${audience_q}" \
+              | jq -er '.value'
+          )"
+          if [ -z "$token" ] || [ "$token" = "null" ]; then
+            echo "GitHub did not issue an identity token."
+            exit 1
+          fi
+          echo "::add-mask::${token}"
+          umask 077
+          config="$RUNNER_TEMP/backup.curl"
+          result="$RUNNER_TEMP/backup.json"
+          printf 'header = "x-floor-king-github-oidc: %s"\nurl = "%s"\nsilent\nshow-error\nmax-time = 300\noutput = "%s"\nwrite-out = "%%{http_code}"\n' \
+            "$token" "$BACKUP_URL" "$result" > "$config"
+          unset token
+          http_code="$(curl --config "$config")"
+          rm -f "$config"
+          jq -e --arg code "$http_code" '{
+            httpStatus: ($code | tonumber),
+            ok,
+            status,
+            error,
+            errorCode,
+            backupId,
+            dumpBytes
+          }' "$result"
+          jq -e --arg code "$http_code" 'select($code == "200" and .ok == true)' "$result" >/dev/null
