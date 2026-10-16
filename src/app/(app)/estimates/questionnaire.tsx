@@ -120,6 +120,7 @@ import {
   knowledgeWarnings,
   amountUnitLabelForQuestion,
   resolveQuestionVisibility,
+  hideUnkeyedLabelDuplicates,
   questionPurpose,
   reviewToJobNotes,
   buildSalespersonReview,
@@ -830,7 +831,8 @@ export function Questionnaire({
     const vis = resolveQuestionVisibility(questions, answerVal);
     // Cash & carry: hide every pure-labor question (materials only).
     if (cashCarry) for (const q of questions) if (isPureLaborQuestion(q)) vis[q.id] = false;
-    return vis;
+    // One label, one question. The keyed copy is what later steps read.
+    return hideUnkeyedLabelDuplicates(questions, vis);
   }, [questions, answers, overrides, cashCarry]);
   const visibleQuestions = useMemo(
     () => sortEstimateQuestions(questions.filter((q) => visible[q.id])),

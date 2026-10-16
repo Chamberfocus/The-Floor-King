@@ -45,6 +45,33 @@ export function matchesShowIf(
   return true;
 }
 
+/**
+ * An older unkeyed question with the same label as a keyed question that is
+ * already on screen. The keyed question is the one later steps read (for
+ * example floor prep opening self-leveler bags). Asking both is the same
+ * question twice, and the unkeyed answer does not drive those steps.
+ * If the keyed question is hidden, the older question stays.
+ */
+export function hideUnkeyedLabelDuplicates<
+  T extends { id: string; key?: string | null; label?: string | null },
+>(questions: T[], visible: Record<string, boolean>): Record<string, boolean> {
+  const keyedLabels = new Set<string>();
+  for (const q of questions) {
+    const key = (q.key ?? "").trim();
+    const label = (q.label ?? "").trim().toLowerCase();
+    if (!key || !label || !visible[q.id]) continue;
+    keyedLabels.add(label);
+  }
+  const next: Record<string, boolean> = { ...visible };
+  for (const q of questions) {
+    if ((q.key ?? "").trim()) continue;
+    const label = (q.label ?? "").trim().toLowerCase();
+    if (!label || !next[q.id]) continue;
+    if (keyedLabels.has(label)) next[q.id] = false;
+  }
+  return next;
+}
+
 /** Keys a `show_if` clause reads — used so dependents never sort before their gates. */
 export function showIfReferencedKeys(clause: ShowIfClause | null | undefined): string[] {
   if (!clause) return [];

@@ -64,6 +64,7 @@ import {
   permittedInstallSystems,
   installSystemFromLabel,
   matchesShowIf,
+  hideUnkeyedLabelDuplicates,
   hardSurfaceInstallMethodOptions,
   jobNeedsMixedInstallMethodPicks,
   solePermittedInstallSystem,
@@ -771,6 +772,33 @@ describe("show_if all/any + knowledge overlay", () => {
         { install_method: ["Glue-down"] },
       ),
     ).toBe(true);
+  });
+
+  it("asks floor prep once when the keyed question is already showing", () => {
+    const questions = [
+      { id: "old", key: null, label: "Floor prep / leveling needed?" },
+      { id: "new", key: "hs_prep", label: "Floor prep / leveling needed?" },
+      { id: "note", key: null, label: "Anything else for the crew?" },
+    ];
+    const both = hideUnkeyedLabelDuplicates(questions, {
+      old: true,
+      new: true,
+      note: true,
+    });
+    expect(both.old).toBe(false);
+    expect(both.new).toBe(true);
+    expect(both.note).toBe(true);
+    const keyedHidden = hideUnkeyedLabelDuplicates(questions, {
+      old: true,
+      new: false,
+      note: true,
+    });
+    expect(keyedHidden.old).toBe(true);
+    const page = readFileSync(
+      join(root, "src/app/(app)/estimates/questionnaire.tsx"),
+      "utf8",
+    );
+    expect(page).toContain("hideUnkeyedLabelDuplicates");
   });
 
   it("hides adhesive on a floating laminate job once the method is known", () => {

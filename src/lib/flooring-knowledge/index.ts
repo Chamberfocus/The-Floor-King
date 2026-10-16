@@ -50,7 +50,12 @@ export {
   type ConditionConfidence,
 } from "./families";
 
-export { matchesShowIf, isShowIfClause, showIfReferencedKeys } from "./show-if";
+export {
+  matchesShowIf,
+  isShowIfClause,
+  showIfReferencedKeys,
+  hideUnkeyedLabelDuplicates,
+} from "./show-if";
 
 export {
   answerGateValues,
