@@ -5,7 +5,12 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { planEstimateInvoiceCreation } from "@/lib/change-order-invoice";
-import { assessBooksOfRecordEnable } from "@/lib/accounting/integrity";
+import {
+  assessBooksOfRecordEnable,
+  QUICKBOOKS_STAYS_OFFICIAL,
+  resolveQuickBooksReplacementSettings,
+  type QuickBooksReplacementFlags,
+} from "@/lib/accounting/integrity";
 import { assessMaterialsReadyForSchedule } from "@/lib/materials-ready";
 import { invoiceRemainingBalance } from "@/lib/payment-safety";
 import { navGroupsForRole } from "@/lib/nav";
@@ -169,22 +174,75 @@ describe("accounting stays off until a real cutover", () => {
 
   it("the settings action reads the live cutover flags instead of forcing them off", () => {
     const action = src("src/app/(app)/accounting/actions.ts");
+    const rules = src("src/lib/accounting/integrity.ts");
     expect(action).toContain("current.opening_balances_entered");
-    expect(action).toContain("current.accountant_validated");
+    expect(rules).toContain("current.accountant_validated");
     expect(action).not.toContain("openingBalancesEntered: false");
     expect(action).not.toContain("accountantValidated: false");
   });
 
-  it("the settings action cannot turn posting or books of record on", () => {
+  it("posting stays off until opening balances and a cutover date are saved", () => {
+    const current: QuickBooksReplacementFlags = {
+      posting_enabled: false,
+      inventory_posting_enabled: false,
+      invoice_posting_enabled: false,
+      payment_posting_enabled: false,
+      credit_posting_enabled: false,
+      ap_posting_enabled: false,
+      expense_posting_enabled: false,
+      deposit_posting_enabled: false,
+      installer_posting_enabled: false,
+      books_of_record: false,
+      accountant_validated: false,
+      cutover_date: null,
+    };
+    const blocked = resolveQuickBooksReplacementSettings({
+      current,
+      requested: { ...current, posting_enabled: true, cutover_date: "2026-11-01" },
+      openingBalancesEntered: false,
+    });
+    expect(blocked.ok).toBe(false);
+
+    const postingOn = resolveQuickBooksReplacementSettings({
+      current: { ...current, cutover_date: "2026-11-01" },
+      requested: {
+        ...current,
+        posting_enabled: true,
+        invoice_posting_enabled: true,
+        payment_posting_enabled: true,
+        cutover_date: "2026-11-01",
+      },
+      openingBalancesEntered: true,
+    });
+    expect(postingOn.ok).toBe(true);
+    if (!postingOn.ok) return;
+    expect(postingOn.next.posting_enabled).toBe(true);
+    expect(postingOn.next.books_of_record).toBe(false);
+
+    const booksOn = resolveQuickBooksReplacementSettings({
+      current: {
+        ...postingOn.next,
+        accountant_validated: true,
+      },
+      requested: {
+        ...postingOn.next,
+        accountant_validated: true,
+        books_of_record: true,
+      },
+      openingBalancesEntered: true,
+    });
+    expect(booksOn.ok).toBe(true);
+    if (!booksOn.ok) return;
+    expect(booksOn.next.books_of_record).toBe(true);
+
     const action = src("src/app/(app)/accounting/actions.ts");
-    expect(action).toContain(
-      "This release does not enable accounting posting or books of record. QuickBooks stays the official ledger.",
-    );
-    expect(action).toContain("posting_enabled: current.posting_enabled");
-    expect(action).toContain("books_of_record: current.books_of_record");
+    expect(action).toContain("resolveQuickBooksReplacementSettings");
+    expect(action).toContain("current.opening_balances_entered");
     const page = src("src/app/(app)/accounting/page.tsx");
-    expect(page).toContain("This release does not enable accounting posting.");
+    expect(page).toContain("QUICKBOOKS_STAYS_OFFICIAL");
+    expect(src("src/lib/accounting/integrity.ts")).toContain(QUICKBOOKS_STAYS_OFFICIAL);
     expect(page).toContain('name="posting_enabled"');
     expect(page).toContain('name="books_of_record"');
+    expect(page).toContain("/accounting/opening-balances");
   });
 });
