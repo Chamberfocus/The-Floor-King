@@ -152,6 +152,8 @@ import {
   applyTrimTypeSeed,
   presentTrimTypes,
   HS_TRANSITION_OPTION_TO_TRIM,
+  ensureJChannelTransitionOption,
+  transitionTrimUnitClause,
   HS_BASE_OPTION_TO_TRIM,
   annotateRemovalDescription,
   type InstallContext,
@@ -4389,7 +4391,7 @@ function QuestionBody({
               Add selected transitions
             </Button>
             <span className="text-xs text-muted-foreground">
-              {hsTransitionTrims.join(", ")} — each, never square feet. Then pick the catalog piece.
+              {hsTransitionTrims.join(", ")} — {transitionTrimUnitClause(hsTransitionTrims)}. Then pick the catalog piece.
             </span>
           </div>
         ) : null}
@@ -5198,7 +5200,9 @@ function QuestionBody({
             const merged = knowledgeOpts.map((o) => configured.find((c) => c.label === o.label) ?? { label: o.label });
             return [...merged, ...extra];
           })()
-        : configured;
+        : q.key === "hs_transitions"
+          ? ensureJChannelTransitionOption(configured)
+          : configured;
     const opts = configuredOpts.filter((o) => choiceOptionApplies(q, o.label, flooringCtx));
     const mixedHsInstall =
       q.key === "install_method" && jobNeedsMixedInstallMethodPicks(flooringCtx.families);

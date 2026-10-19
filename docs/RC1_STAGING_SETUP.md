@@ -9,7 +9,7 @@ Staging project ref: `lsrapxmkspocxeeakkcx`. Apply and prove run only when the U
 
 ## Readiness
 
-The 489 files from `0001_init.sql` through `0492_accounting_outbox_posts_journals.sql` can be applied to an empty Supabase project in filename order. Filename order does not go backwards. The bundle sha256 of `filename:sha256` lines for that 489-file set is `29ba8421528c64d1275f48e14e59c13f1aad2e65735da4dec807b47a7665ad81`. `0493_stair_steps_per_day.sql` is the next file. It adds stair steps per day and does not enable posting.
+The 489 files from `0001_init.sql` through `0492_accounting_outbox_posts_journals.sql` can be applied to an empty Supabase project in filename order. Filename order does not go backwards. The bundle sha256 of `filename:sha256` lines for that 489-file set is `29ba8421528c64d1275f48e14e59c13f1aad2e65735da4dec807b47a7665ad81`. `0493_stair_steps_per_day.sql` adds stair steps per day and does not enable posting. `0494_jchannel_transition.sql` adds J-channel to doorway transitions and does not enable posting.
 
 They cannot be applied to vanilla PostgreSQL. `0001_init.sql` references `auth.users` and creates a trigger on it. Later files reference `auth.uid()`, `auth.jwt()`, `storage.buckets`, and `storage.objects`, and they grant to `anon`, `authenticated`, and `service_role`.
 

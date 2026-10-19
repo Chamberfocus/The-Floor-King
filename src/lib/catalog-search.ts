@@ -43,7 +43,7 @@ export function pickerCatalogScope(input: {
   if (key === "hs_transitions" || key === "metal_type" || key === "metals_needed") {
     return {
       categories: ["trim"],
-      browseTokens: ["transition", "reducer", "threshold", "t-mold", "end cap"],
+      browseTokens: ["transition", "reducer", "threshold", "t-mold", "end cap", "j-channel"],
       label: "Transitions",
     };
   }
