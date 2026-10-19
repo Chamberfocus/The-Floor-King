@@ -108,9 +108,10 @@ export function CustomerTabs({
     <TabCtx.Provider value={active}>
       <nav
         ref={navRef}
-        className="sticky top-0 z-20 mb-6 flex items-center gap-1 rounded-xl border bg-background/90 p-1.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/70"
+        aria-label="Customer file sections"
+        className="sticky top-0 z-20 mb-4 flex items-center gap-1 rounded-xl border bg-background/90 p-1.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/70"
       >
-        <div className="flex flex-1 items-center gap-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex flex-1 items-center gap-1 overflow-x-auto sm:flex-wrap sm:overflow-visible [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {visible.map((t) => {
             const Icon = t.icon;
             const n = t.count ? counts[t.count] : 0;
