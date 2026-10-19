@@ -26,6 +26,8 @@ import {
   trimLabelsFromPicks,
   applyTrimTypeSeed,
   HS_TRANSITION_OPTION_TO_TRIM,
+  ensureJChannelTransitionOption,
+  transitionTrimUnitClause,
   HS_BASE_OPTION_TO_TRIM,
   annotateRemovalDescription,
   billsBySqydFamily,
@@ -123515,6 +123517,20 @@ describe("0199 hard-surface transitions and base trim without invented SKUs", ()
     expect(
       trimLabelsFromPicks(["None — keep existing / no new transitions", "Metal"], HS_TRANSITION_OPTION_TO_TRIM),
     ).toEqual(["Metal transition"]);
+    expect(
+      trimLabelsFromPicks(["J-channel", "T-mold"], HS_TRANSITION_OPTION_TO_TRIM),
+    ).toEqual(["J-channel", "T-mold"]);
+    expect(accessoryUnitForType("J-channel")).toBe("lnft");
+    expect(
+      ensureJChannelTransitionOption([
+        { label: "T-mold" },
+        { label: "Metal" },
+        { label: "Field verify / TBD" },
+      ]).map((o) => o.label),
+    ).toEqual(["T-mold", "Metal", "J-channel", "Field verify / TBD"]);
+    expect(transitionTrimUnitClause(["T-mold", "J-channel"])).toBe(
+      "each for doorway pieces, linear feet for J-channel, never square feet",
+    );
     expect(trimLabelsFromPicks(["Keep existing base", "Quarter round"], HS_BASE_OPTION_TO_TRIM)).toEqual([
       "Quarter round",
     ]);
@@ -123555,6 +123571,7 @@ describe("0199 hard-surface transitions and base trim without invented SKUs", ()
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/applyTrimTypeSeed/);
     expect(q).toMatch(/hsTransitionTrims/);
+    expect(q).toMatch(/ensureJChannelTransitionOption/);
     expect(q).toMatch(/hsBaseTrims/);
   });
 });

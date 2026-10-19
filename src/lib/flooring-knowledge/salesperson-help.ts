@@ -150,7 +150,7 @@ export function salespersonHelpFor(q: HelpQuestion, ctx: InstallContext): string
   if (key === "carpet_tile_stairs") return "Note whether carpet tile continues up the stairs.";
   if (key === "carpet_tile_stair_count") return "Count the carpet-tile steps. The charge is per step.";
   if (key === "hs_plank_stairs") return "Hard-surface stairs are treads, risers, and noses, priced each. They are not an automatic square-foot order.";
-  if (key === "hs_transitions") return "Doorway transitions are each: T-mold, reducer, end cap, threshold, or metal. Add the catalog pieces on Trims.";
+  if (key === "hs_transitions") return "Doorway transitions: T-mold, reducer, end cap, threshold, and metal are each. J-channel is linear feet. Add the catalog pieces on Trims.";
   if (key === "hs_base_trim") return "Base, quarter round, and shoe are linear feet. Add the footage on Trims.";
   if (key === "pattern_match") return "Pattern match and roll direction matter for broadloom. They set seam layout, not a separate charge.";
   if (key === "carpet_direction") return "Note which way the roll should run and where seams should fall.";

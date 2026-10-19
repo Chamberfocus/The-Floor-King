@@ -6,6 +6,8 @@
  * before the old `stairs` yes/no was folded into the stair-type steps.
  */
 
+import { accessoryUnitForType } from "./quantities";
+
 export type GateAnswer = {
   kind: string;
   yes?: boolean;
@@ -186,7 +188,9 @@ export function answersHaveTrimType(
 
 const SKIP_TRIM_PICK = /none|keep existing|field verify|tbd/i;
 
-/** Option label → existing TRIM_TYPES label. Doorway pieces are EACH. */
+/** Chip label on Doorway transitions. Linear feet — the existing J-channel trim. */
+export const HS_TRANSITION_JCHANNEL_LABEL = "J-channel";
+
 export const HS_TRANSITION_OPTION_TO_TRIM: Record<string, string> = {
   "T-mold": "T-mold",
   Reducer: "Reducer",
@@ -194,7 +198,38 @@ export const HS_TRANSITION_OPTION_TO_TRIM: Record<string, string> = {
   Threshold: "Threshold",
   Metal: "Metal transition",
   "Metal transition": "Metal transition",
+  "J-channel": "J-channel",
+  JChannel: "J-channel",
+  "J channel": "J-channel",
 };
+
+function isJChannelLabel(label: string): boolean {
+  return /j-?\s*channel/i.test(label);
+}
+
+/**
+ * Doorway transitions always offer J-channel, just before Field verify.
+ * A saved question that predates this chip still shows it.
+ */
+export function ensureJChannelTransitionOption<T extends { label: string }>(options: T[]): T[] {
+  const existing = options.find((o) => isJChannelLabel(o.label));
+  const rest = options.filter((o) => !isJChannelLabel(o.label));
+  const row = existing ?? ({ label: HS_TRANSITION_JCHANNEL_LABEL } as T);
+  const idx = rest.findIndex((o) => /field verify|\btbd\b/i.test(o.label));
+  if (idx >= 0) return [...rest.slice(0, idx), row, ...rest.slice(idx)];
+  return [...rest, row];
+}
+
+/** Unit clause for the pieces a transitions pick implies. J-channel is linear feet. */
+export function transitionTrimUnitClause(labels: string[]): string {
+  const hasEach = labels.some((label) => accessoryUnitForType(label) !== "lnft");
+  const hasLinear = labels.some((label) => accessoryUnitForType(label) === "lnft");
+  if (hasEach && hasLinear) {
+    return "each for doorway pieces, linear feet for J-channel, never square feet";
+  }
+  if (hasLinear) return "linear feet, never square feet";
+  return "each, never square feet";
+}
 
 /** Option label → existing TRIM_TYPES label. Base/QR/shoe are LN FT. */
 export const HS_BASE_OPTION_TO_TRIM: Record<string, string> = {
