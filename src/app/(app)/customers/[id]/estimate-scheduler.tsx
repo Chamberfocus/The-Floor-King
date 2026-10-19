@@ -191,10 +191,9 @@ export function EstimateScheduler({
             <p className="text-xs text-muted-foreground">
               Ranked by{" "}
               {mode === "closest"
-                ? "least added drive & fuel across reps"
-                : "soonest, then least added drive"}
-              . Each estimate is slotted into the most route-efficient gap in the
-              rep&apos;s day — before, between, or after their existing stops.
+                ? "least added drive and fuel from the store"
+                : "soonest open time on that salesperson’s schedule, then least added drive from the store"}
+              . A day off or a full route is skipped. Booking approves that time.
             </p>
           </div>
         ) : null}

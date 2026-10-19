@@ -101,6 +101,13 @@ export async function saveSchedulingSettings(formData: FormData): Promise<void> 
     })
     .eq("id", "default");
 
+  // Stair steps/day. A separate write so a database that does not have the
+  // column yet still keeps the other capacities.
+  await supabase
+    .from("scheduling_settings")
+    .update({ cap_stair_steps: n(formData.get("cap_stair_steps"), 12) })
+    .eq("id", "default");
+
   // Arrival windows (customizable). Separate update so a pre-migration DB
   // (column not added yet) can't break the rest of the save.
   const windows = str(formData.get("arrival_windows"));

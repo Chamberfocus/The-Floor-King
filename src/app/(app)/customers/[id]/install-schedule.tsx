@@ -53,8 +53,8 @@ export interface InstallScheduleProps {
     installerId: string | null;
     installerName: string | null;
   };
-  installEst: { days: number; breakdown: { label: string; amount: number; unit: string; days: number }[] } | null;
-  suggestions: { installerId: string; name: string; days: number; start: string; end: string }[];
+  installEst: { days: number; breakdown: { label: string; amount: number; unit: string; days: number; rate?: number }[] } | null;
+  suggestions: { installerId: string; name: string; days: number; start: string; end: string; fit?: string }[];
   /** Every installer you can assign — login installers + login-less subcontractor
    *  crews (value "crew:<id>"). One picker, one assignment. */
   installerUsers: { value: string; label: string }[];
@@ -152,10 +152,14 @@ export function InstallSchedule({
             <ul className="mt-1 text-xs text-muted-foreground">
               {installEst.breakdown.map((b, i) => (
                 <li key={i}>
-                  • {b.label}: {b.amount.toFixed(0)} {b.unit} → {b.days.toFixed(2)} day(s)
+                  • {b.label}: {b.amount.toFixed(0)} {b.unit}
+                  {b.rate ? ` at ${b.rate} ${b.unit}/day` : ""} → {b.days.toFixed(2)} day(s)
                 </li>
               ))}
             </ul>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Booking approves this crew and this number of days.
+            </p>
           </div>
         ) : null}
 
@@ -182,6 +186,9 @@ export function InstallSchedule({
                     — {sug.days} day{sug.days === 1 ? "" : "s"}, {formatDate(sug.start)}
                     {sug.end !== sug.start ? ` → ${formatDate(sug.end)}` : ""}
                   </span>
+                  {sug.fit ? (
+                    <div className="mt-0.5 text-xs text-muted-foreground">{sug.fit}</div>
+                  ) : null}
                   {clash.length ? (
                     <div className="mt-0.5 flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-400">
                       <CalendarOff className="size-3.5" />
@@ -219,11 +226,11 @@ export function InstallSchedule({
                     size="sm"
                     variant="outline"
                     assigneeRole="installer"
-                    title={`Book ${sug.name} for this install?`}
-                    description="The install books and goes to the warehouse either way — choose who to notify."
-                    confirmLabel="Book install"
+                    title={`Approve ${sug.name} for ${sug.days} day${sug.days === 1 ? "" : "s"}?`}
+                    description={`${formatDate(sug.start)}${sug.end !== sug.start ? ` – ${formatDate(sug.end)}` : ""}. ${sug.fit ?? "You are approving this crew and these days."} Choose who to notify.`}
+                    confirmLabel="Approve and book"
                   >
-                    Book
+                    Approve
                   </SchedulePush>
                 </form>
               </div>
