@@ -1420,12 +1420,13 @@ async function commitJobStatus(
       data: { user: actor },
     } = await supabase.auth.getUser();
     const bal = await getJobOpenBalance(id).catch(() => ({ balance: 0 }));
-    void onJobCompletedOps({
+    await onJobCompletedOps({
       jobId: id,
       customerId,
       actorId: actor?.id ?? null,
       title: (job?.title as string | null) ?? null,
       openBalance: bal.balance,
+      db: supabase,
     });
   }
 

@@ -14,8 +14,10 @@ import {
   INSTALLER_ISSUE_KIND,
   callbackCategoryForIssue,
   classifyInvoiceCollection,
+  callbackFollowUpDue,
   followUpDueAt,
   hasActiveDepositOnFile,
+  soonerFollowUpDue,
   installerIssueTitle,
   isInstallerIssueCategory,
   parsePoNumberQuery,
@@ -50,6 +52,26 @@ describe("estimate follow-up automation", () => {
     expect(followUpDueAt(new Date("2026-09-13T12:00:00.000Z"), 2)).toBe(
       "2026-09-15T12:00:00.000Z",
     );
+    expect(followUpDueAt(new Date("2026-09-13T12:00:00.000Z"), 0)).toBe(
+      "2026-09-13T12:00:00.000Z",
+    );
+  });
+
+  it("keeps the sooner follow-up and does not push an overdue date later", () => {
+    const proposed = "2026-09-15T12:00:00.000Z";
+    expect(soonerFollowUpDue(null, proposed)).toBe(proposed);
+    expect(soonerFollowUpDue(undefined, proposed)).toBe(proposed);
+    expect(soonerFollowUpDue("not-a-date", proposed)).toBe(proposed);
+    expect(soonerFollowUpDue("2026-09-10T12:00:00.000Z", proposed)).toBe(
+      "2026-09-10T12:00:00.000Z",
+    );
+    expect(soonerFollowUpDue("2026-09-20T12:00:00.000Z", proposed)).toBe(proposed);
+    expect(soonerFollowUpDue("2026-09-15T12:00:00.000Z", "not-a-date")).toBe(
+      "2026-09-15T12:00:00.000Z",
+    );
+    expect(callbackFollowUpDue("2026-09-18")).toBe("2026-09-18T12:00:00.000Z");
+    const from = new Date("2026-09-13T12:00:00.000Z");
+    expect(callbackFollowUpDue("", from)).toBe(followUpDueAt(from, 1));
   });
 
   it("snooze only allows 1 / 3 / 7 days", () => {
@@ -186,6 +208,10 @@ describe("wiring — send / approve / complete / crew report", () => {
     expect(auto).toContain("ESTIMATE_FOLLOWUP_KIND");
     expect(auto).toContain("completeAutomatedOfficeTasks");
     expect(auto).toContain("DEPOSIT_DUE_KIND");
+    expect(auto).toContain("pinCustomerFollowUp");
+    expect(auto).toContain("next_action_due");
+    expect(actions).toContain("onEstimateChangesRequestedOps");
+    expect(read("src/app/portal/actions.ts")).toContain("onEstimateChangesRequestedOps");
   });
 
   it("portal approval completes follow-up and may open deposit task", () => {
@@ -218,6 +244,7 @@ describe("wiring — send / approve / complete / crew report", () => {
     expect(auto).not.toContain("posting_enabled");
     expect(auto).not.toContain("mergeCustomer");
     expect(read("src/lib/ops-followup.ts")).not.toContain("posting_enabled = true");
+    expect(read("src/lib/data/ops-automation.ts")).toContain("pinCustomerFollowUp");
   });
 
   it("kinds stay namespaced and search/nav are wired", () => {

@@ -26,6 +26,7 @@ function factKey(line: string): string | null {
   if (/not booked|can be scheduled/.test(s)) return "booked";
   if (/estimates approved|estimate approved/.test(s)) return "approved";
   if (/estimates sent|estimate sent/.test(s)) return "sent";
+  if (/changes requested/.test(s)) return "changes";
   if (/material|warehouse-ready/.test(s)) return "material";
   if (/service/.test(s)) return "service";
   if (/balance/.test(s)) return "balance";
@@ -48,6 +49,10 @@ function chipFor(key: string, line: string): ActionChip {
   if (key === "sent") {
     const count = line.match(/^(\d+) estimates sent/i);
     return { label: count ? `${count[1]} estimates sent` : "Estimate sent", tone: "open" };
+  }
+  if (key === "changes") {
+    const count = line.match(/^(\d+) changes requested/i);
+    return { label: count ? `${count[1]} changes requested` : "Changes requested", tone: "warn" };
   }
   if (key === "material") return { label: "Material not ready", tone: "warn" };
   if (key === "service") return { label: "Service open", tone: "warn" };

@@ -46,6 +46,7 @@ import { ensureJobForEstimate } from "@/app/(app)/jobs/actions";
 import { getCustomerSourceStatus } from "@/lib/data/lead-sources";
 import { getCustomerDepositSummary } from "@/lib/data/customer-deposits";
 import {
+  onEstimateChangesRequestedOps,
   onEstimateResolvedOps,
   onEstimateSentOps,
 } from "@/lib/data/ops-automation";
@@ -648,12 +649,13 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
     } | null;
     const actorId = user?.id ?? null;
     if (status === "sent") {
-      void onEstimateSentOps({
+      await onEstimateSentOps({
         estimateId: id,
         customerId: (opsCust?.customer_id as string | null) ?? null,
         assignedTo: opsOwner?.workflow_owner_id ?? opsOwner?.assigned_to ?? null,
         actorId,
         title: (opsCust?.title as string | null) ?? null,
+        db: supabase,
       });
     }
     if (status === "approved" || status === "declined") {
@@ -668,7 +670,7 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
           applied = dep.applied;
         }
       }
-      void onEstimateResolvedOps({
+      await onEstimateResolvedOps({
         estimateId: id,
         status,
         customerId: (opsCust?.customer_id as string | null) ?? null,
@@ -677,8 +679,33 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
         title: (opsCust?.title as string | null) ?? null,
         availableDeposit: available,
         appliedDeposit: applied,
+        db: supabase,
       });
     }
+  }
+
+  if (status === "changes_requested") {
+    const { data: changeCust } = await supabase
+      .from("estimates")
+      .select(
+        "title, customer_id, customer:customers(assigned_to, workflow_owner_id)",
+      )
+      .eq("id", id)
+      .maybeSingle();
+    const changeOwner = changeCust?.customer as unknown as {
+      assigned_to?: string | null;
+      workflow_owner_id?: string | null;
+    } | null;
+    await onEstimateChangesRequestedOps({
+      estimateId: id,
+      customerId: (changeCust?.customer_id as string | null) ?? null,
+      assignedTo:
+        changeOwner?.workflow_owner_id ?? changeOwner?.assigned_to ?? null,
+      actorId: user?.id ?? null,
+      title: (changeCust?.title as string | null) ?? null,
+      note: str(formData.get("customer_response_note")) || null,
+      db: supabase,
+    });
   }
 
   if (status === "approved") {
@@ -1490,12 +1517,13 @@ export async function sendEstimateById(
   const {
     data: { user: sender },
   } = await supabase.auth.getUser();
-  void onEstimateSentOps({
+  await onEstimateSentOps({
     estimateId: id,
     customerId: (est?.customer_id as string | null) ?? null,
     assignedTo: cust?.workflow_owner_id ?? cust?.assigned_to ?? null,
     actorId: sender?.id ?? null,
     title: (est?.title as string | null) ?? null,
+    db: supabase,
   });
 
   revalidatePath(`/estimates/${id}`);

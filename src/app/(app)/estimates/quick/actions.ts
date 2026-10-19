@@ -158,6 +158,7 @@ export async function createQuickEstimate(input: QuickEstimateInput): Promise<{
       assignedTo: owner?.workflow_owner_id ?? owner?.assigned_to ?? null,
       actorId: user?.id ?? null,
       title: input.title.trim() || "Estimate",
+      db: supabase,
     });
   }
 

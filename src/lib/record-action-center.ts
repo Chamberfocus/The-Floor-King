@@ -196,6 +196,10 @@ export function buildCustomerActionCenter(input: {
   else if (approved.length > 1) situation.push(`${approved.length} estimates approved`);
   const sent = estimates.filter((row) => shouldCreateEstimateFollowup(row.status));
   if (sent.length && !approved.length) situation.push(sent.length === 1 ? "Estimate sent" : `${sent.length} estimates sent`);
+  const changes = estimates.filter((row) => row.status === "changes_requested");
+  if (changes.length) {
+    situation.push(changes.length === 1 ? "Changes requested" : `${changes.length} changes requested`);
+  }
   if (depositNeeded) situation.push("Deposit not collected");
   if (bookable.length === 1) situation.push(`${jobLabel(bookable[0].title)} is not booked`);
   else if (bookable.length > 1) situation.push(`${bookable.length} installs are not booked`);
@@ -257,6 +261,16 @@ export function buildCustomerActionCenter(input: {
     });
   }
 
+  if (changes[0]) {
+    const link = { label: "Review estimate", href: `/estimates/${changes[0].id}` };
+    if (!primary) {
+      primary = link;
+      also = also ?? "The customer asked for changes. Update the estimate and send it again.";
+    } else if (!secondary.some((row) => row.href === link.href)) {
+      secondary.push(link);
+    }
+  }
+
   const followDue = sent.some((row) => {
     const age = daysSince(row.sentAt, input.now);
     return age != null && age >= DEFAULT_ESTIMATE_FOLLOWUP_DAYS;
@@ -312,12 +326,16 @@ export function buildCustomerActionCenter(input: {
         ? primary.label
         : null;
 
+  const replyWaiting =
+    seeMoney && approved.length === 0 && (sent.length > 0 || changes.length > 0);
   const quiet =
     primary || blocker || secondary.length
       ? null
-      : schedule && !seeMoney
-        ? "Nothing on this customer needs scheduling."
-        : "You're caught up on this customer.";
+      : replyWaiting
+        ? "A follow-up is scheduled on this file."
+        : schedule && !seeMoney
+          ? "Nothing on this customer needs scheduling."
+          : "You're caught up on this customer.";
 
   if (depositNeeded && !situation.includes("Deposit not collected")) situation.push("Deposit not collected");
 
@@ -454,7 +472,7 @@ export function buildEstimateActionCenter(input: {
       primary: due && customerHref ? { label: "Follow up", href: customerHref } : { label: "Review estimate", href: "#estimate-next" },
       secondary: [],
       history,
-      quiet: due ? null : "No follow-up is due yet.",
+      quiet: due ? null : "Follow-up is scheduled on the customer file.",
     };
   }
 

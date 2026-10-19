@@ -27,6 +27,35 @@ export function followUpDueAt(
   return d.toISOString();
 }
 
+/**
+ * Keep the earlier reminder. A later proposal must not push an overdue
+ * date forward. An unreadable current date yields the proposal.
+ */
+export function soonerFollowUpDue(
+  currentDue: string | null | undefined,
+  proposedDue: string,
+): string {
+  const proposedMs = Date.parse(proposedDue);
+  const currentMs = currentDue ? Date.parse(currentDue) : NaN;
+  if (!Number.isFinite(proposedMs)) {
+    return Number.isFinite(currentMs) && currentDue ? currentDue : proposedDue;
+  }
+  if (!Number.isFinite(currentMs) || !currentDue) return proposedDue;
+  return currentMs <= proposedMs ? currentDue : proposedDue;
+}
+
+/** A date-only callback reminder is noon UTC so a US calendar day stays that day. */
+export function callbackFollowUpDue(
+  followUpAt: string | null | undefined,
+  from: Date = new Date(),
+): string {
+  const raw = (followUpAt ?? "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return `${raw}T12:00:00.000Z`;
+  const parsed = Date.parse(raw);
+  if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
+  return followUpDueAt(from, 1);
+}
+
 export function snoozeDueAt(
   from: Date,
   days: number = DEFAULT_SNOOZE_DAYS,

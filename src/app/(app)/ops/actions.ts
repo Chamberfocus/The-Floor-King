@@ -13,12 +13,14 @@ import {
   completeAutomatedOfficeTasks,
   ensureAutomatedOfficeTaskSafe,
   onServiceCallbackOpenedOps,
+  pinCustomerFollowUp,
 } from "@/lib/data/ops-automation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   INSTALLER_ISSUE_KIND,
   SERVICE_CALLBACK_KIND,
   callbackCategoryForIssue,
+  followUpDueAt,
   installerIssueTitle,
   installerMayReportIssue,
   isInstallerIssueCategory,
@@ -340,13 +342,15 @@ export async function createServiceCallback(formData: FormData): Promise<void> {
     .maybeSingle();
   if (error) throw new Error(serviceEmployeeMessage("create"));
   if (created?.id) {
-    void onServiceCallbackOpenedOps({
+    await onServiceCallbackOpenedOps({
       callbackId: created.id as string,
       customerId,
       jobId,
       assignedTo: str(formData.get("assigned_to")) || profile.id,
       actorId: profile.id,
       title: `Service callback: ${description.slice(0, 80)}`,
+      followUpAt: str(formData.get("follow_up_at")) || null,
+      db: supabase,
     });
   }
   refreshOps(jobId, customerId);
@@ -622,7 +626,8 @@ export async function reportInstallerIssue(formData: FormData): Promise<void> {
     cust?.full_name || (job.title as string) || "job",
   );
   if (callbackId) {
-    void ensureAutomatedOfficeTaskSafe({
+    const dueAt = followUpDueAt(new Date(), 1);
+    await ensureAutomatedOfficeTaskSafe({
       title,
       sourceKind: INSTALLER_ISSUE_KIND,
       entityId: callbackId,
@@ -632,7 +637,9 @@ export async function reportInstallerIssue(formData: FormData): Promise<void> {
       customerId,
       description,
       priority: "high",
+      dueAt,
     });
+    await pinCustomerFollowUp({ customerId, dueAt, db: supabase });
   }
   refreshOps(jobId, customerId);
 }
