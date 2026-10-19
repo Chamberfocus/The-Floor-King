@@ -49,6 +49,45 @@ export async function getDriveMatrix(
   }
 }
 
+/**
+ * Drive minutes and miles between every pair of places, in one Distance Matrix
+ * call. Index [i][j] is the drive from places[i] to places[j]. Same-place pairs
+ * are 0. Returns nulls when the key or a place is missing.
+ */
+export async function getDriveTable(
+  places: string[],
+): Promise<({ minutes: number; miles: number } | null)[][]> {
+  const blank = () => places.map(() => places.map(() => null));
+  const key = process.env.GOOGLE_MAPS_API_KEY;
+  if (!key || places.length === 0 || places.some((p) => !p.trim())) return blank();
+  const joined = places.map((p) => encodeURIComponent(p)).join("%7C");
+  const url =
+    "https://maps.googleapis.com/maps/api/distancematrix/json" +
+    `?origins=${joined}&destinations=${joined}` +
+    `&units=imperial&key=${key}`;
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    const rows = data?.rows ?? [];
+    return places.map((_, i) =>
+      places.map((_, j) => {
+        if (i === j) return { minutes: 0, miles: 0 };
+        const el = rows[i]?.elements?.[j];
+        if (!el || el.status !== "OK") return null;
+        const dur = el.duration;
+        if (!dur) return null;
+        const meters = el.distance?.value ?? 0;
+        return {
+          minutes: Math.round(dur.value / 60),
+          miles: Math.round((meters / 1609.34) * 10) / 10,
+        };
+      }),
+    );
+  } catch {
+    return blank();
+  }
+}
+
 export async function getDriveTime(
   destination: string,
   originOverride?: string,

@@ -9,6 +9,7 @@ import {
 } from "@/lib/scheduling";
 import { SCHEDULING_DEFAULTS, mergeInstaller } from "@/lib/data/scheduling";
 import { loadSchedulingScopeLines } from "@/lib/scheduling-scope";
+import { installerCanDoJob, jobMaterialType } from "@/lib/job-scope";
 import { INSTALL_ROLES, type SchedulingSettings } from "@/lib/types";
 
 export interface InstallAvailability {
@@ -85,7 +86,19 @@ export async function getInstallAvailability(
     booked.set(who, arr);
   }
 
-  const perInstaller = ids.map((id) => {
+  const jobType = jobMaterialType(lines);
+  const skillRes = await admin.from("install_crews").select("profile_id, skills").eq("active", true);
+  const skills = new Map<string, string[]>();
+  if (!skillRes.error) {
+    for (const crew of skillRes.data ?? []) {
+      if (crew.profile_id) skills.set(crew.profile_id as string, (crew.skills as string[] | null) ?? []);
+    }
+  }
+  const eligible = skillRes.error
+    ? ids
+    : ids.filter((id) => installerCanDoJob(skills.get(id) ?? [], jobType));
+
+  const perInstaller = eligible.map((id) => {
     const s = mergeInstaller(global, overrides.get(id));
     return {
       workDays: workDaySet(s),

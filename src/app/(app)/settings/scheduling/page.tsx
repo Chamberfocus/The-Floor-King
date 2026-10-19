@@ -44,14 +44,15 @@ export default async function SchedulingSettingsPage() {
     { name: "cap_hardwood_sf", label: "Hardwood", value: s.cap_hardwood_sf, unit: "sq ft / day" },
     { name: "cap_tile_teardown_sf", label: "Ceramic tear-out", value: s.cap_tile_teardown_sf, unit: "sq ft / day" },
     { name: "cap_subfloor_sheets", label: "Subfloor", value: s.cap_subfloor_sheets, unit: "sheets / day" },
-    { name: "cap_selflevel_sf", label: "Self-leveling", value: s.cap_selflevel_sf, unit: "sq ft / day" },
+    { name: "cap_selflevel_sf", label: "Self-leveling and floor prep", value: s.cap_selflevel_sf, unit: "sq ft / day" },
+    { name: "cap_stair_steps", label: "Stairs", value: s.cap_stair_steps, unit: "steps / day" },
   ];
 
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader
         title="Scheduling"
-        description="The parameters the smart scheduler uses to book estimates and installs."
+        description="Daily capacities, shop hours, and the store address. Both schedulers use these numbers, and the person booking approves the result."
       />
       <form action={saveSchedulingSettings} className="space-y-6">
         <Card>
@@ -123,7 +124,7 @@ export default async function SchedulingSettingsPage() {
                 placeholder="3580 West 140th Street, Cleveland, OH 44111"
               />
               <p className="text-xs text-muted-foreground">
-                Where routing starts when a rep has no home base of their own.
+                Estimate routes start here so the drive and fuel are measured from the store.
               </p>
             </div>
             <div className="space-y-1.5 sm:col-span-2">

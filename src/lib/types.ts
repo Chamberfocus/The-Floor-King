@@ -96,6 +96,8 @@ export interface SchedulingSettings {
   cap_tile_teardown_sf: number;
   cap_subfloor_sheets: number;
   cap_selflevel_sf: number;
+  /** Steps one crew can finish in a day (carpet steps and hard-surface stair install). */
+  cap_stair_steps: number;
   default_origin: string | null;
   arrival_windows: string; // "HH:MM-HH:MM,HH:MM-HH:MM" customizable arrival windows
   updated_at: string;

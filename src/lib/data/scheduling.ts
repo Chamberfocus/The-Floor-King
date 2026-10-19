@@ -3,14 +3,20 @@ import {
   nextFreeWindow,
   workDaySet,
   installDaysForJob,
+  chooseEstimateInsertion,
+  estimateDayWindow,
   ymd,
   fromYmd,
   addDaysYmd,
   type DateRange,
+  type InsertionStop,
 } from "@/lib/scheduling";
-import { getDriveMatrix, storeAddress } from "@/lib/maps";
+import { getDriveTable, storeAddress } from "@/lib/maps";
+import { crewFitLabel, installerCanDoJob, jobMaterialType } from "@/lib/job-scope";
+import { listInstallCrews } from "@/lib/data/install-crews";
+import { getOverrides, getShiftsMap, listTimeOff } from "@/lib/data/team-schedule";
 import { INSTALL_ROLES, type EstimateLineItem, type SchedulingSettings } from "@/lib/types";
-import { DEFAULT_ARRIVAL_WINDOWS, to12 } from "@/lib/format";
+import { DEFAULT_ARRIVAL_WINDOWS } from "@/lib/format";
 
 const CAP_KEYS = [
   "cap_carpet_yd",
@@ -20,6 +26,7 @@ const CAP_KEYS = [
   "cap_tile_teardown_sf",
   "cap_subfloor_sheets",
   "cap_selflevel_sf",
+  "cap_stair_steps",
 ] as const;
 
 /** Merge global settings with an installer's non-null overrides. */
@@ -50,6 +57,7 @@ export const SCHEDULING_DEFAULTS: SchedulingSettings = {
   cap_tile_teardown_sf: 100,
   cap_subfloor_sheets: 10,
   cap_selflevel_sf: 600,
+  cap_stair_steps: 12,
   default_origin: null,
   arrival_windows: DEFAULT_ARRIVAL_WINDOWS,
   updated_at: "",
@@ -104,6 +112,8 @@ export interface InstallerSuggestion {
   days: number;
   start: string;
   end: string;
+  /** Why this crew can do the job. The scheduler approves it with the booking. */
+  fit: string;
 }
 
 /**
@@ -114,6 +124,8 @@ export interface InstallerOutlook {
   installers: InstallerProfile[];
   overrides: Map<string, Record<string, unknown>>;
   booked: Map<string, DateRange[]>;
+  /** Crew trade skills. Missing id means no limit is saved. */
+  skills: Map<string, string[]>;
 }
 
 /**
@@ -124,32 +136,66 @@ export async function loadInstallerOutlook(fromDate?: string): Promise<Installer
   const supabase = await createClient();
   const installers = await listInstallers();
   const from = fromDate ?? ymd(new Date());
-  if (!installers.length) {
-    return { installers, overrides: new Map(), booked: new Map() };
+  const crews = await listInstallCrews({ activeOnly: true });
+  const skills = new Map<string, string[]>();
+  const crewIds: string[] = [];
+  for (const crew of crews) {
+    if (crew.profile_id) {
+      skills.set(crew.profile_id, crew.skills ?? []);
+    } else {
+      const id = `crew:${crew.id}`;
+      installers.push({
+        id,
+        name: crew.name,
+        email: crew.email ?? "",
+        role: "crew",
+      });
+      skills.set(id, crew.skills ?? []);
+      crewIds.push(crew.id);
+    }
   }
-  const ids = installers.map((i) => i.id);
-  const [{ data: ovRows }, { data: jobs }] = await Promise.all([
-    supabase.from("installer_settings").select("*").in("installer_id", ids),
-    supabase
-      .from("jobs")
-      .select("assigned_to, scheduled_date, scheduled_end")
-      .in("assigned_to", ids)
-      .not("scheduled_date", "is", null)
-      .or(`scheduled_end.gte.${from},scheduled_date.gte.${from}`),
+  if (!installers.length) {
+    return { installers, overrides: new Map(), booked: new Map(), skills };
+  }
+  const ids = installers.map((i) => i.id).filter((id) => !id.startsWith("crew:"));
+  const [{ data: ovRows }, { data: jobs }, crewJobs] = await Promise.all([
+    ids.length
+      ? supabase.from("installer_settings").select("*").in("installer_id", ids)
+      : Promise.resolve({ data: [] }),
+    ids.length
+      ? supabase
+          .from("jobs")
+          .select("assigned_to, scheduled_date, scheduled_end")
+          .in("assigned_to", ids)
+          .not("scheduled_date", "is", null)
+          .or(`scheduled_end.gte.${from},scheduled_date.gte.${from}`)
+      : Promise.resolve({ data: [] }),
+    crewIds.length
+      ? supabase
+          .from("jobs")
+          .select("assigned_crew_id, scheduled_date, scheduled_end")
+          .in("assigned_crew_id", crewIds)
+          .not("scheduled_date", "is", null)
+          .or(`scheduled_end.gte.${from},scheduled_date.gte.${from}`)
+      : Promise.resolve({ data: [] }),
   ]);
   const overrides = new Map<string, Record<string, unknown>>();
   for (const r of ovRows ?? [])
     overrides.set(r.installer_id as string, r as Record<string, unknown>);
   const booked = new Map<string, DateRange[]>();
-  for (const j of jobs ?? []) {
-    const who = j.assigned_to as string;
-    const start = j.scheduled_date as string;
-    const end = (j.scheduled_end as string) || start;
+  const pushBooked = (who: string, start: string, end: string) => {
     const arr = booked.get(who) ?? [];
-    arr.push({ start, end });
+    arr.push({ start, end: end || start });
     booked.set(who, arr);
+  };
+  for (const j of jobs ?? []) {
+    pushBooked(j.assigned_to as string, j.scheduled_date as string, (j.scheduled_end as string) || (j.scheduled_date as string));
   }
-  return { installers, overrides, booked };
+  for (const j of crewJobs.data ?? []) {
+    if (!j.assigned_crew_id) continue;
+    pushBooked(`crew:${j.assigned_crew_id as string}`, j.scheduled_date as string, (j.scheduled_end as string) || (j.scheduled_date as string));
+  }
+  return { installers, overrides, booked, skills };
 }
 
 export function suggestionsFromOutlook(
@@ -159,8 +205,11 @@ export function suggestionsFromOutlook(
   fromDate?: string,
 ): InstallerSuggestion[] {
   const from = fromDate ?? ymd(new Date());
+  const jobType = jobMaterialType(lines);
   const out: InstallerSuggestion[] = [];
   for (const inst of outlook.installers) {
+    const skills = outlook.skills.get(inst.id) ?? [];
+    if (!installerCanDoJob(skills, jobType)) continue;
     const settings = mergeInstaller(global, outlook.overrides.get(inst.id));
     const days = installDaysForJob(lines, settings).days;
     if (days <= 0) continue;
@@ -177,6 +226,7 @@ export function suggestionsFromOutlook(
         days,
         start: win.start,
         end: win.end,
+        fit: crewFitLabel(skills, jobType),
       });
   }
   return out.sort((a, b) => a.start.localeCompare(b.start) || a.days - b.days);
@@ -271,21 +321,33 @@ export async function getEstimateSuggestions(
     .eq("id", customerId)
     .maybeSingle();
   if (!cust) return [];
-  const customerAddress = [
+  let customerAddress = [
     cust.street,
     [cust.city, cust.state].filter(Boolean).join(", "),
     cust.zip,
   ]
     .filter(Boolean)
     .join(" ");
+  if (!customerAddress) {
+    const { data: sites } = await supabase
+      .from("service_addresses")
+      .select("street, city, state, zip")
+      .eq("customer_id", customerId)
+      .limit(1);
+    const site = sites?.[0];
+    if (site) {
+      customerAddress = [site.street, [site.city, site.state].filter(Boolean).join(", "), site.zip]
+        .filter(Boolean)
+        .join(" ");
+    }
+  }
   if (!customerAddress) return [];
 
   const settings = await getSchedulingSettings();
   const workDays = workDaySet(settings);
   const dur = settings.estimate_duration_min;
   const buffer = settings.travel_buffer_min;
-  const dayStart = parseHM(settings.day_start);
-  const dayEnd = parseHM(settings.day_end);
+  const store = defaultOrigin(settings);
 
   const designated =
     (cust.assigned_to as string) || (cust.workflow_owner_id as string) || null;
@@ -325,11 +387,17 @@ export async function getEstimateSuggestions(
   const windowEnd = days[days.length - 1] ?? today;
   const { data: appts } = await supabase
     .from("appointments")
-    .select("salesperson_id, starts_at, ends_at, address")
+    .select("salesperson_id, starts_at, ends_at, address, kind, is_block")
     .in("salesperson_id", repIds)
     .eq("status", "scheduled")
     .gte("starts_at", `${today}T00:00:00Z`)
     .lte("starts_at", `${windowEnd}T23:59:59Z`);
+
+  const [shifts, overrides, timeOff] = await Promise.all([
+    getShiftsMap(),
+    getOverrides(today, windowEnd),
+    listTimeOff(today, windowEnd, ["approved"]),
+  ]);
 
   // Full existing stops per rep/day (start, end, address) — the route we insert into.
   const byRepDay = new Map<string, DayStop[]>();
@@ -339,30 +407,47 @@ export async function getEstimateSuggestions(
     const startMin = parseHM(st.slice(11, 16));
     const en = (a.ends_at as string) || "";
     const endMin = en ? parseHM(en.slice(11, 16)) : startMin + dur;
+    const blocked = a.kind === "block" || a.is_block === true;
     const k = `${a.salesperson_id}|${date}`;
     const arr = byRepDay.get(k) ?? [];
-    arr.push({ startMin, endMin, address: (a.address as string) || null });
+    arr.push({ startMin, endMin, address: blocked ? null : ((a.address as string) || null) });
     byRepDay.set(k, arr);
   }
 
-  // Score every rep×day in parallel: find the lowest-detour place to slot the new
-  // estimate that day (before the first stop, between two stops, or end-of-day
-  // back home) — one Distance Matrix call each.
+  // Score every rep×day: the store is the start of the route, the rep's own
+  // hours and time off come first, and the slot that adds the least drive wins.
   const pairs: { rep: (typeof reps)[number]; date: string }[] = [];
   for (const rep of reps) for (const date of days) pairs.push({ rep, date });
 
   const results = await Promise.all(
     pairs.map(async ({ rep, date }): Promise<EstimateSlot | null> => {
-      const home = rep.home_address || defaultOrigin(settings);
+      const shiftBook = shifts[rep.id];
+      const off = timeOff.some(
+        (t) => t.user_id === rep.id && t.start_date <= date && date <= t.end_date,
+      );
+      const window = estimateDayWindow({
+        date,
+        shopWorkDays: workDays,
+        shopStart: settings.day_start,
+        shopEnd: settings.day_end,
+        hasShiftSchedule: !!shiftBook && Object.keys(shiftBook).length > 0,
+        shift: shiftBook?.[fromYmd(date).getUTCDay()] ?? null,
+        override: overrides[rep.id]?.[date] ?? null,
+        off,
+      });
+      if (!window) return null;
+      const base = store || rep.home_address || "";
+      const baseLabel = store ? "the store" : "home";
       const stops = (byRepDay.get(`${rep.id}|${date}`) ?? []).sort(
         (a, b) => a.startMin - b.startMin,
       );
       const best = await bestInsertion({
         destination: customerAddress,
-        home,
+        base,
+        baseLabel,
         stops,
-        dayStart,
-        dayEnd,
+        dayStart: window.start,
+        dayEnd: window.end,
         dur,
         buffer,
       });
@@ -376,7 +461,7 @@ export async function getEstimateSuggestions(
         address: customerAddress,
         driveMinutes: best.arriveDrive,
         driveText:
-          best.arriveDrive != null ? `${best.arriveDrive} min drive` : null,
+          best.arriveDrive != null ? `${best.arriveDrive} min from ${baseLabel}` : null,
         addedDriveMinutes: best.detour,
         addedMiles: best.miles,
         reason: best.reason,
@@ -406,16 +491,13 @@ interface DayStop {
 }
 
 /**
- * Find the most fuel/route-efficient place to slot a `dur`-minute estimate into
- * ONE rep's day. Considers inserting before the first stop, between any two
- * stops, or after the last stop (returning home); an empty day is a fresh round
- * trip. Ranks by the drive detour ADDED to the route (least added minutes wins);
- * with no Maps key it falls back to the earliest time. Returns the winning
- * placement, or null if nothing fits the work hours. One Distance Matrix call.
+ * Least added drive from the store into one rep's day. One Distance Matrix
+ * call. With no Maps key the earliest time that fits the hours is returned.
  */
 async function bestInsertion(opts: {
   destination: string;
-  home: string;
+  base: string;
+  baseLabel: string;
   stops: DayStop[];
   dayStart: number;
   dayEnd: number;
@@ -428,94 +510,34 @@ async function bestInsertion(opts: {
   miles: number | null;
   reason: string | null;
 } | null> {
-  const { destination, home, stops, dayStart, dayEnd, dur, buffer } = opts;
-
-  // One call: drive from the new stop to home + each existing stop's address.
-  const anchors = [home, ...stops.map((s) => s.address || home)];
-  const matrix = await getDriveMatrix(destination, anchors);
-  const dHome = matrix[0];
-  const dStop = (i: number) => matrix[i + 1];
-  // Realistic travel gap between two stops = the real drive (never below the buffer).
-  const gap = (m: { minutes: number } | null) =>
-    m ? Math.max(buffer, m.minutes) : buffer;
-  const round1 = (n: number) => Math.round(n * 10) / 10;
-  const clock = (min: number) => to12(toHM(min));
-
-  type C = {
-    startMin: number;
-    arriveDrive: number | null;
-    detour: number | null;
-    miles: number | null;
-    reason: string | null;
-  };
-  const cands: C[] = [];
-
-  if (stops.length === 0) {
-    if (dayStart + dur <= dayEnd) {
-      cands.push({
-        startMin: dayStart,
-        arriveDrive: dHome?.minutes ?? null,
-        detour: dHome ? dHome.minutes * 2 : null,
-        miles: dHome ? round1(dHome.miles * 2) : null,
-        reason: "Only stop that day",
-      });
-    }
-  } else {
-    // Before the first stop.
-    const first = stops[0];
-    if (dayStart + dur + gap(dStop(0)) <= first.startMin && dayStart + dur <= dayEnd) {
-      const a = dHome;
-      const b = dStop(0);
-      cands.push({
-        startMin: dayStart,
-        arriveDrive: a?.minutes ?? null,
-        detour: a && b ? a.minutes + b.minutes : null,
-        miles: a && b ? round1(a.miles + b.miles) : null,
-        reason: `Before your ${clock(first.startMin)} stop`,
-      });
-    }
-    // Between two stops.
-    for (let i = 0; i < stops.length - 1; i++) {
-      const prev = stops[i];
-      const next = stops[i + 1];
-      const arrive = prev.endMin + gap(dStop(i));
-      const leave = arrive + dur + gap(dStop(i + 1));
-      if (arrive + dur <= dayEnd && leave <= next.startMin) {
-        const a = dStop(i);
-        const b = dStop(i + 1);
-        cands.push({
-          startMin: arrive,
-          arriveDrive: a?.minutes ?? null,
-          detour: a && b ? a.minutes + b.minutes : null,
-          miles: a && b ? round1(a.miles + b.miles) : null,
-          reason: `Between your ${clock(prev.startMin)} & ${clock(next.startMin)} stops`,
-        });
-      }
-    }
-    // After the last stop (then back home).
-    const last = stops[stops.length - 1];
-    const arriveLast = last.endMin + gap(dStop(stops.length - 1));
-    if (arriveLast + dur <= dayEnd) {
-      const a = dStop(stops.length - 1);
-      const b = dHome;
-      cands.push({
-        startMin: arriveLast,
-        arriveDrive: a?.minutes ?? null,
-        detour: a && b ? a.minutes + b.minutes : null,
-        miles: a && b ? round1(a.miles + b.miles) : null,
-        reason: `After your ${clock(last.startMin)} stop`,
-      });
-    }
-  }
-
-  if (!cands.length) return null;
-  cands.sort((x, y) => {
-    const dx = x.detour ?? Infinity;
-    const dy = y.detour ?? Infinity;
-    if (dx !== dy) return dx - dy;
-    return x.startMin - y.startMin;
+  const places: { key: string; address: string }[] = [];
+  if (opts.base.trim()) places.push({ key: "base", address: opts.base.trim() });
+  places.push({ key: "new", address: opts.destination });
+  const stops: InsertionStop[] = opts.stops.map((stop, i) => {
+    const address = stop.address?.trim() || "";
+    if (!address) return { startMin: stop.startMin, endMin: stop.endMin, placeKey: null };
+    const key = `s${i}`;
+    places.push({ key, address });
+    return { startMin: stop.startMin, endMin: stop.endMin, placeKey: key };
   });
-  return cands[0];
+  const capped = places.slice(0, 10);
+  const table = await getDriveTable(capped.map((p) => p.address));
+  const index = new Map(capped.map((p, i) => [p.key, i]));
+  const drive = (from: string, to: string) => {
+    const i = index.get(from);
+    const j = index.get(to);
+    if (i == null || j == null) return null;
+    return table[i]?.[j] ?? null;
+  };
+  return chooseEstimateInsertion({
+    dayStart: opts.dayStart,
+    dayEnd: opts.dayEnd,
+    dur: opts.dur,
+    buffer: opts.buffer,
+    stops,
+    drive,
+    baseLabel: opts.baseLabel,
+  });
 }
 
 export interface AppointmentRow {
@@ -656,7 +678,7 @@ export async function getDayRoute(
   });
   return {
     repName: (rep?.full_name as string) || (rep?.email as string) || "Rep",
-    origin: (rep?.home_address as string) || defaultOrigin(settings),
+    origin: defaultOrigin(settings) || (rep?.home_address as string) || "",
     stops,
   };
 }

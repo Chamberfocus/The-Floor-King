@@ -450,6 +450,19 @@ export function boardMaterialTypeFromScopes(args: {
 /** Installer material skills, stored on the install crew. */
 export type InstallerSkill = "carpet" | "hard";
 
+/** Why this crew is offered, shown before the scheduler approves the booking. */
+export function crewFitLabel(
+  skills: string[] | null | undefined,
+  jobType: MaterialType,
+): string {
+  const s = skills ?? [];
+  if (s.length === 0) return "No trade limit is saved, so this crew can take this job.";
+  if (jobType === "both") return "This crew installs carpet and hard surface.";
+  if (jobType === "carpet") return "This crew installs carpet and sheet vinyl.";
+  if (jobType === "hard") return "This crew installs hard surface.";
+  return "This crew can take this job.";
+}
+
 /**
  * Whether an installer with these skills should be offered a job of this
  * material type on the Job Board.
