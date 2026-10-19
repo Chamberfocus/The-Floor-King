@@ -851,31 +851,8 @@ export default async function CustomerPage({
         </div>
       ) : null}
 
-      <RecordActionCenter model={customerAction} />
-      {recordFacts.callbacks.length ? (
-        <section className="mb-3 rounded-lg border bg-card p-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Service
-          </h2>
-          <ul className="mt-2 space-y-2 text-sm">
-            {recordFacts.callbacks.map((row) => (
-              <li key={row.id}>
-                <Link href={`/service/${row.id}`} className="font-medium text-primary hover:underline">
-                  {serviceStatusLabel(row.status)}
-                  {row.job_id ? ` · ${jobTitle.get(row.job_id) || "Job"}` : ""}
-                </Link>
-                <div className="text-xs text-muted-foreground">
-                  {serviceReportedAge(row.reported_at) ?? "Reported date not recorded"}
-                  {row.follow_up_at ? ` · ${formatDate(row.follow_up_at)}` : ""}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {/* Identity band — who they are, their stage, contact, owner & schedule,
-          all in one place (replaces the plain header + its scattered bits). */}
+      {/* Identity band — the person first, then how to reach them and the
+          actions that handle the file. What to do follows, once you know who. */}
       <section
         id="overview"
         className="relative mb-3 scroll-mt-24 overflow-hidden rounded-lg border bg-card px-3 py-3 shadow-sm sm:px-4"
@@ -940,8 +917,7 @@ export default async function CustomerPage({
           </div>
         </div>
 
-        {customer.phone || customer.email || addressText ? (
-          <div className="mt-2 flex flex-wrap gap-2">
+        <div className="mt-2 flex flex-wrap gap-2">
             {customer.phone ? (
               <a
                 href={`tel:${customer.phone}`}
@@ -950,7 +926,15 @@ export default async function CustomerPage({
                 <Phone className="size-4 text-muted-foreground" />
                 {customer.phone}
               </a>
-            ) : null}
+            ) : (
+              <a
+                href="#contact"
+                className="inline-flex min-h-11 items-center gap-2 rounded-full border border-dashed bg-background px-3 text-sm font-medium text-amber-900 transition-colors hover:border-primary hover:text-primary dark:text-amber-100"
+              >
+                <Phone className="size-4 text-muted-foreground" />
+                Add a phone
+              </a>
+            )}
             {customer.email ? (
               <a
                 href={`mailto:${customer.email}`}
@@ -959,7 +943,15 @@ export default async function CustomerPage({
                 <Mail className="size-4 text-muted-foreground" />
                 <span className="max-w-[16rem] truncate">{customer.email}</span>
               </a>
-            ) : null}
+            ) : (
+              <a
+                href="#contact"
+                className="inline-flex min-h-11 items-center gap-2 rounded-full border border-dashed bg-background px-3 text-sm font-medium text-amber-900 transition-colors hover:border-primary hover:text-primary dark:text-amber-100"
+              >
+                <Mail className="size-4 text-muted-foreground" />
+                Add an email
+              </a>
+            )}
             {addressText && mapsUrl ? (
               <a
                 href={mapsUrl}
@@ -970,9 +962,22 @@ export default async function CustomerPage({
                 <MapPin className="size-4 shrink-0 text-muted-foreground" />
                 <span className="max-w-full break-words">{addressText}</span>
               </a>
-            ) : null}
+            ) : (
+              <a
+                href="#contact"
+                className="inline-flex min-h-11 items-center gap-2 rounded-full border border-dashed bg-background px-3 text-sm font-medium text-amber-900 transition-colors hover:border-primary hover:text-primary dark:text-amber-100"
+              >
+                <MapPin className="size-4 text-muted-foreground" />
+                Add an address
+              </a>
+            )}
+            <a
+              href="#contact"
+              className="inline-flex min-h-11 items-center rounded-full px-3 text-sm font-medium text-primary hover:underline"
+            >
+              Edit contact
+            </a>
           </div>
-        ) : null}
         {(() => {
           const openInstall = installJobs.filter(
             (j) => j.status !== "completed" && j.status !== "cancelled",
@@ -1006,7 +1011,47 @@ export default async function CustomerPage({
           );
         })()}
 
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
+        <div className={cn("mt-3 grid gap-2 border-t pt-3", seesMoney ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
+          <div className="rounded-lg bg-muted/40 px-3 py-2">
+            <div className="text-xs text-muted-foreground">Estimate visit</div>
+            <div className="text-sm font-semibold">
+              {estimateAppointment
+                ? `${formatDate(estimateAppointment.startsAt)} · ${formatWallTime(estimateAppointment.startsAt)}`
+                : "Not booked"}
+            </div>
+          </div>
+          <div className="rounded-lg bg-muted/40 px-3 py-2">
+            <div className="text-xs text-muted-foreground">Install</div>
+            <div className="text-sm font-semibold">
+              {quickJob?.date
+                ? `${formatDate(quickJob.date)}${
+                    quickJob.endDate && quickJob.endDate !== quickJob.date
+                      ? ` – ${formatDate(quickJob.endDate)}`
+                      : ""
+                  }${quickJob.installerName ? ` · ${quickJob.installerName}` : ""}`
+                : "Not booked"}
+            </div>
+          </div>
+          {seesMoney ? (
+            <a href="#invoices" className="rounded-lg bg-muted/40 px-3 py-2 hover:bg-muted">
+              <div className="text-xs text-muted-foreground">Amount due</div>
+              <div
+                className={cn(
+                  "text-sm font-semibold tabular-nums",
+                  money.balance > 0.005 && "text-destructive",
+                )}
+              >
+                {formatMoney(money.balance)}
+              </div>
+            </a>
+          ) : null}
+        </div>
+
+        <div className="mt-3 border-t pt-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Handle this customer
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
           {(SALES_ROLES as string[]).includes(profile.role) && !customer.cancelled_at ? (
             <ProcessCardButton
               url={orgSettings.card_processing_url}
@@ -1030,39 +1075,6 @@ export default async function CustomerPage({
               >
                 <Wrench className="size-3.5" /> New job
               </Link>
-            </>
-          ) : null}
-          {canDelete ? (
-            <VisibleCustomerDelete
-              customerId={customer.id}
-              customerName={customer.full_name}
-            />
-          ) : null}
-          <details className="group">
-            <summary className="inline-flex min-h-11 cursor-pointer list-none items-center rounded-lg px-3 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground [&::-webkit-details-marker]:hidden">
-              More actions
-            </summary>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-          <CustomerSettingsMenu
-            customer={customer}
-            canDelete={canDelete}
-            portalUser={portalUser}
-            defaultEmail={customer.email ?? ""}
-            sources={leadSources}
-          />
-          <QualifyDialog
-            customerId={customer.id}
-            questions={qualifyingQuestions}
-            qualified={!!customer.qualified}
-            autoOpen={justAdded}
-          />
-          {/* ONE action area: settings, qualify, on-my-way, and the quick
-              stage/owner/estimate/install actions — merged into a single row so
-              there aren't three stacked control bands. The quick actions show no
-              value labels here (showValues=false) because each value has its own
-              home on the page (stage → hero, owner → header, dates → Schedule). */}
-          {!customer.cancelled_at ? (
-            <>
               <OnTheWayButton
                 customerId={customer.id}
                 customerName={customer.full_name}
@@ -1098,11 +1110,30 @@ export default async function CustomerPage({
                 }
                 openOnLoad={openScheduler}
                 compact
+                plainLabels
                 showValues={false}
                 showSwitcher={false}
               />
             </>
           ) : null}
+          <details className="group">
+            <summary className="inline-flex min-h-11 cursor-pointer list-none items-center rounded-lg px-3 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground [&::-webkit-details-marker]:hidden">
+              More actions
+            </summary>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+          <CustomerSettingsMenu
+            customer={customer}
+            canDelete={canDelete}
+            portalUser={portalUser}
+            defaultEmail={customer.email ?? ""}
+            sources={leadSources}
+          />
+          <QualifyDialog
+            customerId={customer.id}
+            questions={qualifyingQuestions}
+            qualified={!!customer.qualified}
+            autoOpen={justAdded}
+          />
           {!customer.cancelled_at ? (
             <CustomerSwitcher currentId={customer.id} />
           ) : null}
@@ -1113,13 +1144,20 @@ export default async function CustomerPage({
             reasons={cancelReasons}
             hasOpenPO={customerPOs.some((po) => po.status === "ordered")}
           />
+          {canDelete ? (
+            <VisibleCustomerDelete
+              customerId={customer.id}
+              customerName={customer.full_name}
+            />
+          ) : null}
             </div>
           </details>
+          </div>
         </div>
       </section>
 
       {customer.cancelled_at ? (
-        <div className="mb-6 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
+        <div className="mb-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
           <p className="font-medium text-destructive">
             Cancelled{" "}
             <span className="font-normal text-muted-foreground">
@@ -1128,10 +1166,33 @@ export default async function CustomerPage({
             </span>
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            This customer is out of your active pipeline. Reopen them (top right) to pick
-            back up where they left off.
+            This customer is out of the active pipeline. Open More actions and reopen them
+            to pick back up where they left off.
           </p>
         </div>
+      ) : null}
+
+      <RecordActionCenter model={customerAction} />
+      {recordFacts.callbacks.length ? (
+        <section className="mb-3 rounded-lg border bg-card p-3">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Service calls
+          </h2>
+          <ul className="mt-2 space-y-2 text-sm">
+            {recordFacts.callbacks.map((row) => (
+              <li key={row.id}>
+                <Link href={`/service/${row.id}`} className="font-medium text-primary hover:underline">
+                  {serviceStatusLabel(row.status)}
+                  {row.job_id ? ` · ${jobTitle.get(row.job_id) || "Job"}` : ""}
+                </Link>
+                <div className="text-xs text-muted-foreground">
+                  {serviceReportedAge(row.reported_at) ?? "Reported date not recorded"}
+                  {row.follow_up_at ? ` · ${formatDate(row.follow_up_at)}` : ""}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
       ) : null}
 
       {/* Hybrid tabs: Overview shows the whole file; each tab zooms into one part.
@@ -1208,6 +1269,15 @@ export default async function CustomerPage({
               {/* Right: details + money + due rail. (Record counts live on the
                   tabs, so the old "Records" snapshot panel was removed.) */}
               <aside className="space-y-3">
+                {customer.next_action_due ? (
+                <CustomerNextActionCard
+                  customerId={customer.id}
+                  nextActionDue={customer.next_action_due}
+                  stuck={overdue}
+                  tasks={openTasks}
+                  canSnooze={(SALES_ROLES as string[]).includes(profile.role)}
+                />
+                ) : null}
                 {/* Full customer details, at a glance — no Contact-tab hunting. */}
                 <div className="rounded-lg border bg-card p-3 shadow-none">
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1247,7 +1317,7 @@ export default async function CustomerPage({
                       <div className="border-t pt-2.5">
                         <div className="text-xs text-muted-foreground">Notes</div>
                         <div className="line-clamp-3 whitespace-pre-wrap">{customer.notes}</div>
-                        <a href="#contact" className="text-xs font-medium text-primary hover:underline">View contact</a>
+                        <a href="#contact" className="text-xs font-medium text-primary hover:underline">Edit contact</a>
                       </div>
                     ) : null}
                   </div>
@@ -1451,15 +1521,6 @@ export default async function CustomerPage({
                   </p>
                 ) : null}
 
-                {customer.next_action_due ? (
-                <CustomerNextActionCard
-                  customerId={customer.id}
-                  nextActionDue={customer.next_action_due}
-                  stuck={overdue}
-                  tasks={openTasks}
-                  canSnooze={(SALES_ROLES as string[]).includes(profile.role)}
-                />
-                ) : null}
               </aside>
             </div>
           </TabSection>

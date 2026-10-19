@@ -88,6 +88,7 @@ export function QuickActions({
   showSwitcher = true,
   showValues = true,
   compact = false,
+  plainLabels = false,
   redirectTo,
   installScheduler = null,
   openOnLoad = null,
@@ -123,6 +124,9 @@ export function QuickActions({
   showValues?: boolean;
   /** Compact mode for embedding in a list row (no card chrome / label). */
   compact?: boolean;
+  /** Customer-file wording: say what the button does, and show the current
+   *  visit or owner beside it so a phone call does not start with a hunt. */
+  plainLabels?: boolean;
   /** Where to navigate after an action (list rows pass their URL to stay put). */
   redirectTo?: string;
   /** The smart install scheduler (suggested crews + estimate), rendered server-
@@ -191,6 +195,7 @@ export function QuickActions({
   // link is asking for a dialog, which would otherwise open onto nothing.
   if (compact && actions.length === 0 && !openOnLoad) return null;
 
+  const touch = plainLabels ? "min-h-11" : undefined;
   const actionButton = (a: QuickAction) => {
     if (a === "stage")
       return (
@@ -198,10 +203,15 @@ export function QuickActions({
           key="stage"
           variant="outline"
           size="sm"
+          className={touch}
           onClick={() => launch("stage")}
         >
-          <ArrowLeftRight className="size-3.5" /> Stage
-          {showValues && currentStageName ? (
+          <ArrowLeftRight className="size-3.5" /> {plainLabels ? "Change stage" : "Stage"}
+          {plainLabels && currentStageName ? (
+            <span className="max-w-[9rem] truncate font-normal text-muted-foreground">
+              · {currentStageName}
+            </span>
+          ) : showValues && currentStageName ? (
             <span className="ml-1 max-w-[8rem] truncate text-muted-foreground">
               · {currentStageName}
             </span>
@@ -214,10 +224,15 @@ export function QuickActions({
           key="assignee"
           variant="outline"
           size="sm"
+          className={touch}
           onClick={() => launch("assignee")}
         >
-          <UserCog className="size-3.5" /> Assignee
-          {showValues ? (
+          <UserCog className="size-3.5" /> {plainLabels ? "Change owner" : "Assignee"}
+          {plainLabels ? (
+            <span className="max-w-[9rem] truncate font-normal text-muted-foreground">
+              · {currentOwnerName ?? "Unassigned"}
+            </span>
+          ) : showValues ? (
             <span className="ml-1 max-w-[8rem] truncate text-muted-foreground">
               · {currentOwnerName ?? "Unassigned"}
             </span>
@@ -230,10 +245,15 @@ export function QuickActions({
           key="estimate"
           variant="outline"
           size="sm"
+          className={touch}
           onClick={() => launch("estimate")}
         >
-          <CalendarClock className="size-3.5" /> Estimate
-          {showValues ? (
+          <CalendarClock className="size-3.5" /> {plainLabels ? "Schedule estimate" : "Estimate"}
+          {plainLabels && estimate ? (
+            <span className="font-normal text-muted-foreground">
+              · {formatDate(estimate.startsAt)}
+            </span>
+          ) : showValues ? (
             <span className="ml-1 text-muted-foreground">
               · {estimate ? formatDate(estimate.startsAt) : "Set"}
             </span>
@@ -246,10 +266,15 @@ export function QuickActions({
           key="install"
           variant="outline"
           size="sm"
+          className={touch}
           onClick={() => launch("install")}
         >
-          <Hammer className="size-3.5" /> Install
-          {showValues ? (
+          <Hammer className="size-3.5" /> {plainLabels ? "Schedule install" : "Install"}
+          {plainLabels && job?.date ? (
+            <span className="font-normal text-muted-foreground">
+              · {formatDate(job.date)}
+            </span>
+          ) : showValues ? (
             <span className="ml-1 text-muted-foreground">
               · {job?.date ? formatDate(job.date) : "Set"}
             </span>
@@ -267,6 +292,7 @@ export function QuickActions({
           key="closeout"
           variant="outline"
           size="sm"
+          className={touch}
           render={
             <Link
               href={`/jobs/${closeout.jobId}/closeout${

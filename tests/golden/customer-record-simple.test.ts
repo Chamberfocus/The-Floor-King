@@ -14,7 +14,10 @@ const layout = readFileSync("src/app/(app)/customers/layout.tsx", "utf8");
 describe("customer record simplification", () => {
   it("keeps one decision surface and a collapsed progress summary", () => {
     expect(page).toContain("<RecordActionCenter");
+    expect(page.indexOf("<RecordActionCenter")).toBeGreaterThan(page.indexOf("<h1"));
     expect(page).toContain("More actions");
+    expect(page).toContain("Handle this customer");
+    expect(page).toContain("plainLabels");
     expect(page).toContain("New job");
     expect(rollup).toContain("Job progress");
     expect(rollup).toContain("of {only.total} recorded");
