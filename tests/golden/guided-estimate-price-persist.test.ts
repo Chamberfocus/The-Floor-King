@@ -1,7 +1,7 @@
 /**
  * Guided Estimate selling price must survive into Builder.
- * Typed sell is not cost, is not marked up again, and is not stored as $0.
- * A missing price stays PRICE NEEDED.
+ * Typed sell and catalog-derived sell both transfer, including when prices
+ * will be fixed in the builder. A missing price stays PRICE NEEDED.
  */
 import { describe, expect, it } from "vitest";
 import { PRICE_NEEDED } from "@/lib/catalog-pricing";
@@ -43,15 +43,9 @@ describe("entered selling price persists into Builder", () => {
       enteredSell: draft.sellPrice,
       derivedSell: 0,
     });
-    const stored = guidedLineSellForSave(
-      {
-        material_rate: first.material_rate,
-        sell_locked: first.sellLocked,
-        product_id: "prod-1",
-        category: "carpet",
-      },
-      true,
-    );
+    const stored = guidedLineSellForSave({
+      material_rate: first.material_rate,
+    });
     const reloaded = hydrateBuilderMaterialRate(stored, first.material_cost, "carpet", 0);
     expect(stored).toBe(8.5);
     expect(reloaded).toBe("8.5");
@@ -94,27 +88,13 @@ describe("entered selling price persists into Builder", () => {
     expect(resolved.material_rate).not.toBe(DERIVED);
   });
 
-  it("does not blank a typed sell when other catalog prices are cleared", () => {
-    const kept = guidedLineSellForSave(
-      {
-        material_rate: 8.5,
-        sell_locked: true,
-        product_id: "prod-1",
-        category: "carpet",
-      },
-      true,
-    );
-    const cleared = guidedLineSellForSave(
-      {
-        material_rate: DERIVED,
-        sell_locked: false,
-        product_id: "prod-2",
-        category: "carpet",
-      },
-      true,
-    );
-    expect(kept).toBe(8.5);
-    expect(cleared).toBe(0);
+  it("transfers guided catalog prices into the builder when prices will be fixed there", () => {
+    const typed = guidedLineSellForSave({ material_rate: 8.5 });
+    const catalog = guidedLineSellForSave({ material_rate: DERIVED });
+    expect(typed).toBe(8.5);
+    expect(catalog).toBe(DERIVED);
+    expect(catalog).not.toBe(0);
+    expect(hydrateBuilderMaterialRate(catalog, COST, "carpet", 0)).toBe(String(DERIVED));
   });
 
   it("shows PRICE NEEDED for an unresolved price instead of $0.00", () => {

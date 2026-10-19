@@ -108,7 +108,7 @@ export interface SmartLine {
   style: string | null;
   color: string | null;
   from_stock?: boolean; // pulled from stock → kept off the PO
-  /** Salesperson typed this sell. Do not blank it on the way into Builder. */
+  /** Salesperson typed this sell. Guided sells transfer into Builder either way. */
   sell_locked?: boolean;
   sqft_per_box?: number | null; // hard surface: coverage per carton
   is_fill?: boolean; // carpet: a fill / seam piece

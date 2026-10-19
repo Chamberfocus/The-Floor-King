@@ -3172,25 +3172,22 @@ export function Questionnaire({
   const canNext = !q || !q.required || answered(q);
   const requiredDone = stepQuestions.every((sq) => !sq.required || answered(sq));
 
-  const save = (blankCatalogPrices = false) =>
+  const save = () =>
     startSave(async () => {
       const raw = lines.filter((l) => l.description.trim());
       if (!raw.length) {
         toast.error("Answer a few questions first — add areas and a product.");
         return;
       }
-      // "I'll set prices in the builder" → clear the SELL rate off every catalog
-      // material line so nothing wrong-priced is carried in. The structure,
-      // cuts, quantities and labor all stay.
+      // Prices shown on the guided review transfer onto the estimate. Fixing
+      // them in the builder edits those sells; it does not clear them to $0.
+      // Unresolved lines stay 0 so the builder can show PRICE NEEDED.
       //
-      // material_COST is deliberately KEPT. It's not a price — it's what the
-      // material costs you, and it's the one number you're not overriding.
-      // Clearing it too meant arriving in the builder with no cost on any line,
-      // so every margin read 100% and the margin slider had nothing to price
-      // from — you'd have to re-enter the cost of every product by hand.
+      // material_COST stays the catalog cost. It's what the material costs
+      // you, separate from the customer sell.
       const built = raw.map((l) => ({
         ...l,
-        material_rate: guidedLineSellForSave(l, blankCatalogPrices),
+        material_rate: guidedLineSellForSave(l),
       }));
       // Save the measured areas to the customer (their dashboard card) first —
       // createSmartEstimate redirects on success.
@@ -3608,8 +3605,7 @@ export function Questionnaire({
         </Card>
       )}
 
-      {/* Catalog prices can be off — confirm them, or carry the job into the
-          builder unpriced and set the real prices there. */}
+      {/* Both paths keep the guided prices. The builder is where a price gets fixed. */}
       <Dialog open={priceCheck} onOpenChange={setPriceCheck}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -3623,8 +3619,8 @@ export function Questionnaire({
                   before tax
                 </>
               ) : null}
-              . If the catalog price looks off, build it now and set the real
-              prices in the builder instead.
+              . Those prices transfer into the builder. Open it to change any
+              line that needs a fix.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex-col gap-2 sm:flex-col">
@@ -3633,7 +3629,7 @@ export function Questionnaire({
               className="w-full"
               onClick={() => {
                 setPriceCheck(false);
-                save(false);
+                save();
               }}
             >
               Prices are right — use them
@@ -3644,10 +3640,10 @@ export function Questionnaire({
               className="w-full"
               onClick={() => {
                 setPriceCheck(false);
-                save(true);
+                save();
               }}
             >
-              I&apos;ll set prices in the builder
+              I&apos;ll fix prices in the builder
             </Button>
             <Button
               type="button"

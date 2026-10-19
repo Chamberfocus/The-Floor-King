@@ -24,7 +24,7 @@ export type GuidedProductRates = {
   /** Catalog / vendor cost in the line's billing unit. Never the typed sell. */
   material_cost: number;
   unresolved: boolean;
-  /** Typed sell must survive "I'll set prices in the builder". */
+  /** True when the salesperson typed the sell. Catalog-derived sells stay unlocked and still transfer into the builder. */
   sellLocked: boolean;
 };
 
@@ -65,27 +65,14 @@ export function resolveGuidedProductRates(args: {
 }
 
 /**
- * Sell written onto the estimate. A typed selling price is kept even when
- * the salesperson chooses to blank other catalog prices. Unresolved stays 0
- * in the NOT NULL column; the builder hydrates that as PRICE NEEDED.
+ * Sell written onto the estimate. Guided prices transfer as shown on the
+ * review — a typed sell and a catalog-derived sell both stay, including when
+ * the salesperson opens the builder to fix them. Unresolved stays 0 in the
+ * NOT NULL column; the builder hydrates that as PRICE NEEDED.
  */
-export function guidedLineSellForSave(
-  line: {
-    material_rate: number | null;
-    sell_locked?: boolean;
-    product_id?: string | null;
-    category?: string | null;
-  },
-  blankCatalogPrices: boolean,
-): number {
-  if (
-    blankCatalogPrices &&
-    line.product_id &&
-    line.category !== "labor" &&
-    !line.sell_locked
-  ) {
-    return 0;
-  }
+export function guidedLineSellForSave(line: {
+  material_rate: number | null;
+}): number {
   return persistGuidedSell(line.material_rate);
 }
 
