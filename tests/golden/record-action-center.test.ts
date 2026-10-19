@@ -162,8 +162,26 @@ describe("record action center", () => {
       status: "sent",
       sentAt: "2026-09-24T12:00:00Z",
     });
-    expect(model.quiet).toBe("No follow-up is due yet.");
+    expect(model.quiet).toBe("Follow-up is scheduled on the customer file.");
     expect(model.primary?.label).not.toBe("Follow up");
+  });
+
+  it("keeps a freshly sent estimate on the customer file instead of calling it caught up", () => {
+    const model = customer("office", {
+      estimates: [{ id: "e", status: "sent", sentAt: "2026-09-24T12:00:00Z" }],
+    });
+    expect(model.quiet).toBe("A follow-up is scheduled on this file.");
+    expect(model.primary?.label).not.toBe("Follow up");
+    expect(model.situation).toContain("Estimate sent");
+  });
+
+  it("puts a change request ahead of a quiet follow-up", () => {
+    const model = customer("office", {
+      estimates: [{ id: "e", status: "changes_requested" }],
+    });
+    expect(model.primary).toMatchObject({ label: "Review estimate", href: "/estimates/e" });
+    expect(model.also).toContain("asked for changes");
+    expect(model.quiet).toBeNull();
   });
 
   it("shows deposit on an approved estimate and schedule when the job can be booked", () => {
