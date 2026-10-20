@@ -151,6 +151,7 @@ import { JobCostingTab, type JobProfitLite } from "./job-costing-tab";
 import { HistoryTab } from "./history-tab";
 import { getCustomerHistory, type CustomerHistory } from "@/lib/data/customer-history";
 import { getUserPreferences } from "@/lib/data/preferences";
+import { ensureCustomerTabs, presentCustomerTabs } from "@/lib/preferences";
 import { pickCloseoutJob,
   spinePosition,
 } from "@/lib/job-flow";
@@ -851,8 +852,8 @@ export default async function CustomerPage({
         </div>
       ) : null}
 
-      {/* Identity band — the person first, then how to reach them and the
-          actions that handle the file. What to do follows, once you know who. */}
+      {/* Who they are and where the file stands. The next step follows,
+          then the tools, then the records. */}
       <section
         id="overview"
         className="relative mb-3 scroll-mt-24 overflow-hidden rounded-lg border bg-card px-3 py-3 shadow-sm sm:px-4"
@@ -1012,46 +1013,126 @@ export default async function CustomerPage({
         })()}
 
         <div className={cn("mt-3 grid gap-2 border-t pt-3", seesMoney ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
-          <div className="rounded-lg bg-muted/40 px-3 py-2">
-            <div className="text-xs text-muted-foreground">Estimate visit</div>
-            <div className="text-sm font-semibold">
-              {estimateAppointment
-                ? `${formatDate(estimateAppointment.startsAt)} · ${formatWallTime(estimateAppointment.startsAt)}`
-                : "Not booked"}
-            </div>
-          </div>
-          <div className="rounded-lg bg-muted/40 px-3 py-2">
-            <div className="text-xs text-muted-foreground">Install</div>
-            <div className="text-sm font-semibold">
-              {quickJob?.date
-                ? `${formatDate(quickJob.date)}${
-                    quickJob.endDate && quickJob.endDate !== quickJob.date
-                      ? ` – ${formatDate(quickJob.endDate)}`
-                      : ""
-                  }${quickJob.installerName ? ` · ${quickJob.installerName}` : ""}`
-                : "Not booked"}
-            </div>
-          </div>
-          {seesMoney ? (
-            <a href="#invoices" className="rounded-lg bg-muted/40 px-3 py-2 hover:bg-muted">
-              <div className="text-xs text-muted-foreground">Amount due</div>
-              <div
-                className={cn(
-                  "text-sm font-semibold tabular-nums",
-                  money.balance > 0.005 && "text-destructive",
-                )}
+          {(
+            [
+              {
+                label: "Estimate visit",
+                value: estimateAppointment
+                  ? `${formatDate(estimateAppointment.startsAt)} · ${formatWallTime(estimateAppointment.startsAt)}`
+                  : "Not booked",
+                href: customer.cancelled_at ? null : `/customers/${customer.id}?schedule=estimate`,
+                warn: false,
+              },
+              {
+                label: "Install",
+                value: quickJob?.date
+                  ? `${formatDate(quickJob.date)}${
+                      quickJob.endDate && quickJob.endDate !== quickJob.date
+                        ? ` – ${formatDate(quickJob.endDate)}`
+                        : ""
+                    }${quickJob.installerName ? ` · ${quickJob.installerName}` : ""}`
+                  : "Not booked",
+                href: customer.cancelled_at ? null : `/customers/${customer.id}?schedule=install`,
+                warn: false,
+              },
+              ...(seesMoney
+                ? [
+                    {
+                      label: "Amount due",
+                      value: formatMoney(money.balance),
+                      href: "#invoices",
+                      warn: money.balance > 0.005,
+                    },
+                  ]
+                : []),
+            ] as { label: string; value: string; href: string | null; warn: boolean }[]
+          ).map((fact) => {
+            const body = (
+              <>
+                <div className="text-xs text-muted-foreground">{fact.label}</div>
+                <div
+                  className={cn(
+                    "text-sm font-semibold",
+                    fact.label === "Amount due" && "tabular-nums",
+                    fact.warn && "text-destructive",
+                  )}
+                >
+                  {fact.value}
+                </div>
+              </>
+            );
+            return fact.href ? (
+              <a
+                key={fact.label}
+                href={fact.href}
+                className="rounded-lg bg-muted/40 px-3 py-2 hover:bg-muted"
               >
-                {formatMoney(money.balance)}
+                {body}
+              </a>
+            ) : (
+              <div key={fact.label} className="rounded-lg bg-muted/40 px-3 py-2">
+                {body}
               </div>
-            </a>
-          ) : null}
+            );
+          })}
         </div>
+      </section>
 
-        <div className="mt-3 border-t pt-3">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Handle this customer
+      {customer.cancelled_at ? (
+        <div className="mb-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
+          <p className="font-medium text-destructive">
+            Cancelled{" "}
+            <span className="font-normal text-muted-foreground">
+              · {formatDate(customer.cancelled_at)}
+              {customer.cancel_reason ? ` · ${customer.cancel_reason}` : ""}
+            </span>
           </p>
-          <div className="flex flex-wrap items-center gap-2">
+          <p className="mt-1 text-sm text-muted-foreground">
+            This customer is out of the active pipeline. Open More actions and reopen them
+            to pick back up where they left off.
+          </p>
+        </div>
+      ) : null}
+
+      <RecordActionCenter model={customerAction} />
+      {!customer.cancelled_at && customer.next_action_due ? (
+        <div className="mb-3">
+          <CustomerNextActionCard
+            customerId={customer.id}
+            nextActionDue={customer.next_action_due}
+            stuck={overdue}
+            tasks={openTasks}
+            canSnooze={(SALES_ROLES as string[]).includes(profile.role)}
+          />
+        </div>
+      ) : null}
+      {recordFacts.callbacks.length ? (
+        <section className="mb-3 rounded-lg border bg-card p-3">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Service calls
+          </h2>
+          <ul className="mt-2 space-y-2 text-sm">
+            {recordFacts.callbacks.map((row) => (
+              <li key={row.id}>
+                <Link href={`/service/${row.id}`} className="font-medium text-primary hover:underline">
+                  {serviceStatusLabel(row.status)}
+                  {row.job_id ? ` · ${jobTitle.get(row.job_id) || "Job"}` : ""}
+                </Link>
+                <div className="text-xs text-muted-foreground">
+                  {serviceReportedAge(row.reported_at) ?? "Reported date not recorded"}
+                  {row.follow_up_at ? ` · ${formatDate(row.follow_up_at)}` : ""}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      <section className="mb-3 rounded-lg border bg-card px-3 py-3" aria-labelledby="handle-customer">
+        <h2 id="handle-customer" className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Handle this customer
+        </h2>
+        <div className="flex flex-wrap items-center gap-2">
           {(SALES_ROLES as string[]).includes(profile.role) && !customer.cancelled_at ? (
             <ProcessCardButton
               url={orgSettings.card_processing_url}
@@ -1121,88 +1202,45 @@ export default async function CustomerPage({
               More actions
             </summary>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-          <CustomerSettingsMenu
-            customer={customer}
-            canDelete={canDelete}
-            portalUser={portalUser}
-            defaultEmail={customer.email ?? ""}
-            sources={leadSources}
-          />
-          <QualifyDialog
-            customerId={customer.id}
-            questions={qualifyingQuestions}
-            qualified={!!customer.qualified}
-            autoOpen={justAdded}
-          />
-          {!customer.cancelled_at ? (
-            <CustomerSwitcher currentId={customer.id} />
-          ) : null}
-          <CancelCustomer
-            customerId={customer.id}
-            name={customer.full_name}
-            cancelled={!!customer.cancelled_at}
-            reasons={cancelReasons}
-            hasOpenPO={customerPOs.some((po) => po.status === "ordered")}
-          />
-          {canDelete ? (
-            <VisibleCustomerDelete
-              customerId={customer.id}
-              customerName={customer.full_name}
-            />
-          ) : null}
+              <CustomerSettingsMenu
+                customer={customer}
+                canDelete={canDelete}
+                portalUser={portalUser}
+                defaultEmail={customer.email ?? ""}
+                sources={leadSources}
+              />
+              <QualifyDialog
+                customerId={customer.id}
+                questions={qualifyingQuestions}
+                qualified={!!customer.qualified}
+                autoOpen={justAdded}
+              />
+              {!customer.cancelled_at ? (
+                <CustomerSwitcher currentId={customer.id} />
+              ) : null}
+              <CancelCustomer
+                customerId={customer.id}
+                name={customer.full_name}
+                cancelled={!!customer.cancelled_at}
+                reasons={cancelReasons}
+                hasOpenPO={customerPOs.some((po) => po.status === "ordered")}
+              />
+              {canDelete ? (
+                <VisibleCustomerDelete
+                  customerId={customer.id}
+                  customerName={customer.full_name}
+                />
+              ) : null}
             </div>
           </details>
-          </div>
         </div>
       </section>
 
-      {customer.cancelled_at ? (
-        <div className="mb-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
-          <p className="font-medium text-destructive">
-            Cancelled{" "}
-            <span className="font-normal text-muted-foreground">
-              · {formatDate(customer.cancelled_at)}
-              {customer.cancel_reason ? ` · ${customer.cancel_reason}` : ""}
-            </span>
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            This customer is out of the active pipeline. Open More actions and reopen them
-            to pick back up where they left off.
-          </p>
-        </div>
-      ) : null}
-
-      <RecordActionCenter model={customerAction} />
-      {recordFacts.callbacks.length ? (
-        <section className="mb-3 rounded-lg border bg-card p-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Service calls
-          </h2>
-          <ul className="mt-2 space-y-2 text-sm">
-            {recordFacts.callbacks.map((row) => (
-              <li key={row.id}>
-                <Link href={`/service/${row.id}`} className="font-medium text-primary hover:underline">
-                  {serviceStatusLabel(row.status)}
-                  {row.job_id ? ` · ${jobTitle.get(row.job_id) || "Job"}` : ""}
-                </Link>
-                <div className="text-xs text-muted-foreground">
-                  {serviceReportedAge(row.reported_at) ?? "Reported date not recorded"}
-                  {row.follow_up_at ? ` · ${formatDate(row.follow_up_at)}` : ""}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {/* Hybrid tabs: Overview shows the whole file; each tab zooms into one part.
-          Saved tab orders are treated as exhaustive (see resolvePreferences), so
-          tabs added AFTER someone customised theirs would silently never appear.
-          Costing and History are both newer than that setting — patch them in. */}
+      {/* One section at a time. Overview is the snapshot. A saved list that
+          predates Costing or History gets those tabs in the work-flow spot. */}
       <CustomerTabs
-        tabs={["costing", "history"].reduce(
-          (acc, k) => (acc.includes(k as never) ? acc : [...acc, k as never]),
-          prefs.tabs,
+        tabs={presentCustomerTabs(
+          ensureCustomerTabs(prefs.tabs, ["costing", "history"]),
         ).filter((tab) =>
           seesMoney || (tab !== "invoices" && tab !== "costing" && tab !== "history"),
         )}
@@ -1269,68 +1307,50 @@ export default async function CustomerPage({
               {/* Right: details + money + due rail. (Record counts live on the
                   tabs, so the old "Records" snapshot panel was removed.) */}
               <aside className="space-y-3">
-                {customer.next_action_due ? (
-                <CustomerNextActionCard
-                  customerId={customer.id}
-                  nextActionDue={customer.next_action_due}
-                  stuck={overdue}
-                  tasks={openTasks}
-                  canSnooze={(SALES_ROLES as string[]).includes(profile.role)}
-                />
-                ) : null}
-                {/* Full customer details, at a glance — no Contact-tab hunting. */}
-                <div className="rounded-lg border bg-card p-3 shadow-none">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <div className="rounded-lg border bg-card p-3 text-sm shadow-none">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Customer details
                   </p>
-                  <div className="space-y-3 text-sm">
-                    <div className="space-y-2">
-                      <div className="flex items-baseline justify-between gap-3">
-                        <span className="text-muted-foreground">Heard via</span>
-                        <span className="text-right font-medium">{sourceLabel ?? "—"}</span>
+                  <p className="mt-1.5">
+                    <span className="text-muted-foreground">Heard via </span>
+                    <span className="font-medium">{sourceLabel ?? "—"}</span>
+                    <span className="text-muted-foreground"> · Added </span>
+                    <span className="font-medium">{formatDate(customer.created_at)}</span>
+                    <span className="text-muted-foreground"> · Salesperson </span>
+                    <span className="font-medium">{salespersonName ?? "Unassigned"}</span>
+                  </p>
+                  {serviceAddresses.length ? (
+                    <div className="mt-2 border-t pt-2">
+                      <div className="text-xs text-muted-foreground">
+                        Job site{serviceAddresses.length > 1 ? "s" : ""}
                       </div>
-                      <div className="flex items-baseline justify-between gap-3">
-                        <span className="text-muted-foreground">Added</span>
-                        <span className="font-medium">{formatDate(customer.created_at)}</span>
-                      </div>
-                      <div className="flex items-baseline justify-between gap-3">
-                        <span className="text-muted-foreground">Salesperson</span>
-                        <span className="text-right font-medium">
-                          {salespersonName ?? "Unassigned"}
-                        </span>
-                      </div>
-                    </div>
-                    {serviceAddresses.length ? (
-                      <div className="border-t pt-2.5">
-                        <div className="text-xs text-muted-foreground">
-                          Job site{serviceAddresses.length > 1 ? "s" : ""}
+                      {serviceAddresses.map((a) => (
+                        <div key={a.id} className="font-medium">
+                          {a.label ? `${a.label}: ` : ""}
+                          {formatServiceAddress(a)}
                         </div>
-                        {serviceAddresses.map((a) => (
-                          <div key={a.id} className="font-medium">
-                            {a.label ? `${a.label}: ` : ""}
-                            {formatServiceAddress(a)}
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                    {customer.notes ? (
-                      <div className="border-t pt-2.5">
-                        <div className="text-xs text-muted-foreground">Notes</div>
-                        <div className="line-clamp-3 whitespace-pre-wrap">{customer.notes}</div>
-                        <a href="#contact" className="text-xs font-medium text-primary hover:underline">Edit contact</a>
-                      </div>
-                    ) : null}
-                  </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  {customer.notes ? (
+                    <div className="mt-2 border-t pt-2">
+                      <div className="text-xs text-muted-foreground">Notes</div>
+                      <div className="line-clamp-3 whitespace-pre-wrap">{customer.notes}</div>
+                      <a href="#contact" className="text-xs font-medium text-primary hover:underline">Edit contact</a>
+                    </div>
+                  ) : null}
                 </div>
 
-                {seesMoney && depositSummary ? <div className="rounded-lg border bg-card p-3 shadow-none">
+                {seesMoney && depositSummary && (
+                  money.invoiced > 0 ||
+                  money.balance > 0 ||
+                  creditSummary.available > 0 ||
+                  depositSummary.available > 0 ||
+                  depositSummary.applied > 0
+                ) ? <div className="rounded-lg border bg-card p-3 shadow-none">
                   <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Money
                   </p>
-                  {money.invoiced > 0 ||
-                  money.balance > 0 ||
-                  creditSummary.available > 0 ||
-                  depositSummary.available > 0 ? (
                     <div className="space-y-2.5 text-sm">
                       <div className="flex items-center justify-between">
                         <span className="text-muted-foreground">Invoiced</span>
@@ -1505,21 +1525,7 @@ export default async function CustomerPage({
                         </details>
                       ) : null}
                     </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      No invoices yet.
-                    </p>
-                  )}
                 </div> : null}
-
-                {estimateAppointment ? (
-                  <p className="rounded-lg border bg-card px-3 py-2 text-sm">
-                    <span className="text-muted-foreground">Estimate visit </span>
-                    <span className="font-medium">
-                      {formatDate(estimateAppointment.startsAt)} · {formatWallTime(estimateAppointment.startsAt)}
-                    </span>
-                  </p>
-                ) : null}
 
               </aside>
             </div>

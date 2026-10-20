@@ -46,8 +46,27 @@ export type CustomerTab =
   | "messages"
   | "activity";
 
-/** Canonical order + the full set of tabs. */
+/** The work flow: who, then the quote, the job, materials, the bill, then the record. */
 export const TAB_ORDER: CustomerTab[] = [
+  "overview",
+  "contact",
+  "estimates",
+  "jobs",
+  "materials",
+  "invoices",
+  "costing",
+  "history",
+  "files",
+  "messages",
+  "activity",
+];
+
+/**
+ * The order the file used before the work-flow sort. A saved list that is
+ * exactly this — someone opened Preferences and saved without rearranging —
+ * follows TAB_ORDER. Any other saved list is left alone.
+ */
+const PREVIOUS_TAB_ORDER: CustomerTab[] = [
   "overview",
   "contact",
   "estimates",
@@ -65,15 +84,60 @@ export const TAB_LABELS: Record<CustomerTab, string> = {
   overview: "Overview",
   contact: "Contact",
   estimates: "Estimates",
-  jobs: "Work orders",
-  costing: "Job Costing",
+  jobs: "Jobs",
+  costing: "Costing",
   history: "History",
   invoices: "Invoices",
-  materials: "Materials & POs",
+  materials: "Materials",
   files: "Files",
   messages: "Messages",
   activity: "Activity",
 };
+
+/** Where a tab sits in the bar, so a long list can break into readable groups. */
+export const TAB_GROUP: Record<CustomerTab, "person" | "work" | "money" | "record"> = {
+  overview: "person",
+  contact: "person",
+  estimates: "work",
+  jobs: "work",
+  materials: "work",
+  invoices: "money",
+  costing: "money",
+  history: "money",
+  files: "record",
+  messages: "record",
+  activity: "record",
+};
+
+/**
+ * Put tabs that were added after a person saved their list into the work-flow
+ * position, instead of dumping them on the end. Tabs already present stay put.
+ */
+export function ensureCustomerTabs(
+  tabs: readonly CustomerTab[],
+  required: readonly CustomerTab[],
+): CustomerTab[] {
+  const merged = [...tabs];
+  for (const key of required) {
+    if (merged.includes(key)) continue;
+    const at = TAB_ORDER.indexOf(key);
+    let insertAt = merged.length;
+    for (let i = 0; i < merged.length; i++) {
+      if (TAB_ORDER.indexOf(merged[i]) > at) {
+        insertAt = i;
+        break;
+      }
+    }
+    merged.splice(insertAt, 0, key);
+  }
+  return merged;
+}
+
+/** Show the work-flow order when the saved list is the old untouched default. */
+export function presentCustomerTabs(tabs: readonly CustomerTab[]): CustomerTab[] {
+  if (tabs.join() === PREVIOUS_TAB_ORDER.join()) return [...TAB_ORDER];
+  return [...tabs];
+}
 
 // --- Resolved preferences ---------------------------------------------------
 
