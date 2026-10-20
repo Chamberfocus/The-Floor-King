@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { productLabel } from "@/lib/product-label";
+import { parseCatalogQuery, tokenMatchOr } from "@/lib/catalog-query";
 import type { StockRoll } from "@/lib/types";
 
 type Db = Awaited<ReturnType<typeof createClient>>;
@@ -128,13 +129,20 @@ export async function searchStock(query: string, dbArg?: Db): Promise<RemnantWit
   if (!term) return [];
   try {
     const db = dbArg ?? (await createClient());
-    // Products whose name matches (so a product search also returns its rolls).
-    const { data: prods } = await db
-      .from("products")
-      .select("id")
-      .or([`name.ilike.%${term}%`, `manufacturer.ilike.%${term}%`, `sku.ilike.%${term}%`].join(","))
-      .limit(30);
-    const pids = (prods ?? []).map((p) => p.id as string);
+    // Products whose name, brand, color, or SKU matches (so a product search
+    // also returns its rolls). Each word is required, in any order.
+    const tokens = parseCatalogQuery(term);
+    let pids: string[] = [];
+    if (tokens.length) {
+      let prodQuery = db.from("products").select("id").limit(40);
+      const cols = ["name", "sku", "manufacturer", "style", "color"] as const;
+      for (const token of tokens) {
+        const clause = tokenMatchOr(token, cols);
+        if (clause) prodQuery = prodQuery.or(clause);
+      }
+      const { data: prods } = await prodQuery;
+      pids = (prods ?? []).map((p) => p.id as string);
+    }
     const orParts = [`location.ilike.%${term}%`];
     let rolls: StockRoll[] = [];
     const { data: byLoc } = await db

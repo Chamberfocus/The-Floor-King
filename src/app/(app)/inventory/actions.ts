@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { assertRole } from "@/lib/auth";
 import { syncRolledOnHand, reorderAlertsFor, type ReorderAlert } from "@/lib/data/stock-rolls";
 import type { Product } from "@/lib/types";
+import { parseCatalogQuery, tokenMatchOr } from "@/lib/catalog-query";
 
 const STOCK_ROLES: ("admin" | "office" | "warehouse")[] = ["admin", "office", "warehouse"];
 const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
@@ -22,14 +23,11 @@ export async function searchUntrackedProducts(
     .eq("track_stock", false)
     .order("name", { ascending: true })
     .limit(30);
-  const term = query.trim();
-  if (term) {
-    const like = `%${term}%`;
-    q = q.or(
-      [`name.ilike.${like}`, `sku.ilike.${like}`, `manufacturer.ilike.${like}`].join(
-        ",",
-      ),
-    );
+  const tokens = parseCatalogQuery(query);
+  const cols = ["name", "sku", "manufacturer", "style", "color"] as const;
+  for (const token of tokens) {
+    const clause = tokenMatchOr(token, cols);
+    if (clause) q = q.or(clause);
   }
   const { data } = await q;
   return (data ?? []) as Product[];

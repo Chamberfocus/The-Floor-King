@@ -1,6 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
 import { catalogUnitCost, hydrateCatalogPricing } from "@/lib/catalog-pricing";
 import { rankCatalogProducts } from "@/lib/catalog-search";
+import {
+  measurementAliases,
+  parseCatalogQuery,
+  tokenMatchOr,
+  type CatalogToken,
+} from "@/lib/catalog-query";
 import type { Product, ProductVendor, SupplierKind } from "@/lib/types";
 
 /**
@@ -197,118 +203,26 @@ export async function listProducts(
   return enrichCatalogProducts(supabase, rows);
 }
 
-// Text fields a catalog search does a partial (ilike) match across — including
-// the vendor/supplier name. Category is an ENUM (can't be ilike'd), so it's
-// matched separately by equality when a token names a category (see below).
-const SEARCH_COLS = [
-  "name",
-  "sku",
-  "manufacturer",
-  "style",
-  "color",
-  "supplier",
-] as const;
-
-// Category enum values + a few natural-language synonyms, so a token like
-// "carpet", "lvp", "tile", or "pad" also matches by category — not just text.
-const CATEGORY_VALUES = [
-  "carpet",
-  "lvp",
-  "hardwood",
-  "laminate",
-  "tile",
-  "vinyl",
-  "underlayment",
-  "trim",
-] as const;
-const CATEGORY_SYNONYMS: Record<string, string> = {
-  pad: "underlayment",
-  pads: "underlayment",
-  padding: "underlayment",
-  // What the trade says vs what the catalog says. "cushion" returned nothing.
-  cushion: "underlayment",
-  cushions: "underlayment",
-  underlay: "underlayment",
-  plank: "lvp",
-  planks: "lvp",
-  vinyl: "lvp",
-  lvt: "lvp",
-  wood: "hardwood",
-  timber: "hardwood",
-  ceramic: "tile",
-  porcelain: "tile",
-  molding: "trim",
-  moulding: "trim",
-  transition: "trim",
-  transitions: "trim",
-};
-/** The category a search token names (exact/prefix or synonym), else null. */
-function tokenCategory(token: string): string | null {
-  const t = token.toLowerCase();
-  if (CATEGORY_SYNONYMS[t]) return CATEGORY_SYNONYMS[t];
-  return CATEGORY_VALUES.find((c) => c === t || c.startsWith(t)) ?? null;
-}
-
 /**
- * Build a PostgREST `.ilike` pattern for one search token that is safe for
- * special characters. LIKE wildcards (`%` `_`) and backslashes are escaped so
- * they're literal, and the whole pattern is double-quoted so fractions and
- * punctuation (e.g. "1/2", "3/4", "(t-mold)") don't break the request.
+ * Columns the generated search_text already covers, plus the spec fields it
+ * does not (fiber, species, notes). Category is an enum, matched by equality
+ * inside tokenMatchOr when the word is trade language ("pad", "cushion").
  */
-function likePattern(token: string): string {
-  const esc = token.replace(/[\\%_]/g, (m) => `\\${m}`);
-  return `"%${esc}%"`;
-}
+const SMART_TEXT_COLS = ["search_text", "fiber", "species", "notes"] as const;
+const PLAIN_TEXT_COLS = ["name", "sku", "manufacturer", "style", "color", "supplier"] as const;
 
 /**
- * Extra spellings of a search token that mean the same thing to a flooring
- * person but not to a database.
- *
- * Padding is the case that prompted this: "1/2 8" is how you say half-inch
- * eight-pound pad out loud, but the catalog might spell it 0.5" 8lb, .5 8#, or
- * 1/2in 8 lbs. Typing the obvious thing found nothing.
+ * Extra spellings of a measurement. Kept for callers that already import it.
+ * Catalog search itself goes through parseCatalogQuery.
  */
 export function tokenAliases(token: string): string[] {
-  const out = new Set<string>([token]);
-  const t = token.trim().toLowerCase();
-
-  // Fractions <-> decimals: 1/2 <-> 0.5 <-> .5
-  const frac = /^(\d+)\s*\/\s*(\d+)$/.exec(t);
-  if (frac) {
-    const v = Number(frac[1]) / Number(frac[2]);
-    if (Number.isFinite(v) && v > 0) {
-      out.add(String(v));            // 0.5
-      out.add(String(v).replace(/^0/, "")); // .5
-    }
-  }
-  const dec = /^0?\.(\d+)$/.exec(t);
-  if (dec) {
-    const v = Number(`0.${dec[1]}`);
-    for (const d of [2, 4, 8, 16]) {
-      const n = v * d;
-      if (Math.abs(n - Math.round(n)) < 1e-9) out.add(`${Math.round(n)}/${d}`);
-    }
-  }
-
-  // Pound weight: 8 <-> 8lb <-> 8lbs <-> 8# — how pad density is written.
-  const wt = /^(\d+(?:\.\d+)?)\s*(?:lbs?|#)$/.exec(t);
-  const bare = /^(\d+(?:\.\d+)?)$/.exec(t);
-  const n = wt?.[1] ?? bare?.[1];
-  if (n) {
-    out.add(`${n}lb`);
-    out.add(`${n} lb`);
-    out.add(`${n}lbs`);
-    out.add(`${n}#`);
-    if (wt) out.add(n);
-  }
-  return [...out];
+  return measurementAliases(token);
 }
 
 /**
- * Smart, server-side product search. Splits the query into words and requires
- * EVERY word to appear somewhere in the name / sku / manufacturer / style /
- * color (in any order) — so "coretec mustang", "oak reducer 94", and "1/2
- * cheers" all match. Case-insensitive; handles fractions & special characters.
+ * Smart, server-side product search. Every word has to show up somewhere —
+ * name, SKU, brand, color, fiber — in any order. Trade words ("pad",
+ * "cushion"), fractions ("1/2"), and a one-letter typo still find the product.
  * Empty query returns the first `limit` by name.
  */
 export interface CatalogSearchOpts {
@@ -317,11 +231,13 @@ export interface CatalogSearchOpts {
   includeLabor?: boolean;
   /**
    * When set, search these categories with equality — do not score the
-   * whole catalog. Null/omitted keeps the unscoped search_products path.
+   * whole catalog. Null/omitted searches every category.
    */
   categories?: string[] | null;
   /** Empty-browse words OR'd against name / sku / search_text. Not compatibility. */
   browseTokens?: string[] | null;
+  /** Global search only needs identity. Pricing enrichment is a second round trip. */
+  enrich?: boolean;
 }
 
 export async function searchCatalog(
@@ -344,124 +260,68 @@ export async function searchCatalogWith(
   opts: CatalogSearchOpts = {},
 ): Promise<Product[]> {
   const displayLimit = opts.limit ?? 50;
-  const tokens = query.trim().split(/\s+/).filter(Boolean);
+  const parsed = parseCatalogQuery(query);
+  const required = parsed.filter((token) => !token.optional);
 
   let scoped: Product[] | null = null;
   try {
-    scoped = await searchCatalogScoped(supabase, query, tokens, displayLimit, opts);
+    scoped = await searchCatalogScoped(supabase, query, required, displayLimit, opts);
   } catch {
     scoped = null;
   }
   if (scoped) return scoped;
 
-  /**
-   * Search and rank in Postgres, where the trigram index can be used.
-   *
-   * The old path below ORed an ILIKE across six columns per token, pulled 400
-   * rows back and ranked them here. That cost 200-430ms on 13,574 products and,
-   * worse, ANDed the tokens as literal substrings — so "cushion", "1/2 8lb" and
-   * "anso nylon" all returned nothing at all. search_products does strict
-   * matching first and falls back to similarity rather than showing an empty
-   * list. (Migration 0143.)
-   */
-  if (supabase.rpc) {
+  // search_products_smart (0495) ranks in Postgres and uses the trigram index.
+  // Until that migration is applied the RPC errors and the filter below runs
+  // the same plan. The older search_products ranks by whole-string similarity
+  // and is not called — it put the wrong product first.
+  const browse = (opts.browseTokens ?? []).map((t) => t.trim()).filter(Boolean);
+  const categories = (opts.categories ?? []).map((c) => c.trim()).filter(Boolean);
+  if (supabase.rpc && !browse.length) {
     try {
-      /**
-       * A token can name a CATEGORY rather than appear in any product's text.
-       * "cushion" returns nothing on words alone — the catalog's 102 padding
-       * products are named "Underlayment", "Moisture Block", "Quiet Walk". The
-       * function searches text; the category match is added here so both count.
-       */
-      const cats = [
-        ...new Set(tokens.map(tokenCategory).filter(Boolean) as string[]),
-      ];
-      const [byText, byCat] = await Promise.all([
-        supabase.rpc("search_products", {
-          q: query,
-          lim: displayLimit,
-          include_labor: !!opts.includeLabor,
-          active_only: opts.activeOnly !== false,
-        }),
-        cats.length
-          ? (() => {
-              let cq = supabase
-                .from("products")
-                .select(CATALOG_PRODUCT_COLUMNS)
-                .in("category", cats)
-                .order("name", { ascending: true })
-                .limit(displayLimit * 4);
-              if (opts.activeOnly !== false) cq = cq.eq("active", true);
-              return cq;
-            })()
-          : Promise.resolve({ data: [], error: null }),
-      ]);
-      if (!byText.error && Array.isArray(byText.data)) {
-        const seen = new Set<string>();
-        const merged: Product[] = [];
-        for (const p of byText.data as Product[]) {
-          if (seen.has(p.id)) continue;
-          seen.add(p.id);
-          merged.push(p);
-        }
-        // Category hits fill in behind the text matches, ranked against the
-        // words that AREN'T the category name ("8lb" in "8lb cushion").
-        const rest = tokens.filter((tk) => !tokenCategory(tk));
-        const catRows = ((byCat.data ?? []) as Product[]).filter(
-          (p) => !seen.has(p.id) && (opts.includeLabor || p.category !== "labor"),
+      const smart = await supabase.rpc("search_products_smart", {
+        q: query,
+        lim: displayLimit,
+        include_labor: !!opts.includeLabor,
+        active_only: opts.activeOnly !== false,
+        categories: categories.length ? categories : null,
+      });
+      if (!smart.error && Array.isArray(smart.data) && (smart.data.length > 0 || parsed.length === 0)) {
+        const rows = (smart.data as Product[]).filter(
+          (p) => opts.includeLabor || p.category !== "labor",
         );
-        const textRanked = tokens.length ? rankCatalogProducts(merged, query) : merged;
-        const catRanked = rest.length ? rankCatalogProducts(catRows, rest.join(" ")) : catRows;
-        return enrichCatalogProducts(supabase, [...textRanked, ...catRanked].slice(0, displayLimit));
+        const ranked = parsed.length ? rankCatalogProducts(rows, query) : rows;
+        return finishCatalogSearch(supabase, ranked.slice(0, displayLimit), opts);
       }
     } catch {
-      // Falls through to the original path — see below.
+      // Function not installed yet — the filter below is the same match.
     }
   }
 
-  // Fallback: the pre-0143 behaviour, so the picker still works on a database
-  // where the migration hasn't been run yet.
-  const pool = tokens.length ? Math.max(displayLimit * 8, 400) : displayLimit;
-  let q = supabase
-    .from("products")
-    .select(CATALOG_PRODUCT_COLUMNS)
-    .order("name", { ascending: true })
-    .limit(pool);
-  if (opts.activeOnly) q = q.eq("active", true);
-  for (const token of tokens) {
-    const like = likePattern(token);
-    const parts: string[] = [];
-    for (const alias of tokenAliases(token)) {
-      const pat = alias === token ? like : likePattern(alias);
-      for (const c of SEARCH_COLS) parts.push(`${c}.ilike.${pat}`);
-    }
-    const cat = tokenCategory(token);
-    if (cat) parts.push(`category.eq.${cat}`);
-    q = q.or(parts.join(","));
-  }
-  const { data } = await q;
-  const rows = ((data ?? []) as Product[]).filter(
-    (p) => opts.includeLabor || p.category !== "labor",
-  );
-  if (!tokens.length) {
-    return enrichCatalogProducts(supabase, rows.slice(0, displayLimit));
-  }
-  return enrichCatalogProducts(
-    supabase,
-    rankCatalogProducts(rows, query).slice(0, displayLimit),
-  );
+  const rows = await searchCatalogFiltered(supabase, query, required, displayLimit, opts, null);
+  return finishCatalogSearch(supabase, rows, opts);
+}
+
+function finishCatalogSearch(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: { from: (t: string) => any },
+  rows: Product[],
+  opts: CatalogSearchOpts,
+): Promise<Product[]> {
+  if (opts.enrich === false) return Promise.resolve(rows);
+  return enrichCatalogProducts(supabase, rows);
 }
 
 /**
- * Category (or adhesive-word) search. Skips search_products, which scores
- * every row in the catalog with similarity. Equality on category uses the
- * category index. Ranking then runs only on this small set.
- * Returns null when the caller did not narrow the catalog.
+ * Category (or adhesive-word) search. Equality on category uses the category
+ * index. Text uses the same token plan as the unscoped search, then ranking
+ * runs only on this set. Returns null when the caller did not narrow the catalog.
  */
 async function searchCatalogScoped(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: { from: (t: string) => any },
   query: string,
-  tokens: string[],
+  tokens: CatalogToken[],
   displayLimit: number,
   opts: CatalogSearchOpts,
 ): Promise<Product[] | null> {
@@ -469,48 +329,84 @@ async function searchCatalogScoped(
   const browse = (opts.browseTokens ?? []).map((t) => t.trim()).filter(Boolean);
   if (!categories.length && !browse.length) return null;
 
-  const pool = tokens.length ? Math.min(Math.max(displayLimit * 3, 80), 150) : displayLimit;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let q: any = supabase
-    .from("products")
-    .select(CATALOG_PRODUCT_COLUMNS)
-    .order("name", { ascending: true })
-    .limit(pool);
-  if (opts.activeOnly !== false) q = q.eq("active", true);
-  if (categories.length === 1) q = q.eq("category", categories[0]);
-  else if (categories.length > 1) q = q.in("category", categories);
-
-  if (!tokens.length && browse.length) {
-    const parts: string[] = [];
-    for (const token of browse) {
-      const pat = likePattern(token);
-      parts.push(`search_text.ilike.${pat}`, `name.ilike.${pat}`, `sku.ilike.${pat}`);
-    }
-    q = q.or(parts.join(","));
-  }
-  for (const token of tokens) {
-    const parts: string[] = [];
-    for (const alias of tokenAliases(token)) {
-      const pat = alias === token ? likePattern(token) : likePattern(alias);
-      parts.push(`search_text.ilike.${pat}`, `name.ilike.${pat}`, `sku.ilike.${pat}`);
-    }
-    q = q.or(parts.join(","));
-  }
-
-  const { data, error } = await q;
-  if (error) return null;
-  let rows = ((data ?? []) as Product[]).filter(
-    (p) => opts.includeLabor || p.category !== "labor",
-  );
-  if (tokens.length) rows = rankCatalogProducts(rows, query);
-  else if (browse.length) rows = rankCatalogProducts(rows, browse[0]);
+  const rows = await searchCatalogFiltered(supabase, query, tokens, displayLimit, opts, {
+    categories,
+    browse,
+  });
   if (!tokens.length && browse.length && !rows.length && categories.length) {
     return searchCatalogScoped(supabase, query, tokens, displayLimit, {
       ...opts,
       browseTokens: null,
     });
   }
-  return enrichCatalogProducts(supabase, rows.slice(0, displayLimit));
+  return finishCatalogSearch(supabase, rows, opts);
+}
+
+/**
+ * AND every required word (each word OR'd across its spellings and category).
+ * If that finds nothing, one OR of the same words so a typo still shows the
+ * closest products instead of an empty list.
+ */
+async function searchCatalogFiltered(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: { from: (t: string) => any },
+  query: string,
+  tokens: CatalogToken[],
+  displayLimit: number,
+  opts: CatalogSearchOpts,
+  scope: { categories: string[]; browse: string[] } | null,
+): Promise<Product[]> {
+  // Enough rows to rank the real match, not just the alphabetical first page.
+  // search_products_smart skips this and returns an already-ranked page.
+  const pool = tokens.length ? Math.min(800, Math.max(displayLimit * 3, 400)) : displayLimit;
+  const run = async (columns: readonly string[], mode: "and" | "or" | "browse") => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q: any = supabase
+      .from("products")
+      .select(CATALOG_PRODUCT_COLUMNS)
+      .order("name", { ascending: true })
+      .limit(mode === "or" ? Math.min(pool, 160) : pool);
+    if (opts.activeOnly !== false) q = q.eq("active", true);
+    const categories = scope?.categories ?? [];
+    if (categories.length === 1) q = q.eq("category", categories[0]);
+    else if (categories.length > 1) q = q.in("category", categories);
+
+    if (mode === "browse") {
+      const parts: string[] = [];
+      for (const token of scope?.browse ?? []) {
+        const clause = tokenMatchOr(
+          { raw: token, forms: [token], synonyms: [], categories: [], needles: [token], optional: false },
+          ["search_text", "name", "sku"],
+        );
+        if (clause) parts.push(clause);
+      }
+      if (parts.length) q = q.or(parts.join(","));
+    } else if (mode === "or") {
+      const parts = tokens.map((token) => tokenMatchOr(token, columns)).filter(Boolean);
+      if (parts.length) q = q.or(parts.join(","));
+    } else {
+      for (const token of tokens) {
+        const clause = tokenMatchOr(token, columns);
+        if (clause) q = q.or(clause);
+      }
+    }
+    const { data, error } = await q;
+    if (error) return null;
+    return ((data ?? []) as Product[]).filter(
+      (p) => opts.includeLabor || p.category !== "labor",
+    );
+  };
+
+  const browsing = !tokens.length && !!scope?.browse.length;
+  let rows = await run(SMART_TEXT_COLS, browsing ? "browse" : "and");
+  if (rows == null) rows = await run(PLAIN_TEXT_COLS, browsing ? "browse" : "and");
+  if (rows == null) return [];
+  if (tokens.length && rows.length === 0) {
+    const relaxed = (await run(SMART_TEXT_COLS, "or")) ?? (await run(PLAIN_TEXT_COLS, "or"));
+    if (relaxed?.length) rows = relaxed;
+  }
+  if (!query.trim()) return rows.slice(0, displayLimit);
+  return rankCatalogProducts(rows, query).slice(0, displayLimit);
 }
 
 export async function productCount(): Promise<number> {

@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Plus, Upload, Search, Download, Package } from "lucide-react";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Plus, Upload, Download, Package } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { searchCatalog, productCount } from "@/lib/data/products";
@@ -11,6 +10,7 @@ import { getBusinessSettings } from "@/lib/data/business-settings";
 import { requireProfile } from "@/lib/auth";
 import { CatalogTable } from "./catalog-table";
 import { CatalogCleanup } from "./catalog-cleanup";
+import { CatalogSearchBox } from "./catalog-search-box";
 
 export const metadata: Metadata = { title: "Catalog" };
 
@@ -64,20 +64,7 @@ export default async function CatalogPage({
         </div>
       ) : null}
 
-      <form method="get" className="mb-4 flex max-w-sm gap-2">
-        <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            name="q"
-            defaultValue={q}
-            placeholder="Search products, SKU, manufacturer, color…"
-            className="pl-9"
-          />
-        </div>
-        <Button type="submit" variant="outline">
-          Search
-        </Button>
-      </form>
+      <CatalogSearchBox initial={q} />
 
       {total === 0 ? (
         <EmptyState

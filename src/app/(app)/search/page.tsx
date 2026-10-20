@@ -29,6 +29,7 @@ const LIST_HREF: Partial<Record<HitType, string>> = {
   order: "/orders",
   invoice: "/invoices",
   po: "/purchase-orders",
+  product: "/catalog",
 };
 
 export default async function SearchPage({
@@ -47,13 +48,13 @@ export default async function SearchPage({
         description={
           query
             ? `${total} result${total === 1 ? "" : "s"} for “${query}”`
-            : "Find a customer, phone, address, estimate, job, service issue, order, invoice, or purchase order."
+            : "Find a product, customer, phone, address, estimate, job, service issue, order, invoice, or purchase order."
         }
       />
 
       {query && total === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No matches for “{query}”. Try a name, phone, email, street, job, or invoice number.
+          No matches for “{query}”. Try a product, SKU, color, name, phone, street, or invoice number.
         </p>
       ) : null}
 
