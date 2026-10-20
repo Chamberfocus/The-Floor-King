@@ -20,9 +20,11 @@ function isPublicPath(pathname: string) {
 
 /**
  * Refreshes the Supabase auth session on every request and enforces auth:
- * unauthenticated users are redirected to /login; signed-in users hitting
- * /login are sent to the dashboard. Based on the official @supabase/ssr pattern,
- * adapted for the Next.js 16 `proxy` convention.
+ * unauthenticated users are redirected to /login. A signed-in user is allowed
+ * to stay on /login: the page sends them home when their profile loads, and
+ * leaves the form up when it does not. Bouncing /login to /dashboard here
+ * looped anyone whose profile row could not be read. Based on the official
+ * @supabase/ssr pattern, adapted for the Next.js 16 `proxy` convention.
  */
 export async function updateSession(request: NextRequest) {
   // Before real credentials are configured, don't gate anything — let the app
@@ -62,13 +64,6 @@ export async function updateSession(request: NextRequest) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
     redirectUrl.searchParams.set("next", pathname);
-    return NextResponse.redirect(redirectUrl);
-  }
-
-  if (user && pathname === "/login") {
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/dashboard";
-    redirectUrl.search = "";
     return NextResponse.redirect(redirectUrl);
   }
 
