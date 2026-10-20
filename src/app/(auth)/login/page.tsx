@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import {
   Card,
   CardContent,
@@ -6,8 +7,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { getProfile, getUser } from "@/lib/auth";
 import { isSupabaseConfigured } from "@/lib/env";
 import { LoginForm } from "./login-form";
+
+function destinationFor(next: string | undefined): string {
+  return next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
+}
 
 export const metadata: Metadata = { title: "Sign in" };
 
@@ -17,7 +23,18 @@ export default async function LoginPage({
   searchParams: Promise<{ next?: string }>;
 }) {
   const { next } = await searchParams;
+  const destination = destinationFor(next);
   const configured = isSupabaseConfigured();
+  let blocked: string | null = null;
+  if (configured) {
+    const user = await getUser();
+    if (user) {
+      const profile = await getProfile();
+      if (profile) redirect(destination);
+      blocked =
+        "This login has no profile, so the app can't open it. Ask an admin to restore the account.";
+    }
+  }
 
   return (
     <Card className="w-full max-w-sm">
@@ -29,7 +46,14 @@ export default async function LoginPage({
       </CardHeader>
       <CardContent>
         {configured ? (
-          <LoginForm next={next ?? "/dashboard"} />
+          <>
+            {blocked ? (
+              <p className="mb-4 text-sm text-destructive" role="alert">
+                {blocked}
+              </p>
+            ) : null}
+            <LoginForm next={destination} />
+          </>
         ) : (
           <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
             <p className="font-medium text-foreground">Almost there.</p>

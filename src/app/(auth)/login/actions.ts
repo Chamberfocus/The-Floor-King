@@ -4,15 +4,12 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { normalizePhone } from "@/lib/auth-admin";
+import { phoneLookupValues } from "@/lib/customer-duplicate";
+import { loginFailureMessage } from "@/lib/login-failure";
 
 export interface LoginState {
   error: string | null;
-}
-
-function digits(raw: string): string {
-  let d = (raw || "").replace(/\D/g, "");
-  if (d.length === 11 && d.startsWith("1")) d = d.slice(1);
-  return d;
 }
 
 function safeNext(next: FormDataEntryValue | null): string {
@@ -24,11 +21,21 @@ function safeNext(next: FormDataEntryValue | null): string {
   return value.startsWith("/") && !value.startsWith("//") ? value : "/";
 }
 
+async function profileExists(userId: string): Promise<boolean> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("id", userId)
+    .maybeSingle();
+  return !error && !!data;
+}
+
 export async function login(
   _prevState: LoginState,
   formData: FormData,
 ): Promise<LoginState> {
-  const email = String(formData.get("email") ?? "").trim();
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
   const next = safeNext(formData.get("next"));
 
@@ -37,10 +44,16 @@ export async function login(
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
-  if (error) {
-    return { error: "Incorrect email or password. Please try again." };
+  if (error || !data.user) {
+    return { error: loginFailureMessage(error) };
+  }
+  if (!(await profileExists(data.user.id))) {
+    await supabase.auth.signOut();
+    return {
+      error: "This login has no profile, so the app can't open it. Ask an admin to restore the account.",
+    };
   }
 
   revalidatePath("/", "layout");
@@ -52,33 +65,55 @@ export async function loginWithPhone(
   _prevState: LoginState,
   formData: FormData,
 ): Promise<LoginState> {
-  const phone = digits(String(formData.get("phone") ?? ""));
+  const phone = normalizePhone(String(formData.get("phone") ?? ""));
   const pin = String(formData.get("pin") ?? "");
   const next = safeNext(formData.get("next"));
 
   if (!phone || !pin) return { error: "Enter your phone number and PIN." };
 
   // Look up the login's email by phone (service role), then sign in normally.
+  // The stored value may be digits or 216-555-1212 — both are the same number.
   let email: string | null = null;
   try {
     const admin = createAdminClient();
-    const { data } = await admin
+    const { data, error } = await admin
       .from("profiles")
-      .select("email")
-      .eq("phone", phone)
-      .maybeSingle();
-    email = (data?.email as string) ?? null;
+      .select("email, phone")
+      .in("phone", phoneLookupValues(phone));
+    if (error) return { error: "Phone sign-in isn't available right now." };
+    const hits = (data ?? []).filter(
+      (row) => normalizePhone(String(row.phone ?? "")) === phone && row.email,
+    );
+    if (hits.length > 1) {
+      return {
+        error: "That phone number is on more than one login. Ask an admin to fix it.",
+      };
+    }
+    email = (hits[0]?.email as string | undefined) ?? null;
   } catch {
     return { error: "Phone sign-in isn't available right now." };
   }
   if (!email) return { error: "No login found for that phone number." };
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({
+  const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password: pin,
   });
-  if (error) return { error: "Incorrect phone number or PIN. Please try again." };
+  if (error || !data.user) {
+    const message = loginFailureMessage(error);
+    return {
+      error: message.startsWith("Incorrect email")
+        ? "Incorrect phone number or PIN. Please try again."
+        : message,
+    };
+  }
+  if (!(await profileExists(data.user.id))) {
+    await supabase.auth.signOut();
+    return {
+      error: "This login has no profile, so the app can't open it. Ask an admin to restore the account.",
+    };
+  }
 
   revalidatePath("/", "layout");
   redirect(next);

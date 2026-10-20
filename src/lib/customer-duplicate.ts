@@ -17,6 +17,31 @@ export function normalizePhoneDigits(phone: string | null | undefined): string {
   return d;
 }
 
+/** Same 10-digit phone written the ways the app and people actually store it. */
+export function phoneLookupValues(raw: string): string[] {
+  const digits = normalizePhoneDigits(raw);
+  const values = new Set<string>();
+  const add = (value: string) => {
+    const trimmed = value.trim();
+    if (trimmed) values.add(trimmed);
+  };
+  add(raw);
+  add(digits);
+  if (digits.length === 10) {
+    const a = digits.slice(0, 3);
+    const b = digits.slice(3, 6);
+    const c = digits.slice(6);
+    add(`${a}-${b}-${c}`);
+    add(`(${a}) ${b}-${c}`);
+    add(`(${a})${b}-${c}`);
+    add(`1${digits}`);
+    add(`+1${digits}`);
+    add(`+1${a}${b}${c}`);
+    add(`+1 ${a}-${b}-${c}`);
+  }
+  return [...values];
+}
+
 export function normalizePersonName(name: string | null | undefined): string {
   return (name ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 }
