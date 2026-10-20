@@ -856,12 +856,13 @@ export default async function CustomerPage({
           then the tools, then the records. */}
       <section
         id="overview"
-        className="relative mb-3 scroll-mt-24 overflow-hidden rounded-lg border bg-card px-3 py-3 shadow-sm sm:px-4"
+        className="relative mb-3 scroll-mt-24 overflow-hidden rounded-lg border bg-card shadow-sm"
       >
         <span
           aria-hidden
           className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-primary to-amber-500"
         />
+        <div className="px-3 py-3 sm:px-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-3">
@@ -1019,7 +1020,9 @@ export default async function CustomerPage({
                 label: "Estimate visit",
                 value: estimateAppointment
                   ? `${formatDate(estimateAppointment.startsAt)} · ${formatWallTime(estimateAppointment.startsAt)}`
-                  : "Not booked",
+                  : customer.cancelled_at
+                    ? "Not booked"
+                    : "Book a visit",
                 href: customer.cancelled_at ? null : `/customers/${customer.id}?schedule=estimate`,
                 warn: false,
               },
@@ -1031,7 +1034,9 @@ export default async function CustomerPage({
                         ? ` – ${formatDate(quickJob.endDate)}`
                         : ""
                     }${quickJob.installerName ? ` · ${quickJob.installerName}` : ""}`
-                  : "Not booked",
+                  : customer.cancelled_at
+                    ? "Not booked"
+                    : "Book the install",
                 href: customer.cancelled_at ? null : `/customers/${customer.id}?schedule=install`,
                 warn: false,
               },
@@ -1076,10 +1081,10 @@ export default async function CustomerPage({
             );
           })}
         </div>
-      </section>
+        </div>
 
       {customer.cancelled_at ? (
-        <div className="mb-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
+        <div className="border-t border-destructive/40 bg-destructive/5 px-3 py-3 sm:px-4">
           <p className="font-medium text-destructive">
             Cancelled{" "}
             <span className="font-normal text-muted-foreground">
@@ -1094,20 +1099,19 @@ export default async function CustomerPage({
         </div>
       ) : null}
 
-      <RecordActionCenter model={customerAction} />
+      <RecordActionCenter model={customerAction} embedded />
       {!customer.cancelled_at && customer.next_action_due ? (
-        <div className="mb-3">
           <CustomerNextActionCard
             customerId={customer.id}
             nextActionDue={customer.next_action_due}
             stuck={overdue}
             tasks={openTasks}
             canSnooze={(SALES_ROLES as string[]).includes(profile.role)}
+            embedded
           />
-        </div>
       ) : null}
       {recordFacts.callbacks.length ? (
-        <section className="mb-3 rounded-lg border bg-card p-3">
+        <section className="border-t px-3 py-3 sm:px-4">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Service calls
           </h2>
@@ -1128,7 +1132,7 @@ export default async function CustomerPage({
         </section>
       ) : null}
 
-      <section className="mb-3 rounded-lg border bg-card px-3 py-3" aria-labelledby="handle-customer">
+      <div className="border-t px-3 py-3 sm:px-4" aria-labelledby="handle-customer">
         <h2 id="handle-customer" className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Handle this customer
         </h2>
@@ -1234,6 +1238,7 @@ export default async function CustomerPage({
             </div>
           </details>
         </div>
+      </div>
       </section>
 
       {/* One section at a time. Overview is the snapshot. A saved list that
