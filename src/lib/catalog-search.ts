@@ -1,10 +1,13 @@
 /**
- * Catalog picker scope and ranking.
+ * Catalog picker scope.
  *
  * Scope uses category (and, for adhesives, words that already appear on the
  * product). It does not invent compatibility between a carpet and a pad.
- * Ranking runs on the rows already fetched — not a fuzzy scan of the catalog.
+ * Ranking lives in catalog-query.ts and runs on the rows already fetched.
  */
+
+export { scoreCatalogProduct, rankCatalogProducts } from "@/lib/catalog-query";
+export type { RankableProduct } from "@/lib/catalog-query";
 
 export const HARD_SURFACE_CATEGORIES = ["lvp", "hardwood", "laminate", "tile", "vinyl"] as const;
 
@@ -99,91 +102,3 @@ export function catalogSuggestionPlan(): { autoAdd: false; compatibleClaim: fals
   return { autoAdd: false, compatibleClaim: false };
 }
 
-export interface RankableProduct {
-  id?: string;
-  name?: string | null;
-  sku?: string | null;
-  manufacturer?: string | null;
-  style?: string | null;
-  color?: string | null;
-  supplier?: string | null;
-  category?: string | null;
-  notes?: string | null;
-  fiber?: string | null;
-  species?: string | null;
-  search_text?: string | null;
-  active?: boolean | null;
-}
-
-function squash(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9./]+/g, "");
-}
-
-function words(s: string): string[] {
-  return s.toLowerCase().split(/[^a-z0-9./]+/).filter(Boolean);
-}
-
-function tokenIn(token: string, text: string): boolean {
-  if (!token || !text) return false;
-  const low = text.toLowerCase();
-  if (low.includes(token)) return true;
-  if (token.length >= 2 && words(low).some((w) => w.startsWith(token))) return true;
-  if (token.length >= 2 && squash(low).includes(squash(token))) return true;
-  return false;
-}
-
-/**
- * Higher is better. Exact SKU, then exact name, then a name prefix,
- * then manufacturer + product, then a partial hit. No edit-distance scan.
- */
-export function scoreCatalogProduct(p: RankableProduct, query: string): number {
-  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  if (!tokens.length) return p.active === false ? 0 : 1;
-  const name = (p.name ?? "").toLowerCase();
-  const sku = (p.sku ?? "").toLowerCase();
-  const mfr = (p.manufacturer ?? "").toLowerCase();
-  const joined = tokens.join(" ");
-  const skuNorm = squash(sku);
-  const queryNorm = squash(query);
-  let s = 0;
-
-  if (sku && (sku === joined || (queryNorm.length > 0 && skuNorm === queryNorm))) s += 10000;
-  else if (sku && (sku.startsWith(joined) || (queryNorm.length > 0 && skuNorm.startsWith(queryNorm)))) s += 2500;
-  else if (sku && tokens.every((t) => tokenIn(t, sku))) s += 1800;
-
-  if (name && name === joined) s += 8000;
-  else if (name && name.startsWith(joined)) s += 5000;
-
-  const inName = (t: string) => tokenIn(t, name);
-  const inMfr = (t: string) => tokenIn(t, mfr);
-  if (tokens.some(inMfr) && tokens.some(inName) && tokens.every((t) => inName(t) || inMfr(t))) {
-    s += 3500;
-  }
-  if (name.startsWith(tokens[0]) || words(name)[0]?.startsWith(tokens[0])) s += 800;
-
-  const other = [p.style, p.color, p.supplier, p.fiber, p.species, p.notes, p.category, p.search_text]
-    .filter(Boolean)
-    .join(" ");
-
-  let all = true;
-  for (const t of tokens) {
-    if (inName(t)) s += 200;
-    else if (inMfr(t)) s += 120;
-    else if (tokenIn(t, sku)) s += 160;
-    else if (tokenIn(t, other)) s += 40;
-    else all = false;
-  }
-  if (all && tokens.length) s += 500;
-  if (p.active !== false) s += 3;
-  return s;
-}
-
-export function rankCatalogProducts<T extends RankableProduct>(rows: T[], query: string): T[] {
-  const q = query.trim();
-  if (!q) return rows;
-  return rows
-    .map((p) => ({ p, s: scoreCatalogProduct(p, q) }))
-    .filter((x) => x.s > 3)
-    .sort((a, b) => b.s - a.s || (a.p.name ?? "").localeCompare(b.p.name ?? ""))
-    .map((x) => x.p);
-}

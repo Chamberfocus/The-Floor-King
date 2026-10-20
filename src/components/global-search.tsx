@@ -123,8 +123,8 @@ export function GlobalSearch({
           onFocus={() => setOpen(true)}
           onKeyDown={onKey}
           id={inputId}
-          placeholder="Search name, phone, address, job, service…  (/)"
-          aria-label="Search customers, phones, addresses, jobs, and service"
+          placeholder="Search products, customers, phones, jobs…  (/)"
+          aria-label="Search products, customers, phones, addresses, jobs, and service"
           autoFocus={autoFocus}
           className="h-11 pl-9"
         />

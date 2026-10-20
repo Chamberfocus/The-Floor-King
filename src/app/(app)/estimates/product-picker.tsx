@@ -516,7 +516,9 @@ export function ProductPicker({
             onKeyDown={onKeyDown}
             autoFocus={editing}
             placeholder={
-              scope.label && !searchAll ? `Search ${scope.label.toLowerCase()}…` : "Type a product name…"
+              scope.label && !searchAll
+                ? `Search ${scope.label.toLowerCase()} — name, color, brand, or SKU`
+                : "Name, color, brand, or SKU"
             }
             className={cn(inputSm, "w-full pl-9 pr-9 text-base", fullWidth ? "h-12" : "h-11")}
           />

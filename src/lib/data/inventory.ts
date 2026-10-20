@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { parseCatalogQuery, tokenMatchOr } from "@/lib/catalog-query";
 import type { Product, StockMovement } from "@/lib/types";
 
 /** Stock untouched for this many days is flagged "aged". */
@@ -68,13 +69,10 @@ export async function listInventory(search = ""): Promise<Product[]> {
     .select(PRODUCT_OPS_COLS)
     .eq("track_stock", true)
     .order("name", { ascending: true });
-  if (search.trim()) {
-    const like = `%${search.trim()}%`;
-    q = q.or(
-      [`name.ilike.${like}`, `sku.ilike.${like}`, `manufacturer.ilike.${like}`].join(
-        ",",
-      ),
-    );
+  const cols = ["name", "sku", "manufacturer", "style", "color", "notes"] as const;
+  for (const token of parseCatalogQuery(search)) {
+    const clause = tokenMatchOr(token, cols);
+    if (clause) q = q.or(clause);
   }
   const { data } = await q;
   return (data ?? []) as Product[];
@@ -89,9 +87,10 @@ export async function listUntracked(search = ""): Promise<Product[]> {
     .eq("track_stock", false)
     .order("name", { ascending: true })
     .limit(50);
-  if (search.trim()) {
-    const like = `%${search.trim()}%`;
-    q = q.or([`name.ilike.${like}`, `sku.ilike.${like}`].join(","));
+  const cols = ["name", "sku", "manufacturer", "style", "color"] as const;
+  for (const token of parseCatalogQuery(search)) {
+    const clause = tokenMatchOr(token, cols);
+    if (clause) q = q.or(clause);
   }
   const { data } = await q;
   return (data ?? []) as Product[];

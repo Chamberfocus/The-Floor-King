@@ -9,6 +9,7 @@ import {
   type SearchHitType,
 } from "@/lib/search-query";
 import { PRODUCT_CATEGORY_LABELS } from "@/lib/types";
+import { searchCatalogWith } from "@/lib/data/products";
 
 export type HitType = SearchHitType;
 
@@ -44,13 +45,13 @@ const GROUP_LABEL: Record<HitType, string> = {
 };
 const GROUP_ORDER: HitType[] = [
   "customer",
+  "product",
   "estimate",
   "job",
   "service",
   "order",
   "invoice",
   "po",
-  "product",
 ];
 
 type Row = Record<string, unknown>;
@@ -202,20 +203,10 @@ export async function quickSearch(qRaw: string, limit = 6): Promise<QuickResults
       ? docs("purchase_orders", `supplier.ilike.${like},notes.ilike.${like}`, "supplier, po_number")
       : emptyRows,
     allowed.has("product")
-      ? supabase
-          .from("products")
-          .select("id, name, sku, category")
-          .or(
-            [
-              `name.ilike.${like}`,
-              `sku.ilike.${like}`,
-              `manufacturer.ilike.${like}`,
-              `style.ilike.${like}`,
-              `color.ilike.${like}`,
-            ].join(","),
-          )
-          .limit(limit)
-      : Promise.resolve({ data: [] as Row[] }),
+      ? searchCatalogWith(supabase, q, { limit, activeOnly: true, enrich: false }).catch(
+          () => [] as Awaited<ReturnType<typeof searchCatalogWith>>,
+        )
+      : Promise.resolve([] as Awaited<ReturnType<typeof searchCatalogWith>>),
   ]);
 
   let poHits = poRows;
@@ -324,12 +315,14 @@ export async function quickSearch(qRaw: string, limit = 6): Promise<QuickResults
         href: `/jobs/${r.id}`,
       };
     }),
-    product: (prodRes.data ?? []).map((p: Row) => ({
-      type: "product",
-      id: p.id as string,
-      title: (p.name as string) || "Product",
+    product: prodRes.map((p) => ({
+      type: "product" as const,
+      id: p.id,
+      title: p.name || "Product",
       subtitle: dot([
-        PRODUCT_CATEGORY_LABELS[p.category as keyof typeof PRODUCT_CATEGORY_LABELS],
+        p.manufacturer,
+        PRODUCT_CATEGORY_LABELS[p.category],
+        p.color,
         p.sku ? `SKU ${p.sku}` : null,
       ]),
       href: `/catalog/${p.id}`,
