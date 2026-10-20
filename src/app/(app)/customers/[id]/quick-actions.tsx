@@ -207,11 +207,7 @@ export function QuickActions({
           onClick={() => launch("stage")}
         >
           <ArrowLeftRight className="size-3.5" /> {plainLabels ? "Change stage" : "Stage"}
-          {plainLabels && currentStageName ? (
-            <span className="max-w-[9rem] truncate font-normal text-muted-foreground">
-              · {currentStageName}
-            </span>
-          ) : showValues && currentStageName ? (
+          {!plainLabels && showValues && currentStageName ? (
             <span className="ml-1 max-w-[8rem] truncate text-muted-foreground">
               · {currentStageName}
             </span>
@@ -228,11 +224,7 @@ export function QuickActions({
           onClick={() => launch("assignee")}
         >
           <UserCog className="size-3.5" /> {plainLabels ? "Change owner" : "Assignee"}
-          {plainLabels ? (
-            <span className="max-w-[9rem] truncate font-normal text-muted-foreground">
-              · {currentOwnerName ?? "Unassigned"}
-            </span>
-          ) : showValues ? (
+          {!plainLabels && showValues ? (
             <span className="ml-1 max-w-[8rem] truncate text-muted-foreground">
               · {currentOwnerName ?? "Unassigned"}
             </span>
@@ -249,11 +241,7 @@ export function QuickActions({
           onClick={() => launch("estimate")}
         >
           <CalendarClock className="size-3.5" /> {plainLabels ? "Schedule estimate" : "Estimate"}
-          {plainLabels && estimate ? (
-            <span className="font-normal text-muted-foreground">
-              · {formatDate(estimate.startsAt)}
-            </span>
-          ) : showValues ? (
+          {!plainLabels && showValues ? (
             <span className="ml-1 text-muted-foreground">
               · {estimate ? formatDate(estimate.startsAt) : "Set"}
             </span>
@@ -270,11 +258,7 @@ export function QuickActions({
           onClick={() => launch("install")}
         >
           <Hammer className="size-3.5" /> {plainLabels ? "Schedule install" : "Install"}
-          {plainLabels && job?.date ? (
-            <span className="font-normal text-muted-foreground">
-              · {formatDate(job.date)}
-            </span>
-          ) : showValues ? (
+          {!plainLabels && showValues ? (
             <span className="ml-1 text-muted-foreground">
               · {job?.date ? formatDate(job.date) : "Set"}
             </span>
