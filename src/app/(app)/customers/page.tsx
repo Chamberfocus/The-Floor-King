@@ -322,6 +322,7 @@ export default async function CustomersPage({
           activity={activity}
           shared={shared}
           isAdmin={isAdmin}
+          canDelete={profile.role === "admin" || profile.role === "office"}
         />
       )}
       <WorkQueuePager
