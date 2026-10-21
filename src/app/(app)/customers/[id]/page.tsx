@@ -37,6 +37,10 @@ import {
 } from "@/lib/data/customers";
 import { listEstimateScheduleFacts, listEstimatesForCustomer } from "@/lib/data/estimates";
 import { customerSeesCustomerMoney } from "@/lib/customer-record-access";
+import { buildSaleFocus } from "@/lib/sale-focus";
+import { SaleFocusPath } from "@/components/sale-focus-path";
+import { SaleFocusPin } from "@/components/sale-focus-pin";
+import { hasActiveDepositOnFile } from "@/lib/ops-followup";
 import { listJobsForCustomer, listSchedulingJobsForCustomer, getJobSatisfaction } from "@/lib/data/jobs";
 import { listOrdersForCustomer } from "@/lib/data/orders";
 import { placeInStockOrdersOnCustomerInvoices } from "@/lib/data/order-invoice";
@@ -443,6 +447,34 @@ export default async function CustomerPage({
       sourceKey: task.source_key,
     })),
   });
+  const saleFocus =
+    profile.role === "salesman"
+      ? buildSaleFocus({
+          customerId: id,
+          visitAt: estimateAppointment?.startsAt ?? null,
+          depositOnFile: depositSummary
+            ? hasActiveDepositOnFile({
+                availableDeposit: depositSummary.available,
+                appliedDeposit: depositSummary.applied,
+              })
+            : false,
+          estimates: estimates.map((estimate) => ({
+            id: estimate.id,
+            status: estimate.status,
+            updatedAt: estimate.updated_at ?? estimate.created_at,
+            approvalStale: estimate.approval_stale,
+          })),
+          invoices: invoices.map((invoice) => ({
+            id: invoice.id,
+            status: invoice.status,
+            estimateId: invoice.estimate_id,
+            payments: (invoice.payments ?? []).map((payment) => ({
+              amount: Number(payment.amount) || 0,
+              status: payment.status ?? null,
+            })),
+          })),
+        })
+      : null;
   // "Stage 6 of 12" — where they are on the linear spine, so the badge means
   // something without knowing the stage list by heart.
   const spinePos = spinePosition(currentStage, stages);
@@ -978,6 +1010,14 @@ export default async function CustomerPage({
               Edit contact
             </a>
           </div>
+        {saleFocus && !customer.cancelled_at ? (
+          <SaleFocusPath
+            focus={saleFocus}
+            customerName={customer.full_name}
+            showSwitch
+            embedded
+          />
+        ) : null}
         {(() => {
           const openInstall = installJobs.filter(
             (j) => j.status !== "completed" && j.status !== "cancelled",
@@ -1172,6 +1212,13 @@ export default async function CustomerPage({
         </div>
       ) : null}
 
+      {profile.role === "salesman" ? (
+        <SaleFocusPin
+          customerId={customer.id}
+          customerName={customer.full_name}
+          active={!customer.cancelled_at && !saleFocus?.handedOff}
+        />
+      ) : null}
       <RecordActionCenter model={customerAction} />
       {recordFacts.callbacks.length ? (
         <section className="mb-3 rounded-lg border bg-card p-3">

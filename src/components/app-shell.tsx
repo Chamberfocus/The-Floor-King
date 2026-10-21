@@ -43,6 +43,7 @@ import {
   type UxShellMode,
 } from "@/lib/nav";
 import { ROLE_LABELS, type OrgSettings, type Profile } from "@/lib/types";
+import type { SaleFocusMemory } from "@/lib/sale-focus";
 import { signout } from "@/app/(app)/actions";
 
 function initials(profile: Profile) {
@@ -404,6 +405,7 @@ export function AppShell({
   org,
   defaultCollapsed = false,
   shell = "classic",
+  saleFocus = null,
   children,
 }: {
   profile: Profile;
@@ -412,12 +414,18 @@ export function AppShell({
   defaultCollapsed?: boolean;
   /** Phase A shell. Classic stays the default until the cookie or env opts in. */
   shell?: UxShellMode;
+  /** The customer a salesman is selling. Null for every other role. */
+  saleFocus?: SaleFocusMemory | null;
   children: React.ReactNode;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mobileSearch, setMobileSearch] = useState(false);
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const homeHref = homeHrefForRole(profile.role);
+  const pathname = usePathname();
+  const onFocusedCustomer =
+    !!saleFocus &&
+    (pathname === `/customers/${saleFocus.id}` || pathname === "/home");
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -559,6 +567,18 @@ export function AppShell({
         </header>
 
         {profile.role !== "customer" ? <ImportJobsBanner /> : null}
+
+        {saleFocus && !onFocusedCustomer ? (
+          <Link
+            href={`/customers/${saleFocus.id}`}
+            className="flex min-h-11 items-center justify-between gap-3 border-b bg-primary/10 px-4 py-2 text-sm font-medium hover:bg-primary/15"
+          >
+            <span className="min-w-0 truncate">
+              Stay with {saleFocus.name || "this customer"}
+            </span>
+            <span className="shrink-0 text-primary">Open this sale</span>
+          </Link>
+        ) : null}
 
         {/* Extra bottom padding on phones so content clears the tab bar. */}
         <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-4 pb-24 md:p-8 md:pb-8">
