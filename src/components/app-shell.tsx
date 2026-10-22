@@ -543,12 +543,13 @@ export function AppShell({
             <GlobalSearch className="w-full max-w-xl" />
           </div>
           <HeaderSearch open={mobileSearch} onOpenChange={setMobileSearch} />
-          {shell === "new" ? (
-            <QuickCreate
-              role={profile.role}
-              className={cn("shrink-0", collapsed ? "" : "md:hidden")}
-            />
-          ) : null}
+          <QuickCreate
+            role={profile.role}
+            className={cn(
+              "shrink-0",
+              shell === "new" && !collapsed ? "md:hidden" : "",
+            )}
+          />
           {profile.role !== "customer" ? (
             <AreaCalculator
               triggerLabel="Calculator"

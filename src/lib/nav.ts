@@ -75,6 +75,12 @@ const JOBS_ROLES: UserRole[] = [
  * crew's landing; Business Pulse is the owner's daily glance.
  */
 export const PINNED_ITEMS: NavItem[] = [
+  {
+    label: "Home",
+    href: "/home",
+    icon: Home,
+    roles: ["admin", "office", "sales_manager", "salesman", "scheduler"],
+  },
   { label: "Business Pulse", href: "/pulse", icon: Activity, roles: ADMIN },
   { label: "My Work", href: "/installer", icon: HardHat, roles: ["crew", "admin", "office"] },
 ];
@@ -219,11 +225,9 @@ export function pinnedItemsForRole(role: UserRole): NavItem[] {
 }
 
 /**
- * Where the Home button lands. The customer list for everyone who works deals —
- * it's the page the office actually starts from. Crew are NOT in SALES_VIEW and
- * would hit a permission wall there, so they go to My Work instead; anyone else
- * falls back to the first destination their role can open, so Home is never a
- * dead link for any role.
+ * Where the Home button lands. Staff open the day's work list. Customers open
+ * the portal. Crew and warehouse still have their own first screen from the
+ * root route, and Home remains a working link for them.
  */
 export function homeHrefForRole(role: UserRole): string {
   if (role === "customer") return "/portal";
