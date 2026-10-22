@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { assertRole } from "@/lib/auth";
 import { employeeDbError } from "@/lib/employee-error";
 import { decideArchive, decideRestore } from "@/lib/customer-lifecycle";
@@ -122,15 +123,15 @@ export async function deleteCustomerForever(
   }
 
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("delete_customer_if_unused", {
+  const { data, error } = await supabase.rpc("delete_customer_clean", {
     p_customer_id: id,
   });
 
   if (error) {
     const message =
       error.message?.includes("Could not find the function") ||
-      error.message?.includes("delete_customer_if_unused")
-        ? "Safe Delete is not installed yet. Apply migration 0482 first."
+      error.message?.includes("delete_customer_clean")
+        ? "Clean delete is not installed yet. Run migration 0495 in the Supabase SQL editor, then try again."
         : employeeDbError(error.message, "This customer could not be deleted.");
     return { ok: false, error: message };
   }
@@ -140,6 +141,7 @@ export async function deleteCustomerForever(
     error?: string;
     blockers?: string[];
     already_deleted?: boolean;
+    files?: unknown;
   };
 
   if (result.already_deleted) {
@@ -148,22 +150,43 @@ export async function deleteCustomerForever(
   }
 
   if (!result.ok) {
-    if (result.error === "has_dependencies") {
-      const blockers = Array.isArray(result.blockers) ? result.blockers : [];
-      return {
-        ok: false,
-        error:
-          blockers.length > 0
-            ? `Cannot delete permanently. This customer still has linked records: ${blockers.join(", ")}. Archive the customer instead.`
-            : "Cannot delete permanently because linked history exists. Archive the customer instead.",
-      };
-    }
     if (result.error === "not_authorized") {
       return { ok: false, error: "Only an administrator can delete forever." };
     }
     return { ok: false, error: "This customer could not be deleted." };
   }
 
+  await removeCustomerFiles(result.files);
   refresh(id);
   redirect("/customer-records");
+}
+
+type StoredCustomerFile = { bucket?: string; path?: string };
+
+async function removeCustomerFiles(files: unknown) {
+  if (!Array.isArray(files) || files.length === 0) return;
+  const grouped = new Map<string, string[]>();
+  for (const file of files as StoredCustomerFile[]) {
+    const bucket = file?.bucket?.trim();
+    const path = file?.path?.trim();
+    if (!bucket || !path) continue;
+    const paths = grouped.get(bucket) ?? [];
+    paths.push(path);
+    grouped.set(bucket, paths);
+  }
+  if (grouped.size === 0) return;
+
+  const supabase = await createClient();
+  let admin: ReturnType<typeof createAdminClient> | null = null;
+  try {
+    admin = createAdminClient();
+  } catch {
+    admin = null;
+  }
+
+  for (const [bucket, paths] of grouped) {
+    const removed = await supabase.storage.from(bucket).remove(paths);
+    if (!removed.error) continue;
+    if (admin) await admin.storage.from(bucket).remove(paths);
+  }
 }

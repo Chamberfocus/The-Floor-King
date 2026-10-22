@@ -448,7 +448,8 @@ describe("deletion actions call the gate before any delete", () => {
       "export async function deleteCustomerForever",
       "export async function NO_FURTHER_CUSTOMER_ACTION",
     );
-    expect(forever).toContain("delete_customer_if_unused");
+    expect(forever).toContain("delete_customer_clean");
+    expect(forever).not.toContain("delete_customer_if_unused");
     expect(forever).not.toContain('from("invoices")');
     expect(forever).not.toContain('from("payments")');
     expect(forever).not.toContain('from("jobs").delete');
@@ -464,6 +465,19 @@ describe("deletion actions call the gate before any delete", () => {
     expect(orders.indexOf("orderDestructionBlocker")).toBeLessThan(
       orders.indexOf('from("invoices").delete'),
     );
+  });
+});
+
+describe("migration 0495", () => {
+  it("removes one customer and that customer's files without turning posting on", () => {
+    const sql = src("supabase/migrations/0495_customer_clean_delete.sql");
+    expect(sql).toContain("delete_customer_clean");
+    expect(sql).toContain("customer_purge_in_progress");
+    expect(sql).toContain("documents");
+    expect(sql).toContain("job-files");
+    expect(sql).toContain("is_admin()");
+    expect(sql).not.toContain("posting_enabled");
+    expect(sql).not.toMatch(/\bdrop table\b/i);
   });
 });
 

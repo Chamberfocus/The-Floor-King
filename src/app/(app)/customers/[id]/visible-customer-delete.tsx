@@ -56,10 +56,9 @@ export function VisibleCustomerDelete({
           <DialogHeader>
             <DialogTitle>Delete {customerName}?</DialogTitle>
             <DialogDescription>
-              Permanent delete is only allowed when this customer has no linked
-              jobs, estimates, invoices, payments, orders, appointments, notes,
-              documents, referrals, or other history. If linked records exist,
-              deletion is blocked.
+              This removes {customerName} from the CRM, including photos, files,
+              notes, estimates, and jobs. It does not matter whether files are
+              attached. Other customers stay. Type DELETE to confirm.
             </DialogDescription>
           </DialogHeader>
 

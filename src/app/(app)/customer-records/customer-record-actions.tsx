@@ -43,7 +43,7 @@ export function CustomerRecordActions({
           action={deleteAction}
           onSubmit={(e) => {
             const typed = window.prompt(
-              "Permanent delete is only for unused records. Type DELETE to continue.",
+              "This removes the customer and their files, notes, estimates, and jobs. Type DELETE to continue.",
             );
             if (typed !== "DELETE") {
               e.preventDefault();
