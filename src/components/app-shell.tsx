@@ -482,7 +482,7 @@ export function AppShell({
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Top bar: mobile menu (mobile only) + global search (always) */}
-        <header className="relative flex items-center gap-3 border-b bg-background px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] print:hidden">
+        <header className="sticky top-0 z-30 flex items-center gap-2 border-b bg-card/95 px-3 py-2.5 pt-[calc(0.625rem+env(safe-area-inset-top))] backdrop-blur supports-[backdrop-filter]:bg-card/80 print:hidden md:gap-3 md:px-4">
           <div className="md:hidden">
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger
@@ -543,12 +543,13 @@ export function AppShell({
             <GlobalSearch className="w-full max-w-xl" />
           </div>
           <HeaderSearch open={mobileSearch} onOpenChange={setMobileSearch} />
-          {shell === "new" ? (
-            <QuickCreate
-              role={profile.role}
-              className={cn("shrink-0", collapsed ? "" : "md:hidden")}
-            />
-          ) : null}
+          <QuickCreate
+            role={profile.role}
+            className={cn(
+              "shrink-0",
+              shell === "new" && !collapsed ? "md:hidden" : "",
+            )}
+          />
           {profile.role !== "customer" ? (
             <AreaCalculator
               triggerLabel="Calculator"
@@ -561,7 +562,7 @@ export function AppShell({
         {profile.role !== "customer" ? <ImportJobsBanner /> : null}
 
         {/* Extra bottom padding on phones so content clears the tab bar. */}
-        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-4 pb-24 md:p-8 md:pb-8">
+        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-4 pb-24 md:p-6 md:pb-6">
           {children}
         </main>
       </div>

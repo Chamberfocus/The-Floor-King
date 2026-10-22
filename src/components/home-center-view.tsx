@@ -1,12 +1,25 @@
 import Link from "next/link";
 import type { HomeCommandBoard } from "@/lib/data/home-center";
 
-export function HomeCenterView({ board }: { board: HomeCommandBoard }) {
+export function HomeCenterView({
+  board,
+  customersHref,
+}: {
+  board: HomeCommandBoard;
+  customersHref?: string | null;
+}) {
   return (
-    <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">{board.greeting}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">What needs attention.</p>
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{board.greeting}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">What needs you today.</p>
+        </div>
+        {customersHref ? (
+          <Link href={customersHref} className="text-sm font-medium text-primary hover:underline">
+            Customer list
+          </Link>
+        ) : null}
       </header>
 
       {board.unavailable ? (

@@ -97,7 +97,7 @@ export default async function DashboardPage() {
       hint: "New through quoted",
       icon: Contact,
       href: "/leads",
-      tint: "bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-300",
+      tint: "bg-primary/10 text-primary",
     },
     {
       label: "Outstanding invoices",
@@ -105,7 +105,7 @@ export default async function DashboardPage() {
       hint: "Unpaid or partial",
       icon: Receipt,
       href: "/invoices",
-      tint: "bg-zinc-200 text-zinc-700 dark:bg-zinc-500/20 dark:text-zinc-200",
+      tint: "bg-muted text-muted-foreground",
     },
     {
       label: "Won customers",
@@ -113,7 +113,7 @@ export default async function DashboardPage() {
       hint: "Closed deals",
       icon: Trophy,
       href: "/customers?stage=won",
-      tint: "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300",
+      tint: "bg-success/15 text-success",
     },
     {
       label: "Active jobs",
@@ -121,7 +121,7 @@ export default async function DashboardPage() {
       hint: "Scheduled & in progress",
       icon: CalendarDays,
       href: "/jobs",
-      tint: "bg-stone-200 text-stone-700 dark:bg-stone-500/20 dark:text-stone-200",
+      tint: "bg-accent text-accent-foreground",
     },
   ];
 
@@ -165,9 +165,7 @@ export default async function DashboardPage() {
           const card = (
             <Card
               className={
-                stat.href
-                  ? "overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-md"
-                  : "overflow-hidden"
+                "overflow-hidden"
               }
             >
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">

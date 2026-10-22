@@ -138,7 +138,7 @@ export default async function SettingsHubPage() {
           const Icon = s.icon;
           return (
             <Link key={s.href} href={s.href}>
-              <Card className="h-full transition-all hover:-translate-y-0.5 hover:shadow-md">
+              <Card className="h-full">
                 <CardContent className="flex items-start gap-3 pt-6">
                   <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
                     <Icon className="size-5" />

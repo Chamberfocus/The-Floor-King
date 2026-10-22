@@ -14,5 +14,14 @@ export default async function HomePage() {
     userId: profile.id,
     firstName,
   });
-  return <HomeCenterView board={board} />;
+  const customersHref = [
+    "admin",
+    "office",
+    "sales_manager",
+    "salesman",
+    "scheduler",
+  ].includes(profile.role)
+    ? "/customers"
+    : null;
+  return <HomeCenterView board={board} customersHref={customersHref} />;
 }
