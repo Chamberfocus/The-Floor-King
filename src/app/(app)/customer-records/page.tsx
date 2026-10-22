@@ -60,7 +60,7 @@ export default async function CustomerRecordsPage({ searchParams }: Props) {
 
       <PageHeader
         title="Customer records"
-        description="Archive customers you want out of the active list. Administrators can permanently delete only completely unused customer records."
+        description="Archive customers you want out of the active list. Administrators can permanently delete a customer and the information on that file, including documents."
       />
 
       <div className="flex flex-wrap gap-2">
@@ -148,9 +148,9 @@ export default async function CustomerRecordsPage({ searchParams }: Props) {
 
       <Card>
         <CardContent className="pt-6 text-xs text-muted-foreground">
-          Delete forever is intentionally strict: if any invoice, job, estimate, payment, order,
-          appointment, note, document, referral, or any other foreign-key-linked record exists,
-          deletion is blocked and Archive should be used instead.
+          Delete forever removes that customer and the information on their file, including
+          photos and documents. Other customers are not affected. Archive only hides a
+          customer from the active list.
         </CardContent>
       </Card>
     </div>
