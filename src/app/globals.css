@@ -60,118 +60,119 @@
 }
 
 /* ── App-wide type scale ─────────────────────────────────────────────────────
-   Bigger, more comfortable text everywhere (bold, modern SaaS). Body sits at
-   16–18px; nothing on screen drops below 14px. Change here → whole app updates. */
+   Office-efficient, still readable on a job site. Labels stay at 14px.
+   Body sits at 15–16px so a customer file and a list fit without feeling
+   cramped. Change here → whole app updates. */
 @theme {
   --text-xs: 0.875rem; /* 14px — the floor */
   --text-xs--line-height: 1.25rem;
-  --text-sm: 1rem; /* 16px — secondary / body */
-  --text-sm--line-height: 1.5rem;
-  --text-base: 1.125rem; /* 18px — comfortable body */
-  --text-base--line-height: 1.7rem;
-  --text-lg: 1.25rem; /* 20px */
-  --text-lg--line-height: 1.8rem;
-  --text-xl: 1.375rem; /* 22px */
-  --text-xl--line-height: 1.9rem;
-  --text-2xl: 1.625rem; /* 26px */
-  --text-2xl--line-height: 2.1rem;
-  --text-3xl: 1.875rem; /* 32px */
-  --text-3xl--line-height: 2.4rem;
-  --text-4xl: 2rem; /* 40px */
-  --text-4xl--line-height: 2.75rem;
+  --text-sm: 0.9375rem; /* 15px — secondary / lists */
+  --text-sm--line-height: 1.4rem;
+  --text-base: 1rem; /* 16px — body */
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.125rem; /* 18px */
+  --text-lg--line-height: 1.6rem;
+  --text-xl: 1.25rem; /* 20px */
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.5rem; /* 24px */
+  --text-2xl--line-height: 2rem;
+  --text-3xl: 1.75rem; /* 28px */
+  --text-3xl--line-height: 2.2rem;
+  --text-4xl: 2rem; /* 32px */
+  --text-4xl--line-height: 2.5rem;
 }
 
 :root {
-  /* Warm ivory ground, warm near-black ink — neutrals biased toward wood, not
-     cold grey. Cobalt is the single action accent; bronze is a brand touch. */
-  --background: oklch(0.94 0.006 83);
-  --foreground: oklch(0.24 0.008 60);
-  --card: oklch(0.995 0.004 83);
-  --card-foreground: oklch(0.24 0.008 60);
-  --popover: oklch(0.995 0.004 83);
-  --popover-foreground: oklch(0.24 0.008 60);
-  --primary: oklch(0.54 0.18 264);
-  --primary-foreground: oklch(0.99 0.005 264);
-  --secondary: oklch(0.925 0.008 82);
-  --secondary-foreground: oklch(0.3 0.01 60);
-  --muted: oklch(0.925 0.008 82);
-  --muted-foreground: oklch(0.52 0.012 65);
-  --accent: oklch(0.95 0.03 264);
-  --accent-foreground: oklch(0.45 0.15 264);
-  --destructive: oklch(0.58 0.22 25);
-  --border: oklch(0.88 0.008 80);
-  --input: oklch(0.88 0.008 80);
-  --ring: oklch(0.54 0.16 264);
-  --chart-1: oklch(0.54 0.18 264);
-  --chart-2: oklch(0.66 0.11 75);
-  --chart-3: oklch(0.62 0.13 160);
-  --chart-4: oklch(0.76 0.13 80);
-  --chart-5: oklch(0.5 0.05 260);
+  /* Showroom stone. The page is a quiet light workspace, like JobNimbus and
+     Jobber: the customer and the next action carry the color, not the chrome.
+     One blue is the action. Honey stays off prices and customer documents. */
+  --background: oklch(0.972 0.004 255);
+  --foreground: oklch(0.22 0.02 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.02 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.02 260);
+  --primary: oklch(0.46 0.15 256);
+  --primary-foreground: oklch(0.99 0.002 256);
+  --secondary: oklch(0.955 0.006 255);
+  --secondary-foreground: oklch(0.28 0.02 260);
+  --muted: oklch(0.955 0.006 255);
+  --muted-foreground: oklch(0.48 0.02 258);
+  --accent: oklch(0.95 0.025 256);
+  --accent-foreground: oklch(0.38 0.13 256);
+  --destructive: oklch(0.55 0.2 25);
+  --border: oklch(0.91 0.006 255);
+  --input: oklch(0.91 0.006 255);
+  --ring: oklch(0.46 0.15 256);
+  --chart-1: oklch(0.46 0.15 256);
+  --chart-2: oklch(0.62 0.12 160);
+  --chart-3: oklch(0.62 0.1 75);
+  --chart-4: oklch(0.7 0.12 55);
+  --chart-5: oklch(0.48 0.04 260);
   /* Honey accent + money-state semantics (light). */
   --warm: oklch(0.72 0.13 78);
   --warm-foreground: oklch(0.99 0.01 85);
-  --warm-soft: oklch(0.93 0.045 82);
-  --warm-strong: oklch(0.52 0.11 66);
-  --success: oklch(0.62 0.14 155);
+  --warm-soft: oklch(0.95 0.03 82);
+  --warm-strong: oklch(0.48 0.11 66);
+  --success: oklch(0.55 0.13 158);
   --success-foreground: oklch(0.99 0.01 155);
   --warning: oklch(0.72 0.13 72);
   --warning-foreground: oklch(0.3 0.05 60);
-  /* Softer, friendlier corners — one knob drives cards, buttons, inputs. */
-  --radius: 1rem;
-  /* Premium warm-espresso sidebar (kept dark in light mode by design), with a
-     honey-tinted active chip. */
-  --sidebar: oklch(0.25 0.012 62);
-  --sidebar-foreground: oklch(0.95 0.006 82);
-  --sidebar-primary: oklch(0.6 0.17 264);
+  /* One radius. Tight enough to feel like a tool, soft enough for a shop. */
+  --radius: 0.75rem;
+  /* Light navigation. The active row is a blue wash, not a dark bar. */
+  --sidebar: oklch(0.995 0.002 255);
+  --sidebar-foreground: oklch(0.28 0.02 260);
+  --sidebar-primary: oklch(0.46 0.15 256);
   --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.33 0.035 72);
-  --sidebar-accent-foreground: oklch(0.85 0.11 80);
-  --sidebar-border: oklch(0.34 0.01 62);
-  --sidebar-ring: oklch(0.6 0.17 264);
+  --sidebar-accent: oklch(0.945 0.03 256);
+  --sidebar-accent-foreground: oklch(0.36 0.14 256);
+  --sidebar-border: oklch(0.91 0.006 255);
+  --sidebar-ring: oklch(0.46 0.15 256);
 }
 
 .dark {
-  /* Warm mid-charcoal "dim" — softer than near-black, still comfortably dark. */
-  --background: oklch(0.155 0.006 66);
-  --foreground: oklch(0.97 0.004 82);
-  --card: oklch(0.195 0.007 66);
-  --card-foreground: oklch(0.97 0.004 82);
-  --popover: oklch(0.195 0.007 66);
-  --popover-foreground: oklch(0.97 0.004 82);
-  --primary: oklch(0.6 0.17 264);
-  --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.245 0.008 66);
-  --secondary-foreground: oklch(0.97 0.004 82);
-  --muted: oklch(0.235 0.008 66);
-  --muted-foreground: oklch(0.76 0.01 78);
-  --accent: oklch(0.34 0.02 264);
-  --accent-foreground: oklch(0.85 0.08 264);
-  --destructive: oklch(0.7 0.19 25);
-  --border: oklch(0.3 0.01 66);
-  --input: oklch(0.32 0.012 66);
-  --ring: oklch(0.6 0.14 264);
-  --chart-1: oklch(0.66 0.16 264);
-  --chart-2: oklch(0.72 0.11 75);
-  --chart-3: oklch(0.68 0.13 160);
-  --chart-4: oklch(0.78 0.12 80);
-  --chart-5: oklch(0.62 0.05 260);
+  /* Same showroom, dimmed. Navigation stays a step darker than the page. */
+  --background: oklch(0.17 0.012 260);
+  --foreground: oklch(0.96 0.004 255);
+  --card: oklch(0.21 0.014 260);
+  --card-foreground: oklch(0.96 0.004 255);
+  --popover: oklch(0.21 0.014 260);
+  --popover-foreground: oklch(0.96 0.004 255);
+  --primary: oklch(0.68 0.13 256);
+  --primary-foreground: oklch(0.16 0.02 260);
+  --secondary: oklch(0.26 0.014 260);
+  --secondary-foreground: oklch(0.96 0.004 255);
+  --muted: oklch(0.26 0.014 260);
+  --muted-foreground: oklch(0.74 0.015 255);
+  --accent: oklch(0.3 0.03 256);
+  --accent-foreground: oklch(0.88 0.06 256);
+  --destructive: oklch(0.7 0.18 25);
+  --border: oklch(0.32 0.014 260);
+  --input: oklch(0.32 0.014 260);
+  --ring: oklch(0.68 0.13 256);
+  --chart-1: oklch(0.68 0.13 256);
+  --chart-2: oklch(0.7 0.12 160);
+  --chart-3: oklch(0.74 0.1 75);
+  --chart-4: oklch(0.78 0.1 55);
+  --chart-5: oklch(0.64 0.04 260);
   /* Honey accent + money-state semantics (dark). */
-  --warm: oklch(0.78 0.13 80);
+  --warm: oklch(0.78 0.12 80);
   --warm-foreground: oklch(0.2 0.03 60);
-  --warm-soft: oklch(0.32 0.05 72);
-  --warm-strong: oklch(0.84 0.11 82);
-  --success: oklch(0.7 0.14 158);
-  --success-foreground: oklch(0.15 0.02 155);
+  --warm-soft: oklch(0.32 0.04 72);
+  --warm-strong: oklch(0.84 0.1 82);
+  --success: oklch(0.72 0.13 158);
+  --success-foreground: oklch(0.16 0.02 155);
   --warning: oklch(0.8 0.12 78);
   --warning-foreground: oklch(0.2 0.03 60);
-  --sidebar: oklch(0.135 0.006 66);
-  --sidebar-foreground: oklch(0.95 0.006 82);
-  --sidebar-primary: oklch(0.6 0.17 264);
-  --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.34 0.035 72);
-  --sidebar-accent-foreground: oklch(0.84 0.11 80);
-  --sidebar-border: oklch(0.3 0.01 66);
-  --sidebar-ring: oklch(0.6 0.14 264);
+  --sidebar: oklch(0.15 0.012 260);
+  --sidebar-foreground: oklch(0.94 0.006 255);
+  --sidebar-primary: oklch(0.68 0.13 256);
+  --sidebar-primary-foreground: oklch(0.16 0.02 260);
+  --sidebar-accent: oklch(0.28 0.03 256);
+  --sidebar-accent-foreground: oklch(0.9 0.04 256);
+  --sidebar-border: oklch(0.3 0.014 260);
+  --sidebar-ring: oklch(0.68 0.13 256);
 }
 
 @layer base {
@@ -180,7 +181,8 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-weight: 450;
+    font-weight: 400;
+    font-feature-settings: "ss01" on, "cv11" on;
   }
   html {
     @apply font-sans;
@@ -222,33 +224,20 @@
    Small, calm motion that makes the app pleasant without ever being busy.
    All of it backs off for users who prefer reduced motion. */
 @layer base {
-  /* Warm text selection instead of the default cold blue. */
   ::selection {
-    background: color-mix(in oklch, var(--warm) 35%, transparent);
+    background: color-mix(in oklch, var(--primary) 22%, transparent);
   }
-  /* Interactive cards (those inside a link/button) lift a touch on hover for a
-     soft sense of depth. Non-interactive cards stay put. */
+  /* Cards stay put. A border change is enough to show that a row is clickable. */
   [data-slot="card"] {
-    transition:
-      box-shadow 0.2s ease,
-      transform 0.2s ease,
-      border-color 0.2s ease;
+    transition: border-color 0.15s ease;
   }
   :where(a, button):hover > [data-slot="card"] {
-    transform: translateY(-2px);
-    box-shadow:
-      0 2px 4px rgb(0 0 0 / 0.05),
-      0 18px 36px -18px rgb(0 0 0 / 0.22);
+    border-color: color-mix(in oklch, var(--primary) 35%, var(--border));
   }
-  /* A brief, tasteful celebration on success confirmations — the check pops
-     once. Not confetti; one warm beat. */
   @keyframes cn-success-pop {
     0% {
-      transform: scale(0.6);
-      opacity: 0.3;
-    }
-    60% {
-      transform: scale(1.15);
+      transform: scale(0.85);
+      opacity: 0.4;
     }
     100% {
       transform: scale(1);
@@ -256,16 +245,13 @@
     }
   }
   [data-sonner-toast][data-type="success"] [data-icon] {
-    color: var(--warm-strong);
-    animation: cn-success-pop 0.35s ease-out;
+    color: var(--success);
+    animation: cn-success-pop 0.25s ease-out;
   }
 }
 @media (prefers-reduced-motion: reduce) {
   [data-slot="card"] {
     transition: none;
-  }
-  :where(a, button):hover > [data-slot="card"] {
-    transform: none;
   }
   [data-sonner-toast][data-type="success"] [data-icon] {
     animation: none;

@@ -36,8 +36,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  // Warm ivory to match the light app ground (was near-black for dark mode).
-  themeColor: "#ece7dd",
+  themeColor: "#f4f6f8",
 };
 
 export default function RootLayout({
