@@ -122,8 +122,9 @@ function PoCard({ po }: { po: IncomingPo }) {
 
   return (
     <div
+      id={`po-${po.id}`}
       className={cn(
-        "rounded-lg border",
+        "scroll-mt-24 rounded-lg border",
         po.backordered && "border-amber-300 dark:border-amber-900",
       )}
     >

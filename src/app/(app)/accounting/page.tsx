@@ -42,6 +42,27 @@ import { openingStatusLabel } from "@/lib/accounting/opening-balances";
 import { BooksStatusBanner } from "./components/books-status-banner";
 import { PeriodActionForm } from "./components/period-action-form";
 
+async function loadFloorReports(today: string, monthStart: string) {
+  try {
+    const [tb, pnl, bs, exceptions, cutover] = await Promise.all([
+      fetchTrialBalance(today),
+      fetchPnL(monthStart, today),
+      fetchBalanceSheet(today),
+      fetchExceptions(),
+      fetchCutoverSnapshot(),
+    ]);
+    return { ok: true as const, tb, pnl, bs, exceptions, cutover };
+  } catch (error) {
+    return {
+      ok: false as const,
+      error:
+        error instanceof Error && error.message
+          ? error.message
+          : "The ledger reports did not load.",
+    };
+  }
+}
+
 export default async function AccountingControlCenterPage() {
   await requireRole(["admin", "office"]);
   const profile = await getProfile();
@@ -66,13 +87,35 @@ export default async function AccountingControlCenterPage() {
 
   const today = todayIso();
   const monthStart = monthStartIso(today);
-  const [tb, pnl, bs, exceptions, cutover] = await Promise.all([
-    fetchTrialBalance(today),
-    fetchPnL(monthStart, today),
-    fetchBalanceSheet(today),
-    fetchExceptions(),
-    fetchCutoverSnapshot(),
-  ]);
+  const reports = await loadFloorReports(today, monthStart);
+  if (!reports.ok) {
+    return (
+      <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {REPORT_LABELS.controlCenter}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {ACCOUNTING_NOT_BOOKS_MESSAGE}
+          </p>
+        </div>
+        <div role="alert" className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+          The ledger reports did not load. Invoices, payments, and bills are
+          still available. {QUICKBOOKS_STAYS_OFFICIAL}
+          <p className="mt-2 text-xs text-muted-foreground">{reports.error}</p>
+        </div>
+        <div className="flex flex-wrap gap-4 text-sm">
+          <Link href="/invoices" className="underline">
+            Invoices
+          </Link>
+          <Link href="/bills" className="underline">
+            Bills
+          </Link>
+        </div>
+      </div>
+    );
+  }
+  const { tb, pnl, bs, exceptions, cutover } = reports;
   const auditEvents = await listFinancialAuditEvents({ limit: 25 });
   const replacement = replacementControlsEditable(settings);
   const nav = controlCenterNavItems().filter((i) => i.href !== "/accounting");
