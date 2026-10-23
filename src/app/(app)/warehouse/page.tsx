@@ -703,7 +703,7 @@ export default async function WarehousePage({
           Notes for the shop
           {warehouseNotes.length ? ` (${warehouseNotes.length})` : ""}
         </h2>
-        <WarehouseNotes notes={warehouseNotes} canPost />
+        <WarehouseNotes notes={warehouseNotes} canPost role={profile.role} />
       </div>
 
       {/* Incoming deliveries — check what arrived against what was ordered.

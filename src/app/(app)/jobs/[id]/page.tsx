@@ -158,6 +158,10 @@ export default async function JobPage({
   const profile = await requireProfile();
   const isStaff = profile.role === "admin" || profile.role === "office";
   const canManageMaterials = isStaff || profile.role === "sales_manager";
+  // These match the pages themselves. Hiding the button sent a sales manager
+  // and the scheduler back to the list when the address or the date was wrong.
+  const canEditJob = ["admin", "office", "sales_manager", "scheduler"].includes(profile.role);
+  const canCloseOut = ["admin", "office", "sales_manager"].includes(profile.role);
 
   const job = await getJob(id);
   if (!job) notFound();
@@ -693,32 +697,38 @@ export default async function JobPage({
             My commission
           </Link>
         ) : null}
-        {isStaff || isAssignedToMe ? (
+        {canEditJob || canCloseOut || isStaff || isAssignedToMe ? (
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-            {isStaff ? (
+            {canEditJob || canCloseOut || isStaff ? (
               <>
-                <Link
-                  href={`/jobs/${id}/edit`}
-                  className={buttonVariants({ variant: "outline", size: "sm" })}
-                >
-                  <Pencil className="size-4" /> Edit
-                </Link>
-                <Link
-                  href={`/jobs/${id}/closeout`}
-                  className={buttonVariants({
-                    variant: job.closed_out_at ? "outline" : "default",
-                    size: "sm",
-                  })}
-                >
-                  <Scale className="size-4" />
-                  {job.closed_out_at ? "Costs" : "Close out"}
-                </Link>
-                <Link
-                  href={`/jobs/${id}/true-up`}
-                  className={buttonVariants({ variant: "outline", size: "sm" })}
-                >
-                  True-up
-                </Link>
+                {canEditJob ? (
+                  <Link
+                    href={`/jobs/${id}/edit`}
+                    className={buttonVariants({ variant: "outline", size: "sm" })}
+                  >
+                    <Pencil className="size-4" /> Edit
+                  </Link>
+                ) : null}
+                {canCloseOut ? (
+                  <Link
+                    href={`/jobs/${id}/closeout`}
+                    className={buttonVariants({
+                      variant: job.closed_out_at ? "outline" : "default",
+                      size: "sm",
+                    })}
+                  >
+                    <Scale className="size-4" />
+                    {job.closed_out_at ? "Costs" : "Close out"}
+                  </Link>
+                ) : null}
+                {isStaff ? (
+                  <Link
+                    href={`/jobs/${id}/true-up`}
+                    className={buttonVariants({ variant: "outline", size: "sm" })}
+                  >
+                    True-up
+                  </Link>
+                ) : null}
               </>
             ) : null}
             {installProps ? (

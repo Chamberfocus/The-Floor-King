@@ -9,15 +9,23 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/format";
 import { addWorkNote, type WorkNote } from "@/app/(app)/jobs/[id]/note-actions";
+import type { UserRole } from "@/lib/types";
 
 const TEXTAREA =
   "w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
-function NoteLine({ n }: { n: WorkNote }) {
+function NoteLine({ n, role }: { n: WorkNote; role: UserRole }) {
+  // Warehouse cannot open the purchase-order screen. is_staff() is admin and
+  // office only, so that link came back as a missing page. The delivery is
+  // already on this board.
   const where = n.job_id
     ? { href: `/jobs/${n.job_id}`, label: "Job", Icon: Briefcase }
     : n.po_id
-      ? { href: `/purchase-orders/${n.po_id}`, label: "Order", Icon: Truck }
+      ? {
+          href: role === "warehouse" ? `/warehouse#po-${n.po_id}` : `/purchase-orders/${n.po_id}`,
+          label: "Order",
+          Icon: Truck,
+        }
       : null;
 
   return (
@@ -63,9 +71,11 @@ function NoteLine({ n }: { n: WorkNote }) {
 export function WarehouseNotes({
   notes,
   canPost,
+  role,
 }: {
   notes: WorkNote[];
   canPost: boolean;
+  role: UserRole;
 }) {
   const router = useRouter();
   const [body, setBody] = useState("");
@@ -135,7 +145,7 @@ export function WarehouseNotes({
       {notes.length ? (
         <ul className="space-y-2">
           {notes.map((n) => (
-            <NoteLine key={n.id} n={n} />
+            <NoteLine key={n.id} n={n} role={role} />
           ))}
         </ul>
       ) : (
