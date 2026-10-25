@@ -90,7 +90,11 @@ export default async function TasksPage({
       <PageHeader
         title="Tasks"
         description={seeAll ? "Office follow-ups across the shop." : "Tasks assigned to you."}
-      />
+      >
+        <Link href="/shop-talk?tasks=1" className="text-sm font-medium text-primary hover:underline">
+          Send a to-do from Shop talk
+        </Link>
+      </PageHeader>
       <WorkQueueBar
         action="/tasks"
         query={q}

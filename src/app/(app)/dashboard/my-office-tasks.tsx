@@ -106,6 +106,9 @@ export function MyOfficeTasksCard({
               ({openCount} open)
             </span>
           ) : null}
+          <Link href="/shop-talk?tasks=1" className="ml-auto text-xs font-medium text-primary hover:underline">
+            Shop talk to-dos
+          </Link>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
