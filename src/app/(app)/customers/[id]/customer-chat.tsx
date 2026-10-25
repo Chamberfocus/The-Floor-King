@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import Link from "next/link";
 import { Lock, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SendToClient } from "@/components/send-to-client";
@@ -18,11 +19,14 @@ export function CustomerChat({
   customerName,
   customerEmail,
   messages,
+  canMarkOfficeOnly = false,
 }: {
   customerId: string;
   customerName?: string | null;
   customerEmail?: string | null;
   messages: MessageWithAuthor[];
+  /** Sales and the office can hide a note from the warehouse and installers. */
+  canMarkOfficeOnly?: boolean;
 }) {
   const [channel, setChannel] = useState<MessageChannel>("internal");
   const [state, formAction, pending] = useActionState(postMessage, initialState);
@@ -92,8 +96,8 @@ export function CustomerChat({
         )}
       >
         {isInternal
-          ? "🔒 Private to your team — the customer will NOT see this."
-          : "💬 Visible to the customer."}
+          ? "The customer does not see this. Warehouse and installers see it unless you mark it office only."
+          : "Visible to the customer."}
       </div>
 
       {/* Messages */}
@@ -101,17 +105,22 @@ export function CustomerChat({
         {list.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             {isInternal
-              ? "No private team notes yet."
+              ? "No team notes yet. A post here also shows in Shop talk."
               : "No messages with the customer yet."}
           </p>
         ) : (
           list.map((m) => (
             <div key={m.id} className="text-sm">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="font-medium">{m.author_name}</span>
                 <span className="text-xs text-muted-foreground">
                   {formatDateTime(m.created_at)}
                 </span>
+                {isInternal && m.audience !== "shop" ? (
+                  <span className="rounded bg-amber-200 px-1.5 py-0.5 text-[11px] font-medium text-amber-950 dark:bg-amber-900 dark:text-amber-100">
+                    Office only
+                  </span>
+                ) : null}
               </div>
               <p className="whitespace-pre-wrap text-muted-foreground">
                 {m.body}
@@ -135,20 +144,32 @@ export function CustomerChat({
           required
           placeholder={
             isInternal
-              ? "Write a private note to your team…"
+              ? "Write the team about this customer…"
               : "Write a message to the customer…"
           }
           className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
         {isInternal ? (
-          // Private team notes never email — just post.
-          <Button
-            type="submit"
-            disabled={pending}
-            className="w-full bg-amber-600 text-white hover:bg-amber-700"
-          >
-            {pending ? "Posting…" : "Post to team (private)"}
-          </Button>
+          <>
+            {canMarkOfficeOnly ? (
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" name="audience" value="office" className="mt-1 size-4" />
+                <span>Office only — warehouse and installers will not see this</span>
+              </label>
+            ) : null}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Link href={`/shop-talk?customer=${customerId}`} className="text-xs font-medium text-primary hover:underline">
+                Open in Shop talk
+              </Link>
+              <Button
+                type="submit"
+                disabled={pending}
+                className="bg-amber-600 text-white hover:bg-amber-700"
+              >
+                {pending ? "Posting…" : "Post to the team"}
+              </Button>
+            </div>
+          </>
         ) : (
           // Customer messages ask first whether to also email the customer.
           <SendToClient

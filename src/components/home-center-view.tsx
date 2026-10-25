@@ -15,11 +15,16 @@ export function HomeCenterView({
           <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{board.greeting}</h1>
           <p className="mt-1 text-sm text-muted-foreground">What needs you today.</p>
         </div>
-        {customersHref ? (
-          <Link href={customersHref} className="text-sm font-medium text-primary hover:underline">
-            Customer list
+        <div className="flex flex-wrap gap-4">
+          <Link href="/shop-talk" className="text-sm font-medium text-primary hover:underline">
+            Shop talk
           </Link>
-        ) : null}
+          {customersHref ? (
+            <Link href={customersHref} className="text-sm font-medium text-primary hover:underline">
+              Customer list
+            </Link>
+          ) : null}
+        </div>
       </header>
 
       {board.unavailable ? (

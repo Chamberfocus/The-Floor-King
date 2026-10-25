@@ -34,9 +34,12 @@ export async function postMessage(
     data: { user },
   } = await supabase.auth.getUser();
 
+  const audience =
+    channel === "internal" && str(formData.get("audience")) === "office" ? "office" : "shop";
   const { error } = await supabase.from("messages").insert({
     customer_id: customerId,
     channel,
+    audience: channel === "internal" ? audience : "office",
     author_id: user?.id ?? null,
     body,
   });
@@ -76,5 +79,6 @@ export async function postMessage(
   }
 
   revalidatePath(`/customers/${customerId}`);
+  revalidatePath("/shop-talk");
   return { error: null, ok: true, notify };
 }
