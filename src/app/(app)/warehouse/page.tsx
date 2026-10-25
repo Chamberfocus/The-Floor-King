@@ -699,10 +699,15 @@ export default async function WarehousePage({
           STRUCTURED scope field the questionnaire writes — which was never a
           message channel, it just happened to be visible. This is one. */}
       <div className="mb-6 space-y-2">
-        <h2 className="text-sm font-semibold">
-          Notes for the shop
-          {warehouseNotes.length ? ` (${warehouseNotes.length})` : ""}
-        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold">
+            Notes for the shop
+            {warehouseNotes.length ? ` (${warehouseNotes.length})` : ""}
+          </h2>
+          <Link href="/shop-talk" className="text-sm font-medium text-primary hover:underline">
+            Customer threads are in Shop talk
+          </Link>
+        </div>
         <WarehouseNotes notes={warehouseNotes} canPost />
       </div>
 

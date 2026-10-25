@@ -25,8 +25,10 @@ import {
   HardHat,
   Wrench,
   ListTodo,
+  MessageSquare,
   type LucideIcon,
 } from "lucide-react";
+import { SHOP_TALK_ROLES } from "@/lib/shop-talk";
 import { SCHEDULE_ROLES, type UserRole } from "@/lib/types";
 
 export const APP_NAME = "Floor King CRM";
@@ -83,6 +85,7 @@ export const PINNED_ITEMS: NavItem[] = [
   },
   { label: "Business Pulse", href: "/pulse", icon: Activity, roles: ADMIN },
   { label: "My Work", href: "/installer", icon: HardHat, roles: ["crew", "admin", "office"] },
+  { label: "Shop talk", href: "/shop-talk", icon: MessageSquare, roles: SHOP_TALK_ROLES },
 ];
 
 /**
@@ -292,6 +295,7 @@ export function resolveUxShell(cookieValue: string | undefined | null): UxShellM
 
 export type ShellSectionId =
   | "home"
+  | "talk"
   | "customers"
   | "sales"
   | "jobs"
@@ -332,6 +336,7 @@ const SHELL_BLUEPRINT: {
   items: { href: string; label?: string }[];
 }[] = [
   { id: "home", label: "Home", items: [] },
+  { id: "talk", label: "Shop talk", items: [{ href: "/shop-talk", label: "Shop talk" }] },
   { id: "customers", label: "Customers", items: [{ href: "/customers" }] },
   {
     id: "sales",
@@ -494,13 +499,13 @@ export function activeShellSection(
  * sorted links". Every href is dropped unless the classic nav already allows it.
  */
 const MOBILE_TABS: Record<UserRole, string[]> = {
-  admin: ["/customers", "/jobs", "/calendar", "/invoices"],
-  office: ["/customers", "/jobs", "/calendar", "/invoices"],
-  sales_manager: ["/customers", "/estimates", "/jobs", "/calendar"],
-  salesman: ["/customers", "/estimates", "/client-status", "/calendar"],
-  scheduler: ["/customers", "/jobs", "/install-scheduler", "/calendar"],
-  crew: ["/installer", "/jobs", "/board"],
-  warehouse: ["/warehouse", "/inventory"],
+  admin: ["/shop-talk", "/customers", "/jobs", "/invoices"],
+  office: ["/shop-talk", "/customers", "/jobs", "/invoices"],
+  sales_manager: ["/shop-talk", "/customers", "/estimates", "/calendar"],
+  salesman: ["/shop-talk", "/customers", "/estimates", "/calendar"],
+  scheduler: ["/shop-talk", "/install-scheduler", "/jobs", "/calendar"],
+  crew: ["/shop-talk", "/installer", "/jobs", "/board"],
+  warehouse: ["/shop-talk", "/warehouse", "/inventory"],
   customer: [],
 };
 
@@ -516,6 +521,7 @@ const MOBILE_LABEL: Record<string, string> = {
   "/installer": "My Work",
   "/warehouse": "Warehouse",
   "/inventory": "Inventory",
+  "/shop-talk": "Talk",
 };
 
 export function mobileTabsForRole(role: UserRole): NavItem[] {

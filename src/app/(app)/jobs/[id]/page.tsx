@@ -62,6 +62,7 @@ import { getJobSatisfaction } from "@/lib/data/jobs";
 import { setJobShowPrices, setJobCollectsBalance } from "./wo-actions";
 import { JobMeasurementUpload } from "./measurement-upload";
 import { requireProfile } from "@/lib/auth";
+import { SHOP_TALK_ROLES } from "@/lib/shop-talk";
 import { lineTotal } from "@/lib/estimate-calc";
 import { formatDate, formatMoney, to12 } from "@/lib/format";
 import { JobForm } from "../job-form";
@@ -679,6 +680,14 @@ export default async function JobPage({
                 className="text-xs text-muted-foreground hover:text-foreground hover:underline"
               >
                 Open their file →
+              </Link>
+            ) : null}
+            {SHOP_TALK_ROLES.includes(profile.role) && job.customer_id ? (
+              <Link
+                href={`/shop-talk?customer=${job.customer_id}`}
+                className="text-xs font-medium text-primary hover:underline"
+              >
+                Shop talk
               </Link>
             ) : null}
           </div>

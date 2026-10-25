@@ -56,9 +56,10 @@ const TASK_ASSIGN_ROLES: UserRole[] = [
 ];
 /**
  * Complete path: assignees of any ops role may complete *their* task; bosses
- * (admin/office/sales_manager) may complete any. RLS + trigger (0178) use those
- * explicit roles — not is_staff() alone. Ordinary assignees cannot rewrite
- * assignment/provenance/content fields.
+ * (admin/office/sales_manager) may complete any. RLS + trigger (0178, and the
+ * Shop talk ack in 0498) use those explicit roles — not is_staff() alone.
+ * Installers complete to-dos sent from Shop talk. They stay off the office
+ * task list. Ordinary assignees cannot rewrite assignment or content.
  */
 const TASK_COMPLETE_ROLES: UserRole[] = [
   "admin",
@@ -67,6 +68,7 @@ const TASK_COMPLETE_ROLES: UserRole[] = [
   "salesman",
   "scheduler",
   "warehouse",
+  "crew",
 ];
 const HOLD_ROLES: UserRole[] = ["admin", "office", "sales_manager", "scheduler"];
 const CALLBACK_ROLES: UserRole[] = [
@@ -80,6 +82,7 @@ function refreshOps(jobId?: string | null, customerId?: string | null, callbackI
   revalidatePath("/dashboard");
   revalidatePath("/jobs");
   revalidatePath("/tasks");
+  revalidatePath("/shop-talk");
   revalidatePath("/service");
   if (callbackId) revalidatePath(`/service/${callbackId}`);
   if (jobId) revalidatePath(`/jobs/${jobId}`);
@@ -129,7 +132,7 @@ export async function completeOfficeTask(formData: FormData): Promise<void> {
   const supabase = await createClient();
   const { data: task } = await supabase
     .from("office_tasks")
-    .select("assigned_to, status")
+    .select("assigned_to, status, title, customer_id, source")
     .eq("id", id)
     .maybeSingle();
   if (!task) throw new Error("Task not found.");
@@ -162,7 +165,18 @@ export async function completeOfficeTask(formData: FormData): Promise<void> {
     throw new Error(TASK_SAVE_FAILED);
   }
   if (!saved) throw new Error(TASK_CHANGED);
-  refreshOps();
+  if (task.customer_id && task.source === "shop_talk") {
+    const title = ((task.title as string) || "To-do").slice(0, 500);
+    const { error: noteError } = await supabase.from("messages").insert({
+      customer_id: task.customer_id,
+      channel: "internal",
+      audience: "shop",
+      author_id: profile.id,
+      body: `Finished: ${title}`.slice(0, 4000),
+    });
+    if (noteError) console.error("[completeOfficeTask note]", noteError.code);
+  }
+  refreshOps(null, task.customer_id as string | null);
 }
 
 export async function cancelOfficeTask(formData: FormData): Promise<void> {

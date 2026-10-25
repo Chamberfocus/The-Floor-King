@@ -134,7 +134,11 @@ export default async function InstallerHomePage() {
           title: job.customer_name || job.title,
         }))}
       />
-      <PageHeader title={`Hi, ${profile.full_name?.split(" ")[0] || "there"}`} description="Your jobs, pay, and sign-offs — all in one place." />
+      <PageHeader title={`Hi, ${profile.full_name?.split(" ")[0] || "there"}`} description="Your jobs, pay, and sign-offs — all in one place.">
+        <Link href="/shop-talk" className="text-sm font-medium text-primary hover:underline">
+          Shop talk
+        </Link>
+      </PageHeader>
 
       {/* My install calendar — my assigned installs only. */}
       <section>

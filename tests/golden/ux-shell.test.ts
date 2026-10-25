@@ -151,6 +151,7 @@ describe("Phase A shell grouping", () => {
   it("uses the approved top-level order for an admin", () => {
     expect(shellSectionsForRole("admin").map((section) => section.id)).toEqual([
       "home",
+      "talk",
       "customers",
       "sales",
       "jobs",
@@ -296,23 +297,25 @@ describe("Phase A active navigation", () => {
 describe("Phase A mobile tabs and + New", () => {
   it("chooses at most four permitted tabs per role", () => {
     expect(mobileTabsForRole("salesman").map((tab) => tab.href)).toEqual([
+      "/shop-talk",
       "/customers",
       "/estimates",
-      "/client-status",
       "/calendar",
     ]);
     expect(mobileTabsForRole("scheduler").map((tab) => tab.href)).toEqual([
-      "/customers",
-      "/jobs",
+      "/shop-talk",
       "/install-scheduler",
+      "/jobs",
       "/calendar",
     ]);
     expect(mobileTabsForRole("crew").map((tab) => tab.label)).toEqual([
+      "Talk",
       "My Work",
       "Jobs",
       "Board",
     ]);
     expect(mobileTabsForRole("warehouse").map((tab) => tab.href)).toEqual([
+      "/shop-talk",
       "/warehouse",
       "/inventory",
     ]);

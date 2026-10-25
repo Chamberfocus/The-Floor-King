@@ -1595,6 +1595,8 @@ export interface Message {
   id: string;
   customer_id: string;
   channel: MessageChannel;
+  /** office = sales and the office. shop = the shared Shop talk thread. */
+  audience?: "office" | "shop";
   author_id: string | null;
   body: string;
   created_at: string;

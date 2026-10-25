@@ -1600,6 +1600,7 @@ export default async function CustomerPage({
               customerName={customer.full_name}
               customerEmail={customer.email}
               messages={messages}
+              canMarkOfficeOnly={["admin", "office", "sales_manager", "salesman", "scheduler"].includes(profile.role)}
             />
           </TabCollapse>
           {!customer.cancelled_at ? (
