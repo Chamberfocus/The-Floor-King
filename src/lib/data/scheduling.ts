@@ -5,7 +5,7 @@ import {
   installDaysForJob,
   chooseEstimateInsertion,
   estimateDayWindow,
-  ymd,
+  installerClosedRanges,
   fromYmd,
   addDaysYmd,
   type DateRange,
@@ -15,8 +15,10 @@ import { getDriveTable, storeAddress } from "@/lib/maps";
 import { crewFitLabel, installerCanDoJob, jobMaterialType } from "@/lib/job-scope";
 import { listInstallCrews } from "@/lib/data/install-crews";
 import { getOverrides, getShiftsMap, listTimeOff } from "@/lib/data/team-schedule";
+import { listCrewAvailabilityForOffice } from "@/lib/data/crew-availability";
 import { INSTALL_ROLES, type EstimateLineItem, type SchedulingSettings } from "@/lib/types";
-import { DEFAULT_ARRIVAL_WINDOWS } from "@/lib/format";
+import { DEFAULT_ARRIVAL_WINDOWS, parseArrivalWindows } from "@/lib/format";
+import { localNowIso, minutesOfIso, todayLocalYmd } from "@/lib/booking";
 
 const CAP_KEYS = [
   "cap_carpet_yd",
@@ -126,6 +128,11 @@ export interface InstallerOutlook {
   booked: Map<string, DateRange[]>;
   /** Crew trade skills. Missing id means no limit is saved. */
   skills: Map<string, string[]>;
+  /**
+   * Days this installer cannot work: approved time off, a weekday with no shift,
+   * an explicit day off, or a posted unavailable block.
+   */
+  closed?: Map<string, DateRange[]>;
 }
 
 /**
@@ -135,7 +142,7 @@ export interface InstallerOutlook {
 export async function loadInstallerOutlook(fromDate?: string): Promise<InstallerOutlook> {
   const supabase = await createClient();
   const installers = await listInstallers();
-  const from = fromDate ?? ymd(new Date());
+  const from = fromDate ?? todayLocalYmd();
   const crews = await listInstallCrews({ activeOnly: true });
   const skills = new Map<string, string[]>();
   const crewIds: string[] = [];
@@ -155,10 +162,12 @@ export async function loadInstallerOutlook(fromDate?: string): Promise<Installer
     }
   }
   if (!installers.length) {
-    return { installers, overrides: new Map(), booked: new Map(), skills };
+    return { installers, overrides: new Map(), booked: new Map(), skills, closed: new Map() };
   }
   const ids = installers.map((i) => i.id).filter((id) => !id.startsWith("crew:"));
-  const [{ data: ovRows }, { data: jobs }, crewJobs] = await Promise.all([
+  const through = addDaysYmd(from, 400);
+  const [{ data: ovRows }, { data: jobs }, crewJobs, shifts, dayOverrides, timeOff, availability] =
+    await Promise.all([
     ids.length
       ? supabase.from("installer_settings").select("*").in("installer_id", ids)
       : Promise.resolve({ data: [] }),
@@ -178,6 +187,10 @@ export async function loadInstallerOutlook(fromDate?: string): Promise<Installer
           .not("scheduled_date", "is", null)
           .or(`scheduled_end.gte.${from},scheduled_date.gte.${from}`)
       : Promise.resolve({ data: [] }),
+    getShiftsMap(),
+    getOverrides(from, through),
+    listTimeOff(from, through, ["approved"]),
+    listCrewAvailabilityForOffice({ from, to: through }),
   ]);
   const overrides = new Map<string, Record<string, unknown>>();
   for (const r of ovRows ?? [])
@@ -195,7 +208,28 @@ export async function loadInstallerOutlook(fromDate?: string): Promise<Installer
     if (!j.assigned_crew_id) continue;
     pushBooked(`crew:${j.assigned_crew_id as string}`, j.scheduled_date as string, (j.scheduled_end as string) || (j.scheduled_date as string));
   }
-  return { installers, overrides, booked, skills };
+  const closed = new Map<string, DateRange[]>();
+  for (const inst of installers) {
+    const shiftBook = shifts[inst.id];
+    const weekdays = new Set(
+      shiftBook ? Object.keys(shiftBook).map((key) => Number(key)).filter((n) => Number.isFinite(n)) : [],
+    );
+    const ranges = installerClosedRanges({
+      from,
+      through,
+      hasShiftSchedule: weekdays.size > 0,
+      shiftWeekdays: weekdays,
+      overrides: dayOverrides[inst.id] ?? {},
+      timeOff: timeOff
+        .filter((t) => t.user_id === inst.id)
+        .map((t) => ({ start: t.start_date, end: t.end_date })),
+      blocks: availability
+        .filter((b) => b.installer_id === inst.id)
+        .map((b) => ({ start: b.start_date, end: b.end_date })),
+    });
+    if (ranges.length) closed.set(inst.id, ranges);
+  }
+  return { installers, overrides, booked, skills, closed };
 }
 
 export function suggestionsFromOutlook(
@@ -204,7 +238,7 @@ export function suggestionsFromOutlook(
   global: SchedulingSettings,
   fromDate?: string,
 ): InstallerSuggestion[] {
-  const from = fromDate ?? ymd(new Date());
+  const from = fromDate ?? todayLocalYmd();
   const jobType = jobMaterialType(lines);
   const out: InstallerSuggestion[] = [];
   for (const inst of outlook.installers) {
@@ -214,7 +248,7 @@ export function suggestionsFromOutlook(
     const days = installDaysForJob(lines, settings).days;
     if (days <= 0) continue;
     const win = nextFreeWindow(
-      outlook.booked.get(inst.id) ?? [],
+      [...(outlook.booked.get(inst.id) ?? []), ...(outlook.closed?.get(inst.id) ?? [])],
       workDaySet(settings),
       days,
       from,
@@ -348,6 +382,9 @@ export async function getEstimateSuggestions(
   const dur = settings.estimate_duration_min;
   const buffer = settings.travel_buffer_min;
   const store = defaultOrigin(settings);
+  const arrivalWindows = parseArrivalWindows(settings.arrival_windows)
+    .map((w) => ({ start: parseHM(w.start), end: parseHM(w.end) }))
+    .filter((w) => w.end > w.start);
 
   const designated =
     (cust.assigned_to as string) || (cust.workflow_owner_id as string) || null;
@@ -374,17 +411,13 @@ export async function getEstimateSuggestions(
   if (!reps.length) return [];
   if (mode === "closest") reps = reps.slice(0, 5);
 
-  const today = ymd(new Date());
+  const nowIso = localNowIso();
+  const today = todayLocalYmd();
+  const nowMin = minutesOfIso(nowIso);
   const numDays = mode === "assigned" ? 7 : 3;
-  const days: string[] = [];
-  let cur = today;
-  for (let i = 0; i < 30 && days.length < numDays; i++) {
-    if (workDays.has(fromYmd(cur).getUTCDay())) days.push(cur);
-    cur = addDaysYmd(cur, 1);
-  }
-
+  const horizonDays = 45;
+  const windowEnd = addDaysYmd(today, horizonDays);
   const repIds = reps.map((r) => r.id);
-  const windowEnd = days[days.length - 1] ?? today;
   const { data: appts } = await supabase
     .from("appointments")
     .select("salesperson_id, starts_at, ends_at, address, kind, is_block")
@@ -414,28 +447,45 @@ export async function getEstimateSuggestions(
     byRepDay.set(k, arr);
   }
 
-  // Score every rep×day: the store is the start of the route, the rep's own
-  // hours and time off come first, and the slot that adds the least drive wins.
-  const pairs: { rep: (typeof reps)[number]; date: string }[] = [];
-  for (const rep of reps) for (const date of days) pairs.push({ rep, date });
-
-  const results = await Promise.all(
-    pairs.map(async ({ rep, date }): Promise<EstimateSlot | null> => {
-      const shiftBook = shifts[rep.id];
+  // Each rep's own allotted days: shop days, or their shift book when they have one.
+  // Time off and an explicit day off are skipped before a drive is calculated.
+  const openDaysFor = (repId: string): { date: string; start: number; end: number }[] => {
+    const found: { date: string; start: number; end: number }[] = [];
+    const shiftBook = shifts[repId];
+    const hasShift = !!shiftBook && Object.keys(shiftBook).length > 0;
+    let cursor = today;
+    for (let i = 0; i < horizonDays && found.length < numDays; i++) {
+      const date = cursor;
+      cursor = addDaysYmd(cursor, 1);
       const off = timeOff.some(
-        (t) => t.user_id === rep.id && t.start_date <= date && date <= t.end_date,
+        (t) => t.user_id === repId && t.start_date <= date && date <= t.end_date,
       );
       const window = estimateDayWindow({
         date,
         shopWorkDays: workDays,
         shopStart: settings.day_start,
         shopEnd: settings.day_end,
-        hasShiftSchedule: !!shiftBook && Object.keys(shiftBook).length > 0,
+        hasShiftSchedule: hasShift,
         shift: shiftBook?.[fromYmd(date).getUTCDay()] ?? null,
-        override: overrides[rep.id]?.[date] ?? null,
+        override: overrides[repId]?.[date] ?? null,
         off,
       });
-      if (!window) return null;
+      if (window) found.push({ date, start: window.start, end: window.end });
+    }
+    return found;
+  };
+  const pairs: {
+    rep: (typeof reps)[number];
+    date: string;
+    start: number;
+    end: number;
+  }[] = [];
+  for (const rep of reps) {
+    for (const day of openDaysFor(rep.id)) pairs.push({ rep, ...day });
+  }
+
+  const results = await Promise.all(
+    pairs.map(async ({ rep, date, start, end }): Promise<EstimateSlot | null> => {
       const base = store || rep.home_address || "";
       const baseLabel = store ? "the store" : "home";
       const stops = (byRepDay.get(`${rep.id}|${date}`) ?? []).sort(
@@ -446,10 +496,12 @@ export async function getEstimateSuggestions(
         base,
         baseLabel,
         stops,
-        dayStart: window.start,
-        dayEnd: window.end,
+        dayStart: start,
+        dayEnd: end,
         dur,
         buffer,
+        windows: arrivalWindows,
+        notBefore: date === today ? nowMin : undefined,
       });
       if (!best) return null;
       return {
@@ -457,7 +509,7 @@ export async function getEstimateSuggestions(
         name: rep.full_name || rep.email,
         date,
         time: toHM(best.startMin),
-        endTime: toHM(best.startMin + dur),
+        endTime: toHM(best.endMin),
         address: customerAddress,
         driveMinutes: best.arriveDrive,
         driveText:
@@ -503,8 +555,11 @@ async function bestInsertion(opts: {
   dayEnd: number;
   dur: number;
   buffer: number;
+  windows: { start: number; end: number }[];
+  notBefore?: number;
 }): Promise<{
   startMin: number;
+  endMin: number;
   arriveDrive: number | null;
   detour: number | null;
   miles: number | null;
@@ -537,6 +592,8 @@ async function bestInsertion(opts: {
     stops,
     drive,
     baseLabel: opts.baseLabel,
+    windows: opts.windows,
+    notBefore: opts.notBefore,
   });
 }
 
@@ -603,7 +660,7 @@ export async function getCustomerEstimateAppointment(
 /** Upcoming estimate appointments (today forward), time-ordered. */
 export async function listUpcomingAppointments(): Promise<AppointmentRow[]> {
   const supabase = await createClient();
-  const today = ymd(new Date());
+  const today = todayLocalYmd();
   const { data } = await supabase
     .from("appointments")
     .select(

@@ -1,7 +1,8 @@
 /**
  * Install days follow shop capacity, including prep, subfloor, stairs, and tear-out.
  * The suggested crew must be able to do the trade.
- * Estimate times add the least drive from the store and skip a salesperson's day off.
+ * Estimate times add drive plus the travel buffer, then snap to an allotted arrival window.
+ * Install days skip time off, a missing shift, and a day the crew marked off.
  */
 import { describe, expect, it } from "vitest";
 import type { EstimateLineItem } from "@/lib/types";
@@ -9,6 +10,7 @@ import {
   chooseEstimateInsertion,
   estimateDayWindow,
   installDaysForJob,
+  installerClosedRanges,
   workDaySet,
 } from "@/lib/scheduling";
 import { SCHEDULING_DEFAULTS, suggestionsFromOutlook } from "@/lib/data/scheduling";
@@ -131,6 +133,49 @@ describe("the suggested crew can do the job", () => {
     const suggestions = suggestionsFromOutlook(outlook, lines, SCHEDULING_DEFAULTS, "2026-10-19");
     expect(suggestions.map((s) => s.name)).toEqual(["Hard Crew"]);
     expect(suggestions[0]?.fit).toMatch(/hard surface/);
+    expect(suggestions[0]?.start).toBe("2026-10-19");
+  });
+
+  it("skips time off, a missing shift, and a day the crew marked off", () => {
+    const ranges = installerClosedRanges({
+      from: "2026-10-19",
+      through: "2026-10-25",
+      hasShiftSchedule: true,
+      shiftWeekdays: new Set([1, 2, 3, 4, 5]),
+      overrides: { "2026-10-20": { off: true } },
+      timeOff: [{ start: "2026-10-21", end: "2026-10-21" }],
+      blocks: [{ start: "2026-10-22", end: "2026-10-22" }],
+    });
+    expect(ranges).toEqual([
+      { start: "2026-10-20", end: "2026-10-22" },
+      { start: "2026-10-24", end: "2026-10-25" },
+    ]);
+    const withSaturdayHours = installerClosedRanges({
+      from: "2026-10-19",
+      through: "2026-10-25",
+      hasShiftSchedule: true,
+      shiftWeekdays: new Set([1, 2, 3, 4, 5]),
+      overrides: { "2026-10-24": { off: false } },
+      timeOff: [],
+      blocks: [],
+    });
+    expect(withSaturdayHours).toEqual([{ start: "2026-10-25", end: "2026-10-25" }]);
+
+    const lines = [line({ description: "LVP", category: "lvp", sqft: 100, quantity: 100 })];
+    const suggestions = suggestionsFromOutlook(
+      {
+        installers: [{ id: "hard-crew", name: "Hard Crew", email: "", role: "crew" }],
+        overrides: new Map(),
+        booked: new Map(),
+        skills: new Map([["hard-crew", ["hard"]]]),
+        closed: new Map([["hard-crew", [{ start: "2026-10-19", end: "2026-10-23" }]]]),
+      },
+      lines,
+      SCHEDULING_DEFAULTS,
+      "2026-10-19",
+    );
+    expect(suggestions[0]?.start).toBe("2026-10-24");
+    expect(suggestions[0]?.end).toBe("2026-10-24");
   });
 });
 
@@ -166,8 +211,84 @@ describe("estimate visits save drive from the store", () => {
       baseLabel: "the store",
     });
     expect(best?.reason).toMatch(/Between/);
-    expect(best?.detour).toBeLessThan(0);
+    expect(best?.startMin).toBe(10 * 60 + 25);
+    expect(best?.detour).toBe(-18);
     expect(best?.reason).toMatch(/store|stop/);
+  });
+
+  it("starts the first visit after the drive and the travel buffer", () => {
+    const drive = (from: string, to: string) => {
+      if (`${from}>${to}` === "base>new" || `${from}>${to}` === "new>base") {
+        return { minutes: 20, miles: 12 };
+      }
+      return null;
+    };
+    const best = chooseEstimateInsertion({
+      dayStart: 9 * 60,
+      dayEnd: 17 * 60,
+      dur: 60,
+      buffer: 30,
+      stops: [],
+      drive,
+    });
+    expect(best?.startMin).toBe(9 * 60 + 50);
+    expect(best?.endMin).toBe(9 * 60 + 50 + 60);
+  });
+
+  it("books the earliest allotted arrival window the drive can reach", () => {
+    const drive = (from: string, to: string) => {
+      const miles: Record<string, number> = {
+        "base>new": 5,
+        "new>base": 5,
+        "s0>new": 10,
+        "new>s0": 10,
+        "s0>s1": 40,
+        "new>s1": 12,
+        "s1>new": 12,
+        "s1>base": 20,
+        "base>s0": 30,
+        "base>s1": 50,
+      };
+      const hit = miles[`${from}>${to}`];
+      if (hit == null) return null;
+      return { minutes: hit, miles: hit };
+    };
+    const windows = [8, 10, 12, 14, 16].map((h) => ({ start: h * 60, end: (h + 2) * 60 }));
+    const best = chooseEstimateInsertion({
+      dayStart: 9 * 60,
+      dayEnd: 17 * 60,
+      dur: 60,
+      buffer: 15,
+      stops: [
+        { startMin: 9 * 60 + 15, endMin: 10 * 60, placeKey: "s0" },
+        { startMin: 13 * 60 + 20, endMin: 14 * 60, placeKey: "s1" },
+      ],
+      drive,
+      windows,
+      baseLabel: "the store",
+    });
+    expect(best?.reason).toMatch(/After/);
+    expect(best?.startMin).toBe(16 * 60);
+    expect(best?.endMin).toBe(18 * 60);
+  });
+
+  it("does not offer a window that already passed today", () => {
+    const drive = (from: string, to: string) =>
+      `${from}>${to}` === "base>new" || `${from}>${to}` === "new>base"
+        ? { minutes: 10, miles: 6 }
+        : null;
+    const best = chooseEstimateInsertion({
+      dayStart: 9 * 60,
+      dayEnd: 17 * 60,
+      dur: 60,
+      buffer: 15,
+      stops: [],
+      drive,
+      windows: [10, 12, 14, 16].map((h) => ({ start: h * 60, end: (h + 2) * 60 })),
+      notBefore: 15 * 60,
+    });
+    expect(best?.startMin).toBe(16 * 60);
+    expect(best?.endMin).toBe(18 * 60);
   });
 
   it("skips a salesperson who is off or has no shift that day", () => {
