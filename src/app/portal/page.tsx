@@ -15,6 +15,7 @@ import { requireProfile } from "@/lib/auth";
 import {
   listPortalCompletionDays,
   listPortalEstimates,
+  listPortalInstallHolds,
   listPortalJobs,
   listPortalInstallerNames,
 } from "@/lib/data/portal-commercial";
@@ -31,6 +32,10 @@ import {
 } from "@/lib/data/install-availability";
 import { InstallPreferencePicker } from "./install-preference-picker";
 import { portalInstallScheduleCopy } from "@/lib/install-closeout";
+import {
+  customerToldInstallIsLocked,
+  portalInstallHoldCopy,
+} from "@/lib/install-hold";
 
 export const metadata: Metadata = { title: "My account" };
 
@@ -81,6 +86,12 @@ export default async function PortalHome() {
   const installerNameByJobId = profile.customer_id
     ? await listPortalInstallerNames(profile.customer_id, activeJobs)
     : new Map<string, string>();
+  const installHolds = profile.customer_id
+    ? await listPortalInstallHolds(
+        profile.customer_id,
+        jobs.map((j) => j.id),
+      )
+    : new Map<string, string | null>();
   const completedIds = jobs.filter((j) => j.status === "completed").map((j) => j.id);
   const completedOnByJobId = profile.customer_id
     ? await listPortalCompletionDays(profile.customer_id, completedIds)
@@ -253,15 +264,19 @@ export default async function PortalHome() {
                       .join("–")
                   : null;
                 const installer = installerNameByJobId.get(j.id) ?? null;
-                const scheduleCopy =
-                  j.status === "completed" || j.status === "cancelled" || j.scheduled_date
+                const dateLabel = j.scheduled_date ? formatDate(j.scheduled_date) : null;
+                const locked = customerToldInstallIsLocked(
+                  installHolds.get(j.id),
+                  !!j.scheduled_date,
+                );
+                const scheduleCopy = !locked && dateLabel && j.status !== "completed" && j.status !== "cancelled"
+                  ? portalInstallHoldCopy(dateLabel)
+                  : j.status === "completed" || j.status === "cancelled" || locked
                     ? portalInstallScheduleCopy({
                         status: j.status,
-                        scheduledDateLabel: j.scheduled_date
-                          ? formatDate(j.scheduled_date)
-                          : null,
-                        windowLabel: window,
-                        installerName: installer,
+                        scheduledDateLabel: dateLabel,
+                        windowLabel: locked ? window : null,
+                        installerName: locked ? installer : null,
                         completedOnLabel: completedOnByJobId.get(j.id) ?? null,
                       })
                     : null;
@@ -273,8 +288,10 @@ export default async function PortalHome() {
                     </div>
 
                     {scheduleCopy ? (
-                      <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-sm dark:border-emerald-900/50 dark:bg-emerald-950/20">
-                        <div className="font-semibold text-emerald-800 dark:text-emerald-300">
+                      <div className={locked
+                        ? "rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-sm dark:border-emerald-900/50 dark:bg-emerald-950/20"
+                        : "rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-900/60 dark:bg-amber-950/20"}>
+                        <div className={locked ? "font-semibold text-emerald-800 dark:text-emerald-300" : "font-semibold"}>
                           {scheduleCopy.title}
                         </div>
                         {scheduleCopy.detail ? (

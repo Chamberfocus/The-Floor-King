@@ -98,7 +98,7 @@ export function InstallerCollect({
                   <DialogTitle>Collect {formatMoney(balance)}?</DialogTitle>
                   <DialogDescription>
                     {method === "link"
-                      ? "This asks the office to send the customer an online payment link — it does not record a payment now."
+                      ? "The customer pays this balance from their invoice. This tells the office, and it does not record the payment until they pay."
                       : `This records a ${formatMoney(balance)} ${method} payment, marks the invoice paid, and notifies the office.`}
                   </DialogDescription>
                 </DialogHeader>
@@ -145,9 +145,8 @@ export function InstallerCollect({
 
                   {method === "link" ? (
                     <p className="rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">
-                      This does <strong>not</strong> take money now — it tells the
-                      office to send {`the customer`} an online payment link for the
-                      balance.
+                      This does not take money now. The customer pays from their invoice.
+                      The office is told as well.
                     </p>
                   ) : null}
                 </div>

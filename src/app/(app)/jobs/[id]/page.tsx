@@ -75,7 +75,12 @@ import {
   setJobAddress,
   assignWarehousePerson,
   submitJobToWarehouse,
+  confirmRequestedInstall,
 } from "../actions";
+import { assignRollToJob } from "@/app/(app)/inventory/actions";
+import { listJobExtras, listStageableRolls, listTicketRolls } from "@/lib/data/job-ticket";
+import { canBookInstall } from "@/lib/install-hold";
+import { JobExtraForm } from "./job-extra-form";
 import { getJobCrew } from "@/lib/data/install-crews";
 import { listServiceAddresses } from "@/lib/data/service-addresses";
 import { formatServiceAddress } from "@/lib/types";
@@ -139,6 +144,7 @@ export default async function JobPage({
     print?: string;
     preview?: string;
     schedule_error?: string;
+    schedule_notice?: string;
     purchasing_message?: string;
     job_error?: string;
     tab?: string;
@@ -148,6 +154,7 @@ export default async function JobPage({
   const sp = await searchParams;
   const justCreated = sp.created === "1";
   const scheduleError = sp.schedule_error?.trim() || null;
+  const scheduleNotice = sp.schedule_notice?.trim() || null;
   const jobError = sp.job_error?.trim() || null;
   const purchasingMessage = sp.purchasing_message?.trim() || null;
   // Reached with ?print (from the customer file's one-click Work Order shortcut)
@@ -243,6 +250,21 @@ export default async function JobPage({
   const siteLabel =
     serviceAddresses.find((a) => a.id === job.service_address_id)?.label ?? null;
   const canAssignWarehouse = profile.role === "admin" || profile.role === "office";
+  const ticketRolls = await listTicketRolls(id);
+  const jobExtras = await listJobExtras(id);
+  const stageableRolls = canAssignWarehouse
+    ? await listStageableRolls(
+        (job.line_items ?? [])
+          .map((line) => line.product_id)
+          .filter((productId): productId is string => !!productId),
+      )
+    : [];
+  const canSignExtra =
+    profile.role === "admin" ||
+    profile.role === "office" ||
+    profile.role === "sales_manager" ||
+    profile.role === "salesman" ||
+    (profile.role === "crew" && isAssignedToMe);
   const warehouseUsers = canAssignWarehouse ? await listWarehouseUsers() : [];
 
   // Optional: the assigned installer can collect the balance on site. Per-job
@@ -486,6 +508,7 @@ export default async function JobPage({
         showPrices={showPrices}
         crewNotes={jobNotes.filter((n) => n.on_work_order)}
         preview={preview}
+        rolls={ticketRolls}
       />
       {!preview ? (
         <JobStepPopup
@@ -500,6 +523,11 @@ export default async function JobPage({
         <ArrowLeft className="size-4" /> Back to jobs
       </Link>
 
+      {scheduleNotice ? (
+        <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+          {scheduleNotice}
+        </div>
+      ) : null}
       {scheduleError ? (
         <div
           role="alert"
@@ -772,9 +800,24 @@ export default async function JobPage({
             </div>
             <div className="mt-0.5 text-lg font-semibold">
               {job.scheduled_date
-                ? `${formatDate(job.scheduled_date)}${job.scheduled_end && job.scheduled_end !== job.scheduled_date ? ` – ${formatDate(job.scheduled_end)}` : ""}`
+                ? `${job.install_hold === "requested" ? "Requested · " : ""}${formatDate(job.scheduled_date)}${job.scheduled_end && job.scheduled_end !== job.scheduled_date ? ` – ${formatDate(job.scheduled_end)}` : ""}`
                 : "Not scheduled"}
             </div>
+            {job.install_hold === "requested" && canBookInstall(profile.role) ? (
+              <form action={confirmRequestedInstall} className="mt-2 flex flex-wrap items-end gap-2">
+                <input type="hidden" name="job_id" value={job.id} />
+                {!job.warehouse_ready_at ? (
+                  <input
+                    name="materials_override_reason"
+                    placeholder="Confirm anyway — why?"
+                    className="h-9 rounded-md border px-2 text-sm"
+                  />
+                ) : null}
+                <button type="submit" className="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground">
+                  {job.warehouse_ready_at ? "Confirm this date" : "Confirm anyway"}
+                </button>
+              </form>
+            ) : null}
             <div className="text-sm text-muted-foreground">
               {installWindowLabel ? `arrives ${installWindowLabel} · ` : ""}
               {assignedName ? `by ${assignedName}` : "no installer"}
@@ -1431,6 +1474,55 @@ export default async function JobPage({
                 Send to warehouse
               </ConfirmButton>
             </form>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canSignExtra ? (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">Extra work</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <JobExtraForm jobId={id} extras={jobExtras} />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canAssignWarehouse && (ticketRolls.length > 0 || stageableRolls.length > 0) ? (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">Rolls on this job</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            {ticketRolls.length ? (
+              <ul className="space-y-1">
+                {ticketRolls.map((roll) => (
+                  <li key={roll.id}>
+                    {roll.productName}
+                    {roll.rollNumber ? ` · roll ${roll.rollNumber}` : ""}
+                    {roll.dyeLot ? ` · lot ${roll.dyeLot}` : " · no dye lot"}
+                    {` · ${roll.qty} ${roll.unit}`}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-muted-foreground">No roll is staged for this job yet.</p>
+            )}
+            {stageableRolls.length ? (
+              <form action={assignRollToJob} className="flex flex-wrap items-end gap-2">
+                <input type="hidden" name="job_id" value={id} />
+                <label className="text-xs text-muted-foreground">
+                  Put a roll on the work order
+                  <select name="roll_id" className="mt-1 block h-9 max-w-md rounded-md border bg-background px-2 text-sm">
+                    {stageableRolls.map((roll) => (
+                      <option key={roll.id} value={roll.id}>{roll.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <button type="submit" className="h-9 rounded-md border px-3 text-sm">Stage on this job</button>
+              </form>
+            ) : null}
           </CardContent>
         </Card>
       ) : null}

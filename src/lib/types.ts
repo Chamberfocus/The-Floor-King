@@ -786,6 +786,10 @@ export interface StockRoll {
   job_id: string | null;
   scrap_reason: string | null;
   note: string | null;
+  dye_lot?: string | null;
+  roll_number?: string | null;
+  /** Job this roll is staged for. Distinct from job_id, which records the cut that created a remnant. */
+  assigned_job_id?: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -1068,6 +1072,8 @@ export interface Job {
   staging_location?: string | null;
   warehouse_ready_at?: string | null;
   open_for_claim: boolean;
+  /** requested = date held, customer not told it is locked. confirmed = told. */
+  install_hold?: "requested" | "confirmed" | null;
   // Job-board target (migration 0088): when you want it done + expected days.
   board_wanted_start?: string | null;
   board_wanted_end?: string | null;

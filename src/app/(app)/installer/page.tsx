@@ -29,6 +29,8 @@ import { JobStepPopup } from "@/components/job-step-popup";
 import { listMyAvailability } from "@/lib/data/crew-availability";
 import { MyAvailability } from "./my-availability";
 import { InstallerIssueForm } from "./installer-issue-form";
+import { JobExtraForm } from "../jobs/[id]/job-extra-form";
+import { listJobExtras } from "@/lib/data/job-ticket";
 import { JobInstallActions } from "../jobs/[id]/job-install-actions";
 import {
   customerSignOffRecorded,
@@ -69,6 +71,12 @@ export default async function InstallerHomePage() {
   const flowStages = await listWorkflowStages();
   const myAvailability = await listMyAvailability(profile.id);
   const active = home.jobs.filter((j) => j.job.status !== "completed");
+  const extrasByJob = new Map<string, Awaited<ReturnType<typeof listJobExtras>>>();
+  await Promise.all(
+    active.map(async ({ job }) => {
+      extrasByJob.set(job.id, await listJobExtras(job.id));
+    }),
+  );
   const doneCount = home.jobs.length - active.length;
 
   // My install calendar — only the installs assigned to me (RLS enforces this).
@@ -78,16 +86,31 @@ export default async function InstallerHomePage() {
     return d.toISOString().slice(0, 10);
   })();
   const supabase = await createClient();
-  const { data: myRows } = await supabase
-    .from("jobs")
-    .select(
-      "id, title, customer_id, scheduled_date, scheduled_end, arrival_window, site_city, status, customer:customers(full_name, cancelled_at)",
-    )
-    .eq("assigned_to", profile.id)
-    .not("scheduled_date", "is", null)
-    .gte("scheduled_date", since)
-    .or("delivery_type.is.null,delivery_type.neq.cash_carry")
-    .order("scheduled_date", { ascending: true });
+  const calendarSelect =
+    "id, title, customer_id, scheduled_date, scheduled_end, arrival_window, site_city, status, install_hold, customer:customers(full_name, cancelled_at)";
+  const calendarQuery = () =>
+    supabase
+      .from("jobs")
+      .select(calendarSelect)
+      .eq("assigned_to", profile.id)
+      .not("scheduled_date", "is", null)
+      .gte("scheduled_date", since)
+      .or("delivery_type.is.null,delivery_type.neq.cash_carry")
+      .order("scheduled_date", { ascending: true });
+  let { data: myRows, error: calendarError } = await calendarQuery();
+  if (calendarError) {
+    const fallback = await supabase
+      .from("jobs")
+      .select(
+        "id, title, customer_id, scheduled_date, scheduled_end, arrival_window, site_city, status, customer:customers(full_name, cancelled_at)",
+      )
+      .eq("assigned_to", profile.id)
+      .not("scheduled_date", "is", null)
+      .gte("scheduled_date", since)
+      .or("delivery_type.is.null,delivery_type.neq.cash_carry")
+      .order("scheduled_date", { ascending: true });
+    myRows = fallback.data as typeof myRows;
+  }
   const myEvents: CalEvent[] = ((myRows ?? []) as unknown[]).flatMap((row) => {
     const r = row as {
       id: string;
@@ -98,6 +121,7 @@ export default async function InstallerHomePage() {
       arrival_window: string | null;
       site_city: string | null;
       status: string | null;
+      install_hold?: string | null;
       customer?:
         | { full_name: string | null; cancelled_at?: string | null }
         | { full_name: string | null; cancelled_at?: string | null }[]
@@ -114,7 +138,7 @@ export default async function InstallerHomePage() {
     }
     return [{
       id: r.id,
-      name: cust?.full_name ?? r.title ?? "Install",
+      name: `${cust?.full_name ?? r.title ?? "Install"}${r.install_hold === "requested" ? " (requested)" : ""}`,
       customerId: r.customer_id,
       date: r.scheduled_date,
       endDate: r.scheduled_end ?? null,
@@ -346,6 +370,16 @@ export default async function InstallerHomePage() {
                         <JobPhotos jobId={job.id} photos={photos} />
                       </div>
                     </details>
+                    {job.assigned_to === profile.id ? (
+                      <details className="group">
+                        <summary className="flex cursor-pointer items-center gap-2 rounded-lg bg-muted/50 px-3 py-2.5 text-sm font-medium hover:bg-muted">
+                          Extra work the customer signs
+                        </summary>
+                        <div className="pt-3">
+                          <JobExtraForm jobId={job.id} extras={extrasByJob.get(job.id) ?? []} />
+                        </div>
+                      </details>
+                    ) : null}
                     <InstallerIssueForm jobId={job.id} />
                   </CardContent>
                 </Card>

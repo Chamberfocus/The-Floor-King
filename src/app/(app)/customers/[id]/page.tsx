@@ -195,6 +195,7 @@ export default async function CustomerPage({
     new?: string;
     schedule?: string;
     schedule_error?: string;
+    schedule_notice?: string;
     credit_error?: string;
     credit_ok?: string;
     invoice_error?: string;
@@ -208,6 +209,7 @@ export default async function CustomerPage({
   const sp = await searchParams;
   const justAdded = sp.new === "1";
   const scheduleError = sp.schedule_error?.trim() || null;
+  const scheduleNotice = sp.schedule_notice?.trim() || null;
   const creditError = sp.credit_error?.trim() || null;
   const creditOk = sp.credit_ok?.trim() || null;
   const invoiceError = sp.invoice_error?.trim() || null;
@@ -785,6 +787,11 @@ export default async function CustomerPage({
         <ArrowLeft className="size-4" /> Back to customers
       </Link>
 
+      {scheduleNotice ? (
+        <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+          {scheduleNotice}
+        </div>
+      ) : null}
       {scheduleError ? (
         <div
           role="alert"

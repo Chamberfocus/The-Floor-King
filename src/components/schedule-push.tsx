@@ -32,6 +32,8 @@ export function SchedulePush({
   title,
   description,
   confirmLabel = "Book",
+  /** When the goods are not in, a blank override reason only requests the date. */
+  holdUntilMaterial = false,
   children,
   variant,
   size,
@@ -46,6 +48,8 @@ export function SchedulePush({
   title: string;
   description?: ReactNode;
   confirmLabel?: string;
+  /** Hide the notify toggles when this booking is only a request. */
+  holdUntilMaterial?: boolean;
   children: ReactNode;
   variant?: ButtonVariant;
   size?: ButtonSize;
@@ -62,10 +66,20 @@ export function SchedulePush({
   const custAddr = typeof customerEmail === "string" ? customerEmail.trim() : "";
   const [emailCustomer, setEmailCustomer] = useState(true);
   const [notifyAssignee, setNotifyAssignee] = useState(true);
+  const [requestOnly, setRequestOnly] = useState(false);
 
   const openDialog = () => {
     const form = triggerRef.current?.closest("form");
     if (form && !form.reportValidity()) return;
+    const reason = (
+      form?.querySelector<HTMLInputElement>('input[name="materials_override_reason"]')?.value ?? ""
+    ).trim();
+    const requesting = holdUntilMaterial && !reason;
+    setRequestOnly(requesting);
+    if (requesting) {
+      setEmailCustomer(false);
+      setNotifyAssignee(false);
+    }
     setOpen(true);
   };
 
@@ -74,9 +88,14 @@ export function SchedulePush({
     setPending(true);
     setOpen(false);
     const form = triggerRef.current?.closest("form");
-    if (custRef.current)
-      custRef.current.value = emailCustomer && !custKnownNoEmail ? "yes" : "no";
-    if (assigneeRef.current) assigneeRef.current.value = notifyAssignee ? "yes" : "no";
+    if (requestOnly) {
+      if (custRef.current) custRef.current.value = "no";
+      if (assigneeRef.current) assigneeRef.current.value = "no";
+    } else {
+      if (custRef.current)
+        custRef.current.value = emailCustomer && !custKnownNoEmail ? "yes" : "no";
+      if (assigneeRef.current) assigneeRef.current.value = notifyAssignee ? "yes" : "no";
+    }
     form?.requestSubmit();
   };
 
@@ -106,6 +125,13 @@ export function SchedulePush({
           </DialogHeader>
 
           <div className="space-y-2.5 py-1">
+            {requestOnly ? (
+              <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+                The crew is held. The customer and the installer are not told this date is locked.
+              </p>
+            ) : null}
+            {requestOnly ? null : (
+            <>
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Who should we notify?
             </p>
@@ -146,6 +172,8 @@ export function SchedulePush({
                 </span>
               </span>
             </label>
+            </>
+            )}
           </div>
 
           <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-end">
