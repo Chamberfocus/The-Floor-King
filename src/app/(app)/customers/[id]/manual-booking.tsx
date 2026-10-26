@@ -126,12 +126,11 @@ export function ManualBooking({
         {!materialsReady ? (
           <div className="w-full sm:w-72">
             <label className="mb-1 block text-xs text-muted-foreground">
-              Why schedule before material is ready?
+              Confirm anyway (optional)
             </label>
             <input
               name="materials_override_reason"
-              required
-              placeholder="Why schedule before materials are ready?"
+              placeholder="Why lock this date before the goods are in?"
               className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
             />
           </div>
@@ -139,19 +138,25 @@ export function ManualBooking({
         <SchedulePush
           size="sm"
           assigneeRole="installer"
-          title={schedule.date ? "Reschedule this install?" : "Book this install?"}
+          holdUntilMaterial={!materialsReady}
+          title={
+            !materialsReady
+              ? "Request this date?"
+              : schedule.date
+                ? "Reschedule this install?"
+                : "Book this install?"
+          }
           description={
             (clashes.length
               ? `Heads up: ${installerLabel} marked themselves unavailable for this window. `
               : "") +
             (!materialsReady
-              ? "Materials are not warehouse-ready — an override reason is required. "
-              : "") +
-            "The install books and goes to the warehouse either way — choose who to notify."
+              ? "The crew is held and the warehouse is notified. The customer is not told the date is locked unless you fill in a reason to confirm it. "
+              : "The install is confirmed and goes to the warehouse — choose who to notify.")
           }
-          confirmLabel={schedule.date ? "Save changes" : "Book install"}
+          confirmLabel={!materialsReady ? "Request this date" : schedule.date ? "Save changes" : "Book install"}
         >
-          {schedule.date ? "Save changes" : "Book install"}
+          {!materialsReady ? "Request date" : schedule.date ? "Save changes" : "Book install"}
         </SchedulePush>
       </form>
     </details>

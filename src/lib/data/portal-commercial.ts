@@ -189,6 +189,30 @@ export async function listPortalJobs(customerId: string): Promise<Job[]> {
  * service role AFTER jobs_customer ownership, and never sends the UUID to the
  * customer JWT / view.
  */
+/** install_hold is not on the customer job view. Read it after ownership is known. */
+export async function listPortalInstallHolds(
+  customerId: string,
+  jobIds: string[],
+): Promise<Map<string, string | null>> {
+  const holds = new Map<string, string | null>();
+  if (!jobIds.length) return holds;
+  try {
+    const admin = createAdminClient();
+    const { data, error } = await admin
+      .from("jobs")
+      .select("id, install_hold")
+      .eq("customer_id", customerId)
+      .in("id", jobIds);
+    if (error) return holds;
+    for (const row of data ?? []) {
+      holds.set(row.id as string, (row.install_hold as string | null) ?? null);
+    }
+  } catch {
+    return holds;
+  }
+  return holds;
+}
+
 export async function listPortalInstallerNames(
   customerId: string,
   jobs: Pick<Job, "id" | "scheduled_date">[],

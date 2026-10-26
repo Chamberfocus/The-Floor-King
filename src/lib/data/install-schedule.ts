@@ -101,6 +101,7 @@ export async function buildInstallScheduleProps(
       window: job.arrival_window ?? null,
       installerId,
       installerName,
+      hold: job.install_hold ?? null,
     },
     installEst: est,
     suggestions,
@@ -125,7 +126,7 @@ const SCHEDULER_LINE_COLUMNS =
   "id, position, room, description, line_type, sqft, length_in, width_in, measure_unit, quantity, unit, category, product_id, manufacturer, color, sqft_per_box, roll_width_ft, measurements";
 
 const SCHEDULER_JOB_COLUMNS =
-  "id, customer_id, title, scheduled_date, scheduled_end, arrival_window, assigned_to, assigned_crew_id, warehouse_ready_at, option_id";
+  "id, customer_id, title, scheduled_date, scheduled_end, arrival_window, assigned_to, assigned_crew_id, warehouse_ready_at, option_id, install_hold";
 
 /**
  * One scheduling payload for every visible "Needs a date" row.
@@ -139,7 +140,7 @@ export async function buildSchedulerInstallProps(
   if (!jobs.length) return out;
   const supabase = await createClient();
   const ids = jobs.map((job) => job.id);
-  const [settings, installCrews, assignable, crewAvailability, jobRes, lineRes, preferences] =
+  const [settings, installCrews, assignable, crewAvailability, jobResFirst, lineRes, preferences] =
     await Promise.all([
       getSchedulingSettings(),
       listInstallCrews({ activeOnly: true }),
@@ -153,6 +154,12 @@ export async function buildSchedulerInstallProps(
         .order("position", { ascending: true }),
       listPreferencesForJobs(ids),
     ]);
+  const jobRes = jobResFirst.error
+    ? await supabase
+        .from("jobs")
+        .select(SCHEDULER_JOB_COLUMNS.replace(", install_hold", ""))
+        .in("id", ids)
+    : jobResFirst;
   if (jobRes.error || lineRes.error) {
     logQueueFailure("scheduler_install_props", jobRes.error ?? lineRes.error);
     throw new Error(QUEUE_LIST_UNAVAILABLE);
@@ -169,6 +176,7 @@ export async function buildSchedulerInstallProps(
     assigned_crew_id: string | null;
     warehouse_ready_at: string | null;
     option_id: string | null;
+    install_hold?: "requested" | "confirmed" | null;
   }[];
   const linesByJob = new Map<string, EstimateLineItem[]>();
   for (const row of (lineRes.data ?? []) as (EstimateLineItem & { job_id?: string })[]) {
@@ -265,6 +273,7 @@ export async function buildSchedulerInstallProps(
         window: job.arrival_window ?? null,
         installerId,
         installerName,
+        hold: job.install_hold ?? null,
       },
       installEst: est,
       suggestions,

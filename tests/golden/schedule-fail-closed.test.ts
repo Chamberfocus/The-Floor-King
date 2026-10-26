@@ -97,12 +97,20 @@ describe("schedule RPC fails closed", () => {
       expect(body).not.toMatch(/\.update\(\{[^}]*scheduled_date/);
       expect(body).not.toContain("Pre-0178");
     }
-    expect(book.indexOf("enforceMaterialsReadyForSchedule")).toBeLessThan(
+    expect(book.indexOf("classifyInstallBooking")).toBeGreaterThan(-1);
+    expect(book.indexOf("classifyInstallBooking")).toBeLessThan(
       book.indexOf("schedule_job_install_safe"),
     );
-    expect(move.indexOf("enforceMaterialsReadyForSchedule")).toBeLessThan(
+    expect(book).toContain('installHold === "confirmed"');
+    expect(move.indexOf("classifyInstallBooking")).toBeGreaterThan(-1);
+    expect(move.indexOf("classifyInstallBooking")).toBeLessThan(
       move.indexOf("schedule_job_install_safe"),
     );
+    expect(move).toContain("alreadyConfirmed");
+    expect(assign).toContain("enforceMaterialsReadyForSchedule");
+    expect(created).toContain("enforceMaterialsReadyForSchedule");
+    expect(carry).toContain("enforceMaterialsReadyForSchedule");
+    expect(assistant).toContain("enforceMaterialsReadyForSchedule");
   });
 });
 

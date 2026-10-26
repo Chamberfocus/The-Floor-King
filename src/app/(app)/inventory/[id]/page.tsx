@@ -29,6 +29,7 @@ import {
   setClearance,
   receiveRoll,
   pullRoll,
+  saveRollIdentity,
   shelveRoll,
   setRemnantUsable,
   countRoll,
@@ -190,6 +191,14 @@ export default async function InventoryItemPage({
                 <Label htmlFor="rr-loc">Location</Label>
                 <Input id="rr-loc" name="location" placeholder="Rack 3, Bay B" className="w-36" />
               </div>
+              <div>
+                <Label htmlFor="rr-num">Roll number</Label>
+                <Input id="rr-num" name="roll_number" placeholder="Mill roll" className="w-28" />
+              </div>
+              <div>
+                <Label htmlFor="rr-dye">Dye lot</Label>
+                <Input id="rr-dye" name="dye_lot" placeholder="Dye lot" className="w-28" />
+              </div>
               <Button type="submit" variant="outline">Add roll</Button>
             </form>
 
@@ -204,6 +213,8 @@ export default async function InventoryItemPage({
                         <span className="font-semibold tabular-nums">{r.remaining_qty} {r.unit}</span>{" "}
                         <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">{r.kind === "remnant" ? "Remnant" : "Roll"}</span>
                         {r.needs_shelving ? <span className="ml-1 rounded-full bg-amber-200 px-2 py-0.5 text-xs font-medium text-amber-800">needs shelving</span> : null}
+                        {r.roll_number ? <span className="ml-1 text-xs text-muted-foreground">Roll {r.roll_number}</span> : null}
+                        {r.dye_lot ? <span className="ml-1 text-xs text-muted-foreground">Lot {r.dye_lot}</span> : <span className="ml-1 text-xs text-amber-700">No dye lot</span>}
                         {r.width_ft ? <span className="ml-1 text-xs text-muted-foreground">{r.width_ft}ft wide</span> : null}
                         <span className="ml-1 text-xs text-muted-foreground">📍 {r.location || "no location"}</span>
                         {r.kind === "remnant" && r.usable === true ? <span className="ml-1 text-xs font-medium text-emerald-600">usable</span> : null}
@@ -211,6 +222,22 @@ export default async function InventoryItemPage({
                     </div>
                     <div className="mt-2 flex flex-wrap items-end gap-2">
                       {/* Cut / pull */}
+                      <form action={saveRollIdentity} className="flex items-end gap-1">
+                        <input type="hidden" name="roll_id" value={r.id} />
+                        <div>
+                          <Label className="text-[11px]">Roll number</Label>
+                          <Input name="roll_number" defaultValue={r.roll_number ?? ""} className="h-9 w-24 text-sm" />
+                        </div>
+                        <div>
+                          <Label className="text-[11px]">Dye lot</Label>
+                          <Input name="dye_lot" defaultValue={r.dye_lot ?? ""} className="h-9 w-24 text-sm" />
+                        </div>
+                        <div>
+                          <Label className="text-[11px]">Stage on job</Label>
+                          <Input name="job_id" placeholder="job id" className="h-9 w-24 text-sm" />
+                        </div>
+                        <Button type="submit" size="sm" variant="outline">Save lot</Button>
+                      </form>
                       <form action={pullRoll} className="flex items-end gap-1">
                         <input type="hidden" name="roll_id" value={r.id} />
                         <div>

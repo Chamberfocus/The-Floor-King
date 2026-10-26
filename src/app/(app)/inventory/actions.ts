@@ -176,8 +176,10 @@ export async function receiveRoll(formData: FormData): Promise<void> {
   const width = numv(formData.get("width_ft"));
   const poId = str(formData.get("po_id")) || null;
   const location = str(formData.get("location")) || null;
+  const dyeLot = str(formData.get("dye_lot")).slice(0, 80) || null;
+  const rollNumber = str(formData.get("roll_number")).slice(0, 80) || null;
   // F6-P4: RPC atomically creates stock_rolls + valued receive (no split-brain).
-  await db.rpc("receive_inventory_safe", {
+  const { data: received } = await db.rpc("receive_inventory_safe", {
     p_product_id: productId,
     p_qty: qty,
     p_note: `Received roll · ${qty} ${unit}${location ? ` @ ${location}` : ""}`,
@@ -189,7 +191,55 @@ export async function receiveRoll(formData: FormData): Promise<void> {
     p_roll_width_ft: width > 0 ? width : null,
     p_roll_location: location,
   });
+  const rollId = (received as { roll_id?: string } | null)?.roll_id;
+  if (rollId && (dyeLot || rollNumber)) {
+    await db
+      .from("stock_rolls")
+      .update({ dye_lot: dyeLot, roll_number: rollNumber })
+      .eq("id", rollId);
+  }
   refreshStock(productId);
+}
+
+/** Stage a roll on a job without changing its dye lot or quantity. */
+export async function assignRollToJob(formData: FormData): Promise<void> {
+  const rollId = str(formData.get("roll_id"));
+  const jobId = str(formData.get("job_id"));
+  if (!rollId || !jobId) return;
+  const { db } = await stockCtx();
+  const { data: roll } = await db
+    .from("stock_rolls")
+    .select("product_id")
+    .eq("id", rollId)
+    .maybeSingle();
+  await db.from("stock_rolls").update({ assigned_job_id: jobId }).eq("id", rollId);
+  refreshStock((roll?.product_id as string) || undefined);
+  revalidatePath(`/jobs/${jobId}`);
+}
+
+/** Write the mill roll number and dye lot, and optionally stage the roll on a job. */
+export async function saveRollIdentity(formData: FormData): Promise<void> {
+  const rollId = str(formData.get("roll_id"));
+  if (!rollId) return;
+  const { db } = await stockCtx();
+  const dyeLot = str(formData.get("dye_lot")).slice(0, 80) || null;
+  const rollNumber = str(formData.get("roll_number")).slice(0, 80) || null;
+  const jobId = str(formData.get("job_id")) || null;
+  const { data: roll } = await db
+    .from("stock_rolls")
+    .select("product_id")
+    .eq("id", rollId)
+    .maybeSingle();
+  await db
+    .from("stock_rolls")
+    .update({
+      dye_lot: dyeLot,
+      roll_number: rollNumber,
+      ...(jobId ? { assigned_job_id: jobId } : {}),
+    })
+    .eq("id", rollId);
+  refreshStock((roll?.product_id as string) || undefined);
+  if (jobId) revalidatePath(`/jobs/${jobId}`);
 }
 
 /** Cut/pull from a roll for a job; optionally record an offcut as a new remnant. */
@@ -209,6 +259,9 @@ export async function pullRoll(formData: FormData): Promise<void> {
   const take = Math.min(cut, remaining); // guard: never below zero
   const left = r2(remaining - take);
   const jobId = str(formData.get("job_id"));
+  if (jobId) {
+    await db.from("stock_rolls").update({ assigned_job_id: jobId }).eq("id", rollId);
+  }
   const cutNote = `Cut ${take} ${roll.unit} → ${left} left${take < cut ? ` (requested ${cut}, capped to available)` : ""}`;
   // F6-P4: consume_inventory_safe decrements the roll under lock when roll_id set.
   if (jobId) {

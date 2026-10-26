@@ -347,10 +347,17 @@ async function notifyInstallerAssigned(o: {
 
 import { isMaterialLine } from "@/lib/job-scope";
 import {
+  assessMaterialsReadyForSchedule,
   assessScheduleMaterialsGate,
   assessWarehouseMarkReady,
   MATERIALS_NOT_READY_MESSAGE,
+  MATERIALS_OVERRIDE_REASON_REQUIRED,
 } from "@/lib/materials-ready";
+import {
+  planInstallHold,
+  REQUESTED_INSTALL_MESSAGE,
+  type InstallHold,
+} from "@/lib/install-hold";
 import { loadOperationalJobLines } from "@/lib/data/job-operational-lines";
 import { loadJobCoverageItems } from "@/lib/data/job-purchasing";
 import { computeLineCoverage } from "@/lib/po-coverage";
@@ -416,6 +423,68 @@ export async function enforceMaterialsReadyForSchedule(args: {
   return { ok: true };
 }
 
+/** Request a date when the goods are not in. Confirm when they are, or when
+ *  the scheduler writes an override reason. Does not fail a plain request. */
+export async function classifyInstallBooking(args: {
+  jobId: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db: { from: (t: string) => any };
+  userId: string | null;
+  overrideReason: string | null;
+  scheduledDate: string | null;
+}): Promise<{ ok: true; hold: InstallHold } | { ok: false; error: string }> {
+  const { data: job, error: jobErr } = await args.db
+    .from("jobs")
+    .select("warehouse_ready_at")
+    .eq("id", args.jobId)
+    .maybeSingle();
+  if (jobErr) {
+    return {
+      ok: false,
+      error: `${MATERIALS_NOT_READY_MESSAGE} Could not load this job’s materials status. Refresh and try again.`,
+    };
+  }
+
+  let hasMaterialNeed = true;
+  try {
+    const lines = await loadOperationalJobLines(args.db, args.jobId);
+    hasMaterialNeed = lines.some((l) => isMaterialLine(l));
+  } catch (err) {
+    console.error("[schedule] material scope unavailable", {
+      jobId: args.jobId,
+      message: err instanceof Error ? err.message : "unknown",
+    });
+    hasMaterialNeed = true;
+  }
+
+  const ready = assessMaterialsReadyForSchedule({
+    warehouseReadyAt: (job?.warehouse_ready_at as string | null) ?? null,
+    hasMaterialNeed,
+  }).ready;
+  const hold = planInstallHold({
+    materialsReady: ready,
+    overrideReason: args.overrideReason,
+  });
+  if (hold === "confirmed" && !ready) {
+    const reason = (args.overrideReason ?? "").trim();
+    if (!reason) {
+      return {
+        ok: false,
+        error: `${MATERIALS_NOT_READY_MESSAGE} ${MATERIALS_OVERRIDE_REASON_REQUIRED}`,
+      };
+    }
+    await args.db.from("job_schedule_overrides").insert({
+      job_id: args.jobId,
+      overridden_by: args.userId,
+      reason,
+      materials_ready: false,
+      warehouse_ready_at: (job?.warehouse_ready_at as string | null) ?? null,
+      scheduled_date: args.scheduledDate,
+    });
+  }
+  return { ok: true, hold };
+}
+
 const BOOK_INSTALL_ROLES: UserRole[] = [
   "admin",
   "office",
@@ -476,7 +545,7 @@ export async function bookInstall(formData: FormData): Promise<void> {
     );
   }
 
-  const mat = await enforceMaterialsReadyForSchedule({
+  const mat = await classifyInstallBooking({
     jobId: id,
     db: supabase,
     userId: user?.id ?? null,
@@ -489,6 +558,7 @@ export async function bookInstall(formData: FormData): Promise<void> {
         `?schedule_error=${encodeURIComponent(mat.error)}`,
     );
   }
+  const installHold = mat.hold;
 
   // Authoritative schedule write: schedule_job_install_safe (0178) + GiST EXCLUDE.
   // Preflight SELECT is UX only — concurrency is enforced in the database.
@@ -566,19 +636,33 @@ export async function bookInstall(formData: FormData): Promise<void> {
     }
   }
 
+  const { error: holdErr } = await supabase
+    .from("jobs")
+    .update({ install_hold: installHold })
+    .eq("id", id);
+  if (holdErr && installHold === "requested") {
+    console.error("[schedule] install_hold", holdErr.message);
+    redirect(
+      (afterBookRedirect || `/jobs/${id}`) +
+        `?schedule_error=${encodeURIComponent(
+          "The date is on the board, but install requests need the latest database update. Apply it, then check this date is still only requested.",
+        )}`,
+    );
+  }
+
   // Install booked → advance out of the "schedule install" stage.
   const { data: job } = await supabase
     .from("jobs")
     .select("customer_id, title")
     .eq("id", id)
     .maybeSingle();
-  // Install booked → move the customer to the "Install Scheduled" stage so the
-  // dashboard follows the job (forward-only; skips the mid "Waiting" stage).
-  if (job?.customer_id)
-    await advanceToNamedStage(job.customer_id as string, STAGE_INSTALL_SCHEDULED, id);
 
-  // Scheduled → auto-submit to the warehouse (notifies the assigned person).
+  // A requested date holds the crew and starts warehouse prep. It does not
+  // tell the customer the date is locked, and it does not move the stage.
   await ensureWarehouseSubmitted(id);
+  if (installHold === "confirmed" && job?.customer_id) {
+    await advanceToNamedStage(job.customer_id as string, STAGE_INSTALL_SCHEDULED, id);
+  }
 
   // Keep the crew record (pay + warehouse + the scheduler grid read it) matching
   // the booked login installer, so reassigning the installer moves the crew too.
@@ -590,10 +674,8 @@ export async function bookInstall(formData: FormData): Promise<void> {
 
   revalidateJobEverywhere(id, job?.customer_id as string | null);
 
-  // Tell the customer their install is booked, with the arrival window — after
-  // the response so the booking feels instant. Best-effort (guarded). Skipped
-  // when the booking popup opted out.
-  if (!skipClientEmail)
+  // A requested hold does not tell the customer or the crew the date is locked.
+  if (installHold === "confirmed" && !skipClientEmail)
     after(() =>
       notifyInstallBooked({
         customerId: (job?.customer_id as string | null) ?? null,
@@ -603,9 +685,7 @@ export async function bookInstall(formData: FormData): Promise<void> {
       }),
     );
 
-  // Tell the assigned installer / crew they're scheduled, with the date, arrival
-  // window, and site address. Skipped when the popup opted out.
-  if (notifyAssignee)
+  if (installHold === "confirmed" && notifyAssignee)
     after(() =>
       notifyInstallerAssigned({
         jobId: id,
@@ -623,8 +703,88 @@ export async function bookInstall(formData: FormData): Promise<void> {
   const redirectTo = str(formData.get("redirect_to"));
   if (redirectTo) {
     revalidatePath(redirectTo);
-    redirect(redirectTo);
+    const hashAt = redirectTo.indexOf("#");
+    const base = hashAt >= 0 ? redirectTo.slice(0, hashAt) : redirectTo;
+    const hash = hashAt >= 0 ? redirectTo.slice(hashAt) : "";
+    redirect(
+      installHold === "requested"
+        ? `${base}${base.includes("?") ? "&" : "?"}schedule_notice=${encodeURIComponent(REQUESTED_INSTALL_MESSAGE)}${hash}`
+        : redirectTo,
+    );
   }
+}
+
+/** Lock a requested install once the goods are in, or with an override reason. */
+export async function confirmRequestedInstall(formData: FormData): Promise<void> {
+  const id = str(formData.get("job_id"));
+  const overrideReason = str(formData.get("materials_override_reason")) || null;
+  const redirectTo = str(formData.get("redirect_to"));
+  if (!id) return;
+  const supabase = await createClient();
+  await assertRole(BOOK_INSTALL_ROLES);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("id, customer_id, title, scheduled_date, scheduled_end, arrival_window, assigned_to, assigned_crew_id, install_hold")
+    .eq("id", id)
+    .maybeSingle();
+  const back = redirectTo || `/jobs/${id}`;
+  const withQuery = (key: string, value: string) => {
+    const hashAt = back.indexOf("#");
+    const base = hashAt >= 0 ? back.slice(0, hashAt) : back;
+    const hash = hashAt >= 0 ? back.slice(hashAt) : "";
+    return `${base}${base.includes("?") ? "&" : "?"}${key}=${encodeURIComponent(value)}${hash}`;
+  };
+  if (!job?.scheduled_date) {
+    redirect(withQuery("schedule_error", "Pick a date before confirming."));
+  }
+  if ((job.install_hold as string | null) === "confirmed") {
+    redirect(back);
+  }
+  const mat = await classifyInstallBooking({
+    jobId: id,
+    db: supabase,
+    userId: user?.id ?? null,
+    overrideReason,
+    scheduledDate: job.scheduled_date as string,
+  });
+  if (!mat.ok || mat.hold !== "confirmed") {
+    redirect(
+      withQuery(
+        "schedule_error",
+        mat.ok
+          ? "The material is not in the building yet. Confirm only with a reason, or wait for the warehouse."
+          : mat.error,
+      ),
+    );
+  }
+  await supabase.from("jobs").update({ install_hold: "confirmed" }).eq("id", id);
+  if (job.customer_id) {
+    await advanceToNamedStage(job.customer_id as string, STAGE_INSTALL_SCHEDULED, id);
+  }
+  const date = job.scheduled_date as string;
+  const window = (job.arrival_window as string | null) ?? null;
+  after(() => {
+    notifyInstallBooked({
+      customerId: (job.customer_id as string | null) ?? null,
+      title: (job.title as string | null) ?? null,
+      date,
+      window,
+    });
+    notifyInstallerAssigned({
+      jobId: id,
+      installerId: (job.assigned_to as string | null) ?? null,
+      crewId: (job.assigned_crew_id as string | null) ?? null,
+      customerId: (job.customer_id as string | null) ?? null,
+      title: (job.title as string | null) ?? null,
+      date,
+      window,
+    });
+  });
+  revalidateJobEverywhere(id, (job.customer_id as string | null) ?? null);
+  redirect(back);
 }
 
 /** Alert the customer AND the assigned installer/crew that an install moved.
@@ -763,13 +923,21 @@ export async function rescheduleInstall(
   const role = (me?.role as string) ?? "";
 
   const admin = createAdminClient();
-  const { data: job } = await admin
+  const rescheduleColumns =
+    "id, title, customer_id, assigned_to, assigned_crew_id, scheduled_date, scheduled_end, arrival_window, warehouse_ready_at, install_hold, customer:customers(cancelled_at)";
+  let { data: job } = await admin
     .from("jobs")
-    .select(
-      "id, title, customer_id, assigned_to, assigned_crew_id, scheduled_date, scheduled_end, arrival_window, warehouse_ready_at, customer:customers(cancelled_at)",
-    )
+    .select(rescheduleColumns)
     .eq("id", jobId)
     .maybeSingle();
+  if (!job) {
+    const fallback = await admin
+      .from("jobs")
+      .select(rescheduleColumns.replace(", install_hold", ""))
+      .eq("id", jobId)
+      .maybeSingle();
+    job = fallback.data as typeof job;
+  }
   if (!job) return { ok: false, error: "Job not found." };
   const movingCustomer = Array.isArray(job.customer) ? job.customer[0] : job.customer;
   if (!scheduleChangeAllowed((movingCustomer as { cancelled_at?: string | null } | null)?.cancelled_at)) {
@@ -781,14 +949,22 @@ export async function rescheduleInstall(
   if (!isStaff && !isAssigned)
     return { ok: false, error: "You can only move installs assigned to you." };
 
-  const mat = await enforceMaterialsReadyForSchedule({
-    jobId,
-    db: admin,
-    userId: user.id,
-    overrideReason: materialsOverrideReason ?? null,
-    scheduledDate: newDate,
-  });
-  if (!mat.ok) return { ok: false, error: mat.error };
+  const existingHold = (job.install_hold as string | null) ?? null;
+  const alreadyConfirmed =
+    existingHold === "confirmed" ||
+    (existingHold == null && !!job.scheduled_date);
+  let nextHold: InstallHold = alreadyConfirmed ? "confirmed" : "requested";
+  if (!alreadyConfirmed) {
+    const mat = await classifyInstallBooking({
+      jobId,
+      db: admin,
+      userId: user.id,
+      overrideReason: materialsOverrideReason ?? null,
+      scheduledDate: newDate,
+    });
+    if (!mat.ok) return { ok: false, error: mat.error };
+    nextHold = mat.hold;
+  }
 
   // Reassignment (installer grid): only staff may change WHO the job is on.
   let newInstaller = (job.assigned_to as string | null) ?? null;
@@ -898,21 +1074,50 @@ export async function rescheduleInstall(
     }
   }
 
-  after(async () => {
-    try {
-      await alertReschedule(admin, {
-        customerId: (job.customer_id as string | null) ?? null,
-        installerId: newInstaller,
-        crewId: newCrew,
-        title: (job.title as string | null) ?? null,
-        window: nextWindow,
-        newDate,
-        actorId: user.id,
-      });
-    } catch {
-      /* alerts are best-effort */
+  await admin.from("jobs").update({ install_hold: nextHold }).eq("id", jobId);
+
+  if (nextHold === "confirmed" && !alreadyConfirmed) {
+    if (job.customer_id) {
+      await advanceToNamedStage(
+        job.customer_id as string,
+        STAGE_INSTALL_SCHEDULED,
+        jobId,
+      );
     }
-  });
+    after(() => {
+      notifyInstallBooked({
+        customerId: (job.customer_id as string | null) ?? null,
+        title: (job.title as string | null) ?? null,
+        date: newDate,
+        window: nextWindow,
+      });
+      notifyInstallerAssigned({
+        jobId,
+        installerId: nextInstaller,
+        crewId: nextCrew,
+        customerId: (job.customer_id as string | null) ?? null,
+        title: (job.title as string | null) ?? null,
+        date: newDate,
+        window: nextWindow,
+      });
+    });
+  } else if (nextHold === "confirmed") {
+    after(async () => {
+      try {
+        await alertReschedule(admin, {
+          customerId: (job.customer_id as string | null) ?? null,
+          installerId: newInstaller,
+          crewId: newCrew,
+          title: (job.title as string | null) ?? null,
+          window: nextWindow,
+          newDate,
+          actorId: user.id,
+        });
+      } catch {
+        /* alerts are best-effort */
+      }
+    });
+  }
 
   revalidateJobEverywhere(jobId, (job.customer_id as string | null) ?? null);
   revalidatePath("/install-scheduler");

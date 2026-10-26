@@ -24,6 +24,10 @@ import { optionTotalsWithDiscount, lineTotal } from "@/lib/estimate-calc";
 import { snapshotItemGroups } from "@/lib/approval-snapshot-view";
 import { legacyApprovalSnapshotUnavailable } from "@/lib/estimate-approval";
 import { formatMoney } from "@/lib/format";
+import { listInvoicesForCustomer, invoiceDisplayTotals } from "@/lib/data/invoices";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { quoteDepositRoom } from "@/lib/portal-pay";
+import { PortalPayBox } from "../../portal-pay-box";
 import type { EstimateOption } from "@/lib/types";
 import {
   portalApproveEstimate,
@@ -217,6 +221,36 @@ export default async function PortalEstimatePage({
     }
   }
 
+  let openInvoice: { id: string; balance: number } | null = null;
+  let deposited = 0;
+  if (estimate.status === "approved" && estimate.customer_id) {
+    const invoices = await listInvoicesForCustomer(estimate.customer_id);
+    for (const inv of invoices) {
+      if (inv.estimate_id !== estimate.id || inv.status === "void") continue;
+      const balance = invoiceDisplayTotals(inv).balance;
+      if (balance > 0.005) {
+        openInvoice = { id: inv.id, balance };
+        break;
+      }
+    }
+    if (!openInvoice) {
+      try {
+        const admin = createAdminClient();
+        const { data } = await admin
+          .from("customer_deposits")
+          .select("amount, status")
+          .eq("customer_id", estimate.customer_id)
+          .eq("estimate_id", estimate.id);
+        deposited = (data ?? [])
+          .filter((row) => (row.status as string) !== "void")
+          .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+      } catch {
+        deposited = 0;
+      }
+    }
+  }
+  const quoteRoom = chosenTotals ? quoteDepositRoom(chosenTotals.total, deposited) : 0;
+
   const legacyMissing = legacyApprovalSnapshotUnavailable(
     estimate.status,
     !!currentSnap,
@@ -369,6 +403,26 @@ export default async function PortalEstimatePage({
             }}
           />
         ) : null
+      ) : null}
+
+      {estimate.status === "approved" && !revisionPending && chosenTotals ? (
+        openInvoice ? (
+          <p className="mt-4 text-sm">
+            <Link href={`/portal/invoices/${openInvoice.id}`} className="font-medium text-primary underline">
+              Pay {formatMoney(openInvoice.balance)} on your invoice
+            </Link>
+          </p>
+        ) : quoteRoom > 0 ? (
+          <PortalPayBox
+            mode="quote"
+            processorUrl={org.card_processing_url}
+            estimateId={estimate.id}
+            amount={quoteRoom}
+            amountLabel="Pay toward this quote"
+          />
+        ) : (
+          <p className="mt-4 text-sm text-muted-foreground">This quote is already covered.</p>
+        )
       ) : null}
 
       {org.financing_url ? (

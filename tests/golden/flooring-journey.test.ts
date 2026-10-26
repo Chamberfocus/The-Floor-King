@@ -248,17 +248,25 @@ describe("flooring job journey", () => {
     expect(model.primary?.label).not.toBe("Schedule install");
   });
 
-  it("12. reschedule uses the same material gate as the first booking", () => {
+  it("12. a date can be requested before the goods are in, and confirmed only after", () => {
     const jobs = src("src/app/(app)/jobs/actions.ts");
     const book = jobs.indexOf("export async function bookInstall");
     const reschedule = jobs.indexOf("export async function rescheduleInstall");
     expect(book).toBeGreaterThan(-1);
     expect(reschedule).toBeGreaterThan(book);
-    expect(jobs.slice(book, reschedule)).toContain("enforceMaterialsReadyForSchedule");
-    expect(jobs.slice(reschedule, reschedule + 2500)).toContain(
-      "enforceMaterialsReadyForSchedule",
+    const booking = jobs.slice(book, reschedule);
+    expect(booking).toContain("classifyInstallBooking");
+    expect(booking).toContain("schedule_job_install_safe");
+    expect(booking).toContain('installHold === "confirmed"');
+    expect(booking.indexOf("notifyInstallBooked")).toBeGreaterThan(
+      booking.indexOf('installHold === "confirmed"'),
     );
-    expect(jobs.slice(book, reschedule)).toContain("schedule_job_install_safe");
+    const moving = jobs.slice(reschedule, reschedule + 8000);
+    expect(moving).toContain("classifyInstallBooking");
+    expect(moving).toContain("alreadyConfirmed");
+    expect(moving.indexOf("classifyInstallBooking")).toBeLessThan(
+      moving.indexOf("schedule_job_install_safe"),
+    );
   });
 
   it("13. completing the install does not hide an open balance", () => {

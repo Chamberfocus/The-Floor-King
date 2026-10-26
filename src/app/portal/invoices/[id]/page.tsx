@@ -13,6 +13,7 @@ import { CustomerScopeView } from "@/components/customer-scope-view";
 import { getInvoice, invoiceDisplayTotals } from "@/lib/data/invoices";
 import { getPortalInvoiceScope, getPortalOrgSettings } from "@/lib/data/portal-commercial";
 import { formatDate, formatMoney } from "@/lib/format";
+import { PortalPayBox } from "../../portal-pay-box";
 
 export const metadata: Metadata = { title: "Invoice" };
 
@@ -122,9 +123,13 @@ export default async function PortalInvoicePage({
               <p className="mt-2 whitespace-pre-wrap">{invoice.terms}</p>
             ) : null}
             {totals.balance > 0 ? (
-              <p className="mt-2">
-                To pay this balance, please contact us.
-              </p>
+              <PortalPayBox
+                mode="invoice"
+                processorUrl={org.card_processing_url}
+                invoiceId={invoice.id}
+                amount={totals.balance}
+                amountLabel="Pay this balance"
+              />
             ) : null}
           </div>
         </CardContent>

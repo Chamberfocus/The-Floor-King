@@ -17,6 +17,7 @@ import {
   PAD_ROLL_SQYD,
   type ScopeRoom,
 } from "@/lib/job-scope";
+import { rollTicketLine } from "@/lib/job-extra";
 import { CarpetCutList } from "@/components/carpet-cut-list";
 import type { JobDetail } from "@/lib/data/jobs";
 
@@ -182,6 +183,7 @@ export function InstallationWorkOrderDoc({
   showPrices = false,
   crewNotes = [],
   preview = false,
+  rolls = [],
 }: {
   org: OrgSettings;
   job: JobDetail;
@@ -196,6 +198,13 @@ export function InstallationWorkOrderDoc({
   crewNotes?: { body: string; authorName: string; created_at: string }[];
   /** On-screen document preview: show the doc as a white sheet (not print-only). */
   preview?: boolean;
+  rolls?: {
+    productName: string;
+    rollNumber: string | null;
+    dyeLot: string | null;
+    qty: number;
+    unit: string;
+  }[];
 }) {
   const scope = buildJobScope(job.line_items, job.notes);
   const totalSqft = scope.rooms.reduce((s, r) => s + (r.sqft ?? 0), 0);
@@ -361,6 +370,19 @@ export function InstallationWorkOrderDoc({
         items={job.line_items}
         note="Match these cut sizes on the roll; keep pile direction consistent and save usable remnants."
       />
+
+      {rolls.length ? (
+        <div className="mt-2 break-inside-avoid border border-black px-2 py-1 text-[13px]">
+          <div className="text-[10px] font-bold uppercase tracking-wide text-gray-600">
+            Rolls on this job
+          </div>
+          <ul className="mt-0.5">
+            {rolls.map((roll, i) => (
+              <li key={i}>{rollTicketLine(roll)}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {scope.freeText ? (
         <div className="mt-2 break-inside-avoid border border-black px-2 py-1 text-[13px]">

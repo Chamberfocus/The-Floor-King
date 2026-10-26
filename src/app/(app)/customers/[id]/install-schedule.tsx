@@ -2,7 +2,7 @@ import { CalendarClock, CalendarOff } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SchedulePush } from "@/components/schedule-push";
 import { ArrivalWindowField } from "@/components/ui/arrival-window-field";
-import { bookInstall } from "@/app/(app)/jobs/actions";
+import { bookInstall, confirmRequestedInstall } from "@/app/(app)/jobs/actions";
 import { formatDate, to12, type ArrivalWindow } from "@/lib/format";
 import { ManualBooking } from "./manual-booking";
 
@@ -52,6 +52,7 @@ export interface InstallScheduleProps {
     window: string | null;
     installerId: string | null;
     installerName: string | null;
+    hold?: "requested" | "confirmed" | null;
   };
   installEst: { days: number; breakdown: { label: string; amount: number; unit: string; days: number; rate?: number }[] } | null;
   suggestions: { installerId: string; name: string; days: number; start: string; end: string; fit?: string }[];
@@ -101,8 +102,7 @@ export function InstallSchedule({
       <CardContent className="space-y-4">
         {!materialsReady ? (
           <div className="rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-200">
-            Materials are not warehouse-ready. Booking requires an override reason
-            (server-enforced). Prefer waiting until the warehouse marks this job ready.
+            Material is not in the building. Requesting a date holds the crew. The customer is not told the date is locked until you confirm it.
           </div>
         ) : null}
         {/* The customer's requested dates (a request — confirm one below). */}
@@ -127,6 +127,7 @@ export function InstallSchedule({
           {schedule.date ? (
             <>
               <span className="font-medium text-foreground">
+                {schedule.hold === "requested" ? "Requested · " : ""}
                 {formatDate(schedule.date)}
                 {schedule.endDate && schedule.endDate !== schedule.date
                   ? ` – ${formatDate(schedule.endDate)}`
@@ -134,6 +135,22 @@ export function InstallSchedule({
               </span>
               {windowLabel ? ` · ${windowLabel}` : ""}
               {schedule.installerName ? ` · ${schedule.installerName}` : ""}
+              {schedule.hold === "requested" ? (
+                <form action={confirmRequestedInstall} className="mt-2 flex flex-wrap items-end gap-2">
+                  <input type="hidden" name="job_id" value={jobId} />
+                  <input type="hidden" name="redirect_to" value={redirectTo} />
+                  {!materialsReady ? (
+                    <input
+                      name="materials_override_reason"
+                      placeholder="Confirm anyway — why?"
+                      className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm sm:w-64"
+                    />
+                  ) : null}
+                  <button type="submit" className="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground">
+                    {materialsReady ? "Confirm this date" : "Confirm anyway"}
+                  </button>
+                </form>
+              ) : null}
             </>
           ) : (
             <span className="text-muted-foreground">Not scheduled yet.</span>
@@ -206,12 +223,11 @@ export function InstallSchedule({
                   {!materialsReady ? (
                     <div className="w-full sm:w-64">
                       <label className="mb-1 block text-xs text-muted-foreground">
-                        Why schedule before material is ready?
+                        Confirm anyway (optional)
                       </label>
                       <input
                         name="materials_override_reason"
-                        required
-                        placeholder="Why schedule before materials are ready?"
+                        placeholder="Why lock this date before the goods are in?"
                         className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
                       />
                     </div>
@@ -226,11 +242,20 @@ export function InstallSchedule({
                     size="sm"
                     variant="outline"
                     assigneeRole="installer"
-                    title={`Approve ${sug.name} for ${sug.days} day${sug.days === 1 ? "" : "s"}?`}
-                    description={`${formatDate(sug.start)}${sug.end !== sug.start ? ` – ${formatDate(sug.end)}` : ""}. ${sug.fit ?? "You are approving this crew and these days."} Choose who to notify.`}
-                    confirmLabel="Approve and book"
+                    holdUntilMaterial={!materialsReady}
+                    title={
+                      materialsReady
+                        ? `Approve ${sug.name} for ${sug.days} day${sug.days === 1 ? "" : "s"}?`
+                        : `Request ${sug.name} for ${sug.days} day${sug.days === 1 ? "" : "s"}?`
+                    }
+                    description={
+                      materialsReady
+                        ? `${formatDate(sug.start)}${sug.end !== sug.start ? ` – ${formatDate(sug.end)}` : ""}. ${sug.fit ?? "You are approving this crew and these days."} Choose who to notify.`
+                        : `${formatDate(sug.start)}${sug.end !== sug.start ? ` – ${formatDate(sug.end)}` : ""}. The crew is held. The customer is not told this date is locked unless you fill in a reason to confirm it.`
+                    }
+                    confirmLabel={materialsReady ? "Approve and book" : "Request this date"}
                   >
-                    Approve
+                    {materialsReady ? "Approve" : "Request"}
                   </SchedulePush>
                 </form>
               </div>
