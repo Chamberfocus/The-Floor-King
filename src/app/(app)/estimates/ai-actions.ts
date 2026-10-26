@@ -30,6 +30,7 @@ import {
 import { isRollGoodCategory } from "@/lib/types";
 import { notesCarpetInstallSystemsForBoxedRate } from "@/lib/job-scope";
 import { createSmartEstimate, type SmartLine } from "./smart-actions";
+import { leadEstimateBlock } from "@/lib/lead-acceptance-guard";
 
 export interface DraftQuoteResult {
   error: string | null;
@@ -741,6 +742,9 @@ export async function createDraftEstimateFromText(
   const lines = await buildLinesFromJob(job);
   if (!lines.length)
     return { error: "Couldn't build any lines from that description." };
+
+  const leadBlock = await leadEstimateBlock(customerId);
+  if (leadBlock) return { error: leadBlock };
 
   const supabase = await createClient();
   const {

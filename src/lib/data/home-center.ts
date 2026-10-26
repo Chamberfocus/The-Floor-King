@@ -72,6 +72,18 @@ export async function loadHomeCenter(args: {
   ).toISOString();
 
   const countFor = async (spec: HomeCommandSpec): Promise<number> => {
+    if (spec.id === "leads" || spec.id === "declines") {
+      const status = spec.id === "leads" ? "pending" : "declined";
+      let query = userDb
+        .from("customers")
+        .select("id", { count: "exact", head: true })
+        .eq("lead_acceptance", status)
+        .is("cancelled_at", null);
+      if (args.role === "salesman") query = query.eq("assigned_to", args.userId);
+      const { count, error } = await query;
+      if (error) throw new Error(QUEUE_LIST_UNAVAILABLE);
+      return count ?? 0;
+    }
     if (spec.id === "followups") {
       const { count, error } = await userDb
         .from("customers")

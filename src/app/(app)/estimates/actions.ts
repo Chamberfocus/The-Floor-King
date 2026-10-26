@@ -44,6 +44,7 @@ import {
 } from "@/lib/workflow-engine";
 import { ensureJobForEstimate } from "@/app/(app)/jobs/actions";
 import { getCustomerSourceStatus } from "@/lib/data/lead-sources";
+import { leadEstimateBlock } from "@/lib/lead-acceptance-guard";
 import { getCustomerDepositSummary } from "@/lib/data/customer-deposits";
 import {
   onEstimateChangesRequestedOps,
@@ -173,6 +174,10 @@ export async function createEstimate(formData: FormData): Promise<void> {
   // inline gate normally handles this before we get here; this is the fallback.
   const { ok } = await getCustomerSourceStatus(customerId);
   if (!ok) redirect(`/customers/${customerId}`);
+  const leadBlock = await leadEstimateBlock(customerId);
+  if (leadBlock) {
+    redirect(`/customers/${customerId}?estimate_error=${encodeURIComponent(leadBlock)}`);
+  }
 
   const {
     data: { user },
@@ -226,6 +231,15 @@ export async function saveEstimate(
   input: SaveEstimateInput,
 ): Promise<{ error: string | null; reapprovalRequired?: boolean }> {
   const supabase = await createClient();
+  const { data: savedFor } = await supabase
+    .from("estimates")
+    .select("customer_id")
+    .eq("id", estimateId)
+    .maybeSingle();
+  const leadBlock = savedFor?.customer_id
+    ? await leadEstimateBlock(savedFor.customer_id as string)
+    : null;
+  if (leadBlock) return { error: leadBlock };
 
   let { data: beforeEst, error: beforeEstErr } = await supabase
     .from("estimates")
@@ -784,6 +798,8 @@ export async function createEstimateFromWizard(
       error: "Record this customer's lead source (and its detail) before creating an estimate.",
     };
   }
+  const leadBlock = await leadEstimateBlock(customerId);
+  if (leadBlock) return { error: leadBlock };
 
   const {
     data: { user },

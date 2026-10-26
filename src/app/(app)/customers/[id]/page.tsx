@@ -28,6 +28,8 @@ import {
 } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { createEstimate } from "@/app/(app)/estimates/actions";
+import { acceptLead, declineLead } from "@/app/(app)/customers/actions";
+import { isSalesBookRole, seesEveryLead } from "@/lib/lead-acceptance";
 import { StageBadge } from "@/components/stage-badge";
 import {
   getCustomer,
@@ -202,6 +204,7 @@ export default async function CustomerPage({
     stage_error?: string;
     customer_error?: string;
     estimate_error?: string;
+    lead_error?: string;
     notify?: string;
     notify_detail?: string;
   }>;
@@ -217,6 +220,7 @@ export default async function CustomerPage({
   const stageError = sp.stage_error?.trim() || null;
   const customerError = sp.customer_error?.trim() || null;
   const estimateError = sp.estimate_error?.trim() || null;
+  const leadError = sp.lead_error?.trim() || null;
   const notify = sp.notify?.trim() || null;
   const notifyDetail = sp.notify_detail?.trim() || null;
   // The checklist links straight AT the scheduler ("?schedule=estimate"), so
@@ -840,6 +844,68 @@ export default async function CustomerPage({
           className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
         >
           {estimateError}
+        </div>
+      ) : null}
+      {leadError ? (
+        <div
+          role="alert"
+          className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
+          {leadError}
+        </div>
+      ) : null}
+      {customer.lead_acceptance === "pending" &&
+      isSalesBookRole(profile.role) &&
+      customer.assigned_to === profile.id ? (
+        <div className="mb-4 space-y-3 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+          <p className="font-medium">
+            This lead is yours. Accept it before you write the estimate.
+          </p>
+          <form action={acceptLead} className="space-y-2">
+            <input type="hidden" name="customer_id" value={customer.id} />
+            <textarea
+              name="note"
+              rows={2}
+              placeholder="Add a note if you need one"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground"
+            />
+            <button
+              type="submit"
+              className="rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground"
+            >
+              Accept lead
+            </button>
+          </form>
+          <form action={declineLead} className="space-y-2 border-t border-amber-300/80 pt-3 dark:border-amber-900">
+            <textarea
+              name="note"
+              rows={2}
+              required
+              placeholder="Why you can't take this lead"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground"
+            />
+            <input type="hidden" name="customer_id" value={customer.id} />
+            <button
+              type="submit"
+              className="rounded-md border border-destructive/40 px-3 py-2 text-sm font-semibold text-destructive"
+            >
+              Send it back
+            </button>
+          </form>
+        </div>
+      ) : null}
+      {customer.lead_acceptance === "pending" &&
+      seesEveryLead(profile.role) &&
+      customer.assigned_to !== profile.id ? (
+        <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+          Waiting on {salespersonName ?? "the salesperson"} to accept this lead.
+        </div>
+      ) : null}
+      {customer.lead_acceptance === "declined" && seesEveryLead(profile.role) ? (
+        <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          This lead was sent back
+          {customer.lead_acceptance_note ? `: ${customer.lead_acceptance_note}` : "."} Assign it
+          to another salesperson.
         </div>
       ) : null}
       {notify === "success" ? (

@@ -7,6 +7,7 @@ import { resolveOrCreateCustomer, followActiveCustomerId } from "@/lib/data/cust
 import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
 import { advanceFromAutoAction } from "@/lib/workflow-engine";
 import { onEstimateSentOps } from "@/lib/data/ops-automation";
+import { leadEstimateBlock } from "@/lib/lead-acceptance-guard";
 
 const OFFICE = ["admin", "office", "sales_manager", "salesman"] as const;
 
@@ -97,6 +98,8 @@ export async function createQuickEstimate(input: QuickEstimateInput): Promise<{
   const liveId = await followActiveCustomerId(supabase, customerId);
   if (!liveId) return { error: "That customer is not available." };
   customerId = liveId;
+  const leadBlock = await leadEstimateBlock(customerId);
+  if (leadBlock) return { error: leadBlock };
 
   const { data: estimate, error } = await supabase
     .from("estimates")

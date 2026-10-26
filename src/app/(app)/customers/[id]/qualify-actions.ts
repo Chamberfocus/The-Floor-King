@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { employeeDbError } from "@/lib/employee-error";
 import { moveToAutoActionStage } from "@/lib/workflow-engine";
+import { leadAcceptanceForAssignment } from "@/lib/lead-acceptance";
+import { notifySalespersonOfLead } from "@/lib/lead-assignment-notify";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -60,18 +62,60 @@ export async function qualifyAndAssign(formData: FormData): Promise<void> {
     workflow_owner_id: owner,
   };
   let ownerIsSalesperson = false;
+  let ownerEmail: string | null = null;
+  let ownerPhone: string | null = null;
+  let ownerName: string | null = null;
   if (owner) {
     const { data: op } = await supabase
       .from("profiles")
-      .select("role")
+      .select("full_name, email, phone, role")
       .eq("id", owner)
       .maybeSingle();
     ownerIsSalesperson = ["salesman", "sales_manager"].includes(
       (op?.role as string) ?? "",
     );
+    ownerEmail = (op?.email as string | null) ?? null;
+    ownerPhone = (op?.phone as string | null) ?? null;
+    ownerName = (op?.full_name as string) || ownerEmail;
     if (ownerIsSalesperson) qualifyPatch.assigned_to = owner;
   }
-  await supabase.from("customers").update(qualifyPatch).eq("id", customerId);
+  const acceptance = leadAcceptanceForAssignment({
+    actorId: user?.id ?? "",
+    assigneeId: owner,
+    assigneeIsSales: ownerIsSalesperson,
+  });
+  if (acceptance) Object.assign(qualifyPatch, acceptance);
+  const { error: assignError } = await supabase
+    .from("customers")
+    .update(qualifyPatch)
+    .eq("id", customerId);
+  if (assignError && acceptance && /lead_acceptance|lead_assigned_by/i.test(assignError.message)) {
+    const plain = { ...qualifyPatch };
+    delete plain.lead_acceptance;
+    delete plain.lead_acceptance_note;
+    delete plain.lead_acceptance_at;
+    delete plain.lead_assigned_by;
+    await supabase.from("customers").update(plain).eq("id", customerId);
+  }
+  if (acceptance?.lead_acceptance === "pending" && owner && owner !== user?.id) {
+    const { data: named } = await supabase
+      .from("customers")
+      .select("full_name")
+      .eq("id", customerId)
+      .maybeSingle();
+    const delivery = await notifySalespersonOfLead({
+      toEmail: ownerEmail,
+      toPhone: ownerPhone,
+      customerName: (named?.full_name as string) || "A new lead",
+      customerId,
+    });
+    await supabase.from("activities").insert({
+      customer_id: customerId,
+      user_id: user?.id ?? null,
+      type: "system",
+      body: `Assigned to ${ownerName ?? "a salesperson"}. They need to accept the lead. ${delivery}`,
+    });
+  }
 
   // Credit any already-booked estimate visit to the assigned salesperson too.
   if (ownerIsSalesperson) {

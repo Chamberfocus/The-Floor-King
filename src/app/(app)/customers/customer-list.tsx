@@ -198,6 +198,24 @@ function DetailedStageBadge({ c, shared }: { c: Customer; shared: ListShared }) 
 }
 
 /** Flag for a client sitting past its stage's time limit. */
+function AcceptanceBadge({ customer }: { customer: Customer }) {
+  if (customer.lead_acceptance === "pending") {
+    return (
+      <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
+        Needs acceptance
+      </span>
+    );
+  }
+  if (customer.lead_acceptance === "declined") {
+    return (
+      <span className="inline-flex items-center rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-semibold text-destructive">
+        Sent back
+      </span>
+    );
+  }
+  return null;
+}
+
 function StuckBadge() {
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-semibold text-destructive">
@@ -261,6 +279,7 @@ function DesktopRow({
         <TableCell>
           <div className="flex flex-wrap items-center gap-1.5">
             <DetailedStageBadge c={c} shared={shared} />
+            <AcceptanceBadge customer={c} />
             {overdue ? <StuckBadge /> : null}
           </div>
         </TableCell>
@@ -332,6 +351,7 @@ function MobileCard({
         </Link>
         <div className="flex shrink-0 items-center gap-2">
           {overdue ? <StuckBadge /> : null}
+          <AcceptanceBadge customer={c} />
           <DetailedStageBadge c={c} shared={shared} />
           {hasActions ? (
             <ExpandToggle open={open} onClick={() => setOpen((v) => !v)} />

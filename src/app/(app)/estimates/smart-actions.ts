@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCustomerSourceStatus } from "@/lib/data/lead-sources";
+import { leadEstimateBlock } from "@/lib/lead-acceptance-guard";
 import type { LineMeasurement, ProductCategory } from "@/lib/types";
 import { lineDisplayUnit, lineSkipsAreaCartonMath } from "@/lib/units";
 import { sendEstimateById } from "./actions";
@@ -163,6 +164,8 @@ export async function createSmartEstimate(
   if (!sourceOk) {
     return { error: "Record this customer's lead source before creating an estimate." };
   }
+  const leadBlock = await leadEstimateBlock(customerId);
+  if (leadBlock) return { error: leadBlock };
   const { data: org } = await supabase
     .from("org_settings")
     .select("quote_valid_days")

@@ -8,6 +8,11 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { employeeDbError } from "@/lib/employee-error";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
+import { leadAcceptanceForAssignment } from "@/lib/lead-acceptance";
+import {
+  notifyOwnerLeadDeclined,
+  notifySalespersonOfLead,
+} from "@/lib/lead-assignment-notify";
 import {
   isOffSpine,
   resolveFlowStep,
@@ -224,6 +229,16 @@ export async function createCustomer(
   if (resolved.action === "error") return { error: resolved.error };
 
   const id = resolved.customerId;
+  if (resolved.action === "created" && (profile.role === "salesman" || profile.role === "sales_manager")) {
+    await supabase
+      .from("customers")
+      .update({
+        lead_acceptance: "accepted",
+        lead_acceptance_at: new Date().toISOString(),
+        lead_assigned_by: profile.id,
+      })
+      .eq("id", id);
+  }
   if (force) {
     try {
       await createAdminClient()
@@ -691,20 +706,30 @@ export async function reassignCustomer(
   // to Debbie/Fernando (non-sales roles) moves only the current owner.
   let toName: string | null = null;
   let isSalesperson = false;
+  let assigneeEmail: string | null = null;
+  let assigneePhone: string | null = null;
   if (toUser) {
     const { data: p } = await supabase
       .from("profiles")
-      .select("full_name, email, role")
+      .select("full_name, email, phone, role")
       .eq("id", toUser)
       .maybeSingle();
     toName = (p?.full_name as string) || (p?.email as string) || null;
     isSalesperson = ["salesman", "sales_manager"].includes(
       (p?.role as string) ?? "",
     );
+    assigneeEmail = (p?.email as string | null) ?? null;
+    assigneePhone = (p?.phone as string | null) ?? null;
   }
 
+  const acceptance = leadAcceptanceForAssignment({
+    actorId: user?.id ?? "",
+    assigneeId: toUser,
+    assigneeIsSales: isSalesperson,
+  });
   const patch: Record<string, unknown> = { workflow_owner_id: toUser };
   if (isSalesperson) patch.assigned_to = toUser;
+  if (acceptance) Object.assign(patch, acceptance);
 
   // No-op only if nothing actually changes.
   const ownerSame = (cust?.workflow_owner_id ?? null) === toUser;
@@ -714,7 +739,17 @@ export async function reassignCustomer(
     return { ok: true, error: null, redirectTo };
   }
 
-  const { error } = await supabase.from("customers").update(patch).eq("id", id);
+  let acceptanceSaved = !!acceptance;
+  let { error } = await supabase.from("customers").update(patch).eq("id", id);
+  if (error && acceptance && /lead_acceptance|lead_assigned_by/i.test(error.message)) {
+    acceptanceSaved = false;
+    const plain = { ...patch };
+    delete plain.lead_acceptance;
+    delete plain.lead_acceptance_note;
+    delete plain.lead_acceptance_at;
+    delete plain.lead_assigned_by;
+    ({ error } = await supabase.from("customers").update(plain).eq("id", id));
+  }
   if (error) {
     console.error("[assignCustomer]", error.code);
     return {
@@ -743,37 +778,140 @@ export async function reassignCustomer(
     note: "Reassigned",
   });
 
+  let delivery = "";
+  if (acceptance?.lead_acceptance === "pending" && toUser && toUser !== user?.id) {
+    delivery = await notifySalespersonOfLead({
+      toEmail: assigneeEmail,
+      toPhone: assigneePhone,
+      customerName: (cust?.full_name as string) || "A new lead",
+      customerId: id,
+    });
+  }
+
   await supabase.from("activities").insert({
     customer_id: id,
     user_id: user?.id ?? null,
     type: "system",
     body: toUser
-      ? `Reassigned to ${toName ?? "a team member"}.`
+      ? `Assigned to ${toName ?? "a team member"}.${
+          acceptance?.lead_acceptance === "pending"
+            ? acceptanceSaved
+              ? ` They need to accept the lead. ${delivery}`
+              : " They were notified. Acceptance is waiting on the latest database update."
+            : ""
+        }`
       : "Owner unassigned.",
   });
 
-  // Best-effort heads-up to the new owner.
-  if (toUser && toUser !== user?.id) {
-    const { data: prof } = await supabase
-      .from("profiles")
-      .select("email")
-      .eq("id", toUser)
-      .maybeSingle();
-    if (prof?.email) {
-      await sendEmail({
-        to: prof.email,
-        subject: `Assigned to you: ${cust?.full_name ?? "a customer"}`,
-        html: emailLayout(
-          "A customer was assigned to you",
-          `<p>You're now the owner of <strong>${cust?.full_name ?? "a customer"}</strong>.</p>`,
-          { label: "Open customer", url: `${siteUrl()}/customers/${id}` },
-        ),
-      });
-    }
-  }
-
   refreshCustomerViews(id);
   return { ok: true, error: null, redirectTo };
+}
+
+function leadBack(customerId: string, message: string): never {
+  redirect(
+    `/customers/${customerId}?lead_error=${encodeURIComponent(message)}`,
+  );
+}
+
+/** The assigned salesperson takes the lead. A note is optional. */
+export async function acceptLead(formData: FormData): Promise<void> {
+  const customerId = str(formData.get("customer_id"));
+  if (!customerId) return;
+  const note = str(formData.get("note"));
+  const profile = await requireProfile();
+  if (profile.role !== "salesman" && profile.role !== "sales_manager") {
+    leadBack(customerId, "The assigned salesperson accepts this lead.");
+  }
+  const supabase = await createClient();
+  const { data: saved, error } = await supabase
+    .from("customers")
+    .update({
+      lead_acceptance: "accepted",
+      lead_acceptance_note: note || null,
+      lead_acceptance_at: new Date().toISOString(),
+    })
+    .eq("id", customerId)
+    .eq("assigned_to", profile.id)
+    .eq("lead_acceptance", "pending")
+    .select("id");
+  if (error || !saved?.length) {
+    leadBack(
+      customerId,
+      error && /lead_acceptance/i.test(error.message)
+        ? "Lead acceptance is not on the database yet. Run the latest update, then try again."
+        : "This lead could not be accepted. Refresh and try again.",
+    );
+  }
+  await supabase.from("activities").insert({
+    customer_id: customerId,
+    user_id: profile.id,
+    type: "system",
+    body: note ? `Accepted the lead. Note: ${note}` : "Accepted the lead.",
+  });
+  refreshCustomerViews(customerId);
+  redirect(`/customers/${customerId}`);
+}
+
+/** The assigned salesperson sends the lead back. A note is required. */
+export async function declineLead(formData: FormData): Promise<void> {
+  const customerId = str(formData.get("customer_id"));
+  if (!customerId) return;
+  const note = str(formData.get("note"));
+  if (!note) leadBack(customerId, "Add a note explaining why you can't take this lead.");
+  const profile = await requireProfile();
+  if (profile.role !== "salesman" && profile.role !== "sales_manager") {
+    leadBack(customerId, "The assigned salesperson declines this lead.");
+  }
+  const supabase = await createClient();
+  const { data: cust } = await supabase
+    .from("customers")
+    .select("assigned_to, full_name, workflow_owner_id, lead_acceptance")
+    .eq("id", customerId)
+    .maybeSingle();
+  if (
+    !cust ||
+    cust.assigned_to !== profile.id ||
+    cust.lead_acceptance !== "pending"
+  ) {
+    leadBack(customerId, "This lead is not waiting on you.");
+  }
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch {
+    leadBack(customerId, "This lead could not be sent back. Try again.");
+  }
+  const { error } = await admin
+    .from("customers")
+    .update({
+      assigned_to: null,
+      workflow_owner_id:
+        cust.workflow_owner_id === profile.id ? null : cust.workflow_owner_id,
+      lead_acceptance: "declined",
+      lead_acceptance_note: note,
+      lead_acceptance_at: new Date().toISOString(),
+    })
+    .eq("id", customerId)
+    .eq("assigned_to", profile.id)
+    .eq("lead_acceptance", "pending");
+  if (error) {
+    leadBack(customerId, "This lead could not be sent back. Refresh and try again.");
+  }
+  const who = profile.full_name || profile.email || "A salesperson";
+  await admin.from("activities").insert({
+    customer_id: customerId,
+    user_id: profile.id,
+    type: "system",
+    body: `${who} declined the lead. ${note}`,
+  });
+  await notifyOwnerLeadDeclined({
+    customerName: (cust.full_name as string) || "A lead",
+    customerId,
+    salespersonName: who,
+    note,
+  });
+  refreshCustomerViews(customerId);
+  redirect("/customers?acceptance=declined");
 }
 
 /** Type-to-search customer lookup for the quick "jump to customer" switcher. */

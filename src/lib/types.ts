@@ -269,6 +269,11 @@ export interface Customer {
   referred_by_customer_id: string | null; // referral: link to the existing customer who referred
   notes: string | null;
   assigned_to: string | null;
+  /** pending until the assigned salesperson accepts. Null on older rows. */
+  lead_acceptance?: "pending" | "accepted" | "declined" | null;
+  lead_acceptance_note?: string | null;
+  lead_acceptance_at?: string | null;
+  lead_assigned_by?: string | null;
   workflow_stage_id: string | null;
   workflow_owner_id: string | null;
   next_action_due: string | null;
