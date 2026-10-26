@@ -47,7 +47,10 @@ export default async function OrderMaterialsPage({
         title="Order materials"
         description="Every material on the estimate, grouped by the company it's ordered from. Check what to order, assign a company to anything unknown, then create the purchase orders."
       />
-      <OrderMaterials plan={plan} />
+      <OrderMaterials
+        plan={plan}
+        canOrder={profile.role === "admin" || profile.role === "office"}
+      />
     </div>
   );
 }

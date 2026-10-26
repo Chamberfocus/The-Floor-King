@@ -88,7 +88,14 @@ function Row({
   );
 }
 
-export function OrderMaterials({ plan }: { plan: EstimateOrderPlan }) {
+export function OrderMaterials({
+  plan,
+  canOrder = false,
+}: {
+  plan: EstimateOrderPlan;
+  /** Admin and office create the purchase orders. Other roles can review the list. */
+  canOrder?: boolean;
+}) {
   // Default: order every resolved-vendor line whose company doesn't already have
   // a PO, plus every unassigned line. From-stock lines start unchecked.
   const [selected, setSelected] = useState<Set<string>>(() => {
@@ -154,7 +161,10 @@ export function OrderMaterials({ plan }: { plan: EstimateOrderPlan }) {
   }
 
   return (
-    <form action={createPOsFromEstimateSelection} className="space-y-4 pb-24">
+    <form
+      action={canOrder ? createPOsFromEstimateSelection : undefined}
+      className="space-y-4 pb-24"
+    >
       {/* Unassigned — pick a company for each. */}
       {plan.unassigned.length > 0 ? (
         <Card className="border-amber-300 dark:border-amber-500/40">
@@ -314,13 +324,19 @@ export function OrderMaterials({ plan }: { plan: EstimateOrderPlan }) {
             </span>
             <span className="ml-1 text-muted-foreground">— one PO per company</span>
           </div>
-          <SubmitButton
-            disabled={checkedCount === 0}
-            pendingText="Creating…"
-            confirm="Purchase orders created"
-          >
-            <Boxes className="size-4" /> Create purchase orders
-          </SubmitButton>
+          {canOrder ? (
+            <SubmitButton
+              disabled={checkedCount === 0}
+              pendingText="Creating…"
+              confirm="Purchase orders created"
+            >
+              <Boxes className="size-4" /> Create purchase orders
+            </SubmitButton>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              The office creates these purchase orders.
+            </p>
+          )}
         </div>
       </div>
     </form>

@@ -138,6 +138,9 @@ async function applyOptionLinesAtomic(
   if (/could not find the function|schema cache|does not exist/i.test(error.message)) {
     return "Estimate line save requires database migration 0155. Run it in the Supabase SQL editor, then try again.";
   }
+  if (/not authorized/i.test(error.message)) {
+    return "You can save an estimate for a customer assigned to you. Office can save any estimate. If this customer is yours, apply the latest database update and try again.";
+  }
   console.error("[applyOptionLinesAtomic]", error.code);
   return employeeDbError(
     error.message,
@@ -198,7 +201,16 @@ export async function createEstimate(formData: FormData): Promise<void> {
     })
     .select("id")
     .single();
-  if (error || !estimate) return;
+  if (error || !estimate) {
+    const denied = /row-level security|42501|not authorized/i.test(error?.message ?? "");
+    redirect(
+      `/customers/${customerId}?estimate_error=${encodeURIComponent(
+        denied
+          ? "This customer is assigned to someone else. Ask the office to assign them to you, then start the estimate."
+          : "The estimate could not be started. Refresh and try again.",
+      )}`,
+    );
+  }
 
   await supabase
     .from("estimate_options")
@@ -1367,11 +1379,11 @@ export async function saveEstimateBuilderDraft(
   if (!estimateId) return { ok: false };
   try {
     const supabase = await createClient();
-    await supabase.from("estimate_builder_drafts").upsert(
+    const { error } = await supabase.from("estimate_builder_drafts").upsert(
       { estimate_id: estimateId, data, updated_at: new Date().toISOString() },
       { onConflict: "estimate_id" },
     );
-    return { ok: true };
+    return { ok: !error };
   } catch {
     return { ok: false };
   }

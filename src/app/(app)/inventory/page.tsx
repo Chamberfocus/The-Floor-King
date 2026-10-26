@@ -98,11 +98,13 @@ export default async function InventoryPage({
         title="Inventory"
         description="Track what's in stock, receive deliveries, and pull material for jobs."
       >
-        <form action={createStockPO}>
-          <Button type="submit">
-            <Boxes className="size-4" /> New stock PO
-          </Button>
-        </form>
+        {canStockPO ? (
+          <form action={createStockPO}>
+            <Button type="submit">
+              <Boxes className="size-4" /> New stock PO
+            </Button>
+          </form>
+        ) : null}
       </PageHeader>
 
       {/* New remnants awaiting a location + reusability call */}

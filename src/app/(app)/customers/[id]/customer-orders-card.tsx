@@ -39,11 +39,14 @@ export function CustomerOrdersCard({
   pos,
   stockPulls,
   attributed = [],
+  canCreate = false,
 }: {
   customerId: string;
   pos: PurchaseOrder[];
   stockPulls: StockPull[];
   attributed?: AttributedPoLine[];
+  /** Admin and office write purchase orders. Other roles only read this list. */
+  canCreate?: boolean;
 }) {
   const hasAny =
     pos.length > 0 || stockPulls.length > 0 || attributed.length > 0;
@@ -52,19 +55,21 @@ export function CustomerOrdersCard({
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <CardTitle className="text-base">Materials &amp; Orders</CardTitle>
-        <form action={createBlankPO}>
-          <input type="hidden" name="customer_id" value={customerId} />
-          <Button type="submit" variant="outline" size="sm">
-            <Plus className="size-3.5" /> New PO
-          </Button>
-        </form>
+        {canCreate ? (
+          <form action={createBlankPO}>
+            <input type="hidden" name="customer_id" value={customerId} />
+            <Button type="submit" variant="outline" size="sm">
+              <Plus className="size-3.5" /> New PO
+            </Button>
+          </form>
+        ) : null}
       </CardHeader>
       <CardContent className="space-y-3">
         {!hasAny ? (
           <p className="text-sm text-muted-foreground">
-            No material orders yet. Approve an estimate to generate purchase
-            orders automatically, or start one with{" "}
-            <span className="font-medium">New PO</span>.
+            {canCreate
+              ? "No material orders yet. Start one with New PO, or build them from an approved estimate."
+              : "No material orders yet. The office starts purchase orders for this customer."}
           </p>
         ) : null}
 

@@ -407,6 +407,7 @@ export async function resyncPoCarpet(poId: string): Promise<void> {
 export async function createPOFromEstimate(formData: FormData): Promise<void> {
   const estimateId = str(formData.get("estimate_id"));
   if (!estimateId) return;
+  await assertRole(["admin", "office"]);
 
   const supabase = await createClient();
 
@@ -615,6 +616,11 @@ export async function createPOFromEstimate(formData: FormData): Promise<void> {
 export async function createPOsFromEstimateSelection(
   formData: FormData,
 ): Promise<void> {
+  try {
+    await assertRole(["admin", "office"]);
+  } catch {
+    redirect("/");
+  }
   const estimateId = str(formData.get("estimate_id"));
   if (!estimateId) return;
   const lineIds = formData.getAll("line").map(String).filter(Boolean);
@@ -811,6 +817,11 @@ export async function savePurchaseOrder(
   poId: string,
   input: SavePoInput,
 ): Promise<{ error: string | null }> {
+  try {
+    await assertRole(["admin", "office"]);
+  } catch {
+    return { error: "Only the office can change a purchase order." };
+  }
   const supabase = await createClient();
 
   // Vendors must be real records: a PO can't be ISSUED (Open/Received/Closed —
@@ -964,6 +975,7 @@ export async function setPurchaseOrderStatus(
   const id = str(formData.get("id"));
   const status = str(formData.get("status")) as PoStatus;
   if (!id || !status) return;
+  await assertRole(["admin", "office"]);
   await applyPoStatus(await createClient(), id, status);
 }
 
@@ -1147,6 +1159,7 @@ export async function voidPurchaseOrder(formData: FormData): Promise<void> {
 
 /** Start a blank PO straight from a customer's file (PO follows the customer). */
 export async function createBlankPO(formData: FormData): Promise<void> {
+  await assertRole(["admin", "office"]);
   const customerId = str(formData.get("customer_id")) || null;
   const supabase = await createClient();
   const blankBlocked = await refuseNewActiveWorkForCustomer(supabase, customerId);
