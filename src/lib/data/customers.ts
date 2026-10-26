@@ -349,6 +349,8 @@ type CustomerListOpts = {
   cancelledOnly?: boolean;
   /** Hide cancelled jobs (keeps the active/closed lists clean). */
   excludeCancelled?: boolean;
+  /** pending = waiting on the salesperson. declined = sent back with a note. */
+  acceptance?: "pending" | "declined";
 };
 
 function applyCustomerListFilters(
@@ -378,6 +380,7 @@ function applyCustomerListFilters(
     q = q
       .not("next_action_due", "is", null)
       .lt("next_action_due", new Date().toISOString());
+  if (opts.acceptance) q = q.eq("lead_acceptance", opts.acceptance);
   return q;
 }
 
@@ -509,10 +512,18 @@ export async function listCustomersPage(
       throw new Error(QUEUE_LIST_UNAVAILABLE);
     }
     const order = new Map(found.ids.map((id, index) => [id, index]));
-    const rows = uniqueCustomersById((data ?? []) as Customer[]).sort(
+    let rows = uniqueCustomersById((data ?? []) as Customer[]).sort(
       (a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0),
     );
-    return { rows, total: found.total, page: found.page, pageSize };
+    if (opts.acceptance) {
+      rows = rows.filter((row) => row.lead_acceptance === opts.acceptance);
+    }
+    return {
+      rows,
+      total: opts.acceptance ? rows.length : found.total,
+      page: found.page,
+      pageSize,
+    };
   }
   const supabase = await createClient();
   const counted = await applyCustomerListFilters(

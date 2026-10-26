@@ -12,6 +12,8 @@ import {
 } from "@/lib/work-queues";
 
 export type HomeCommandId =
+  | "leads"
+  | "declines"
   | "followups"
   | "estimates"
   | "material"
@@ -47,9 +49,32 @@ const FOLLOWUPS = new Set<UserRole>([
   "salesman",
   "scheduler",
 ]);
+const LEAD_ACCEPT = new Set<UserRole>([
+  "admin",
+  "office",
+  "sales_manager",
+  "salesman",
+]);
+const LEAD_DECLINE = new Set<UserRole>(["admin", "office", "sales_manager"]);
 
 export function homeCommandsForRole(role: UserRole): HomeCommandSpec[] {
   const specs: HomeCommandSpec[] = [];
+  if (LEAD_ACCEPT.has(role)) {
+    specs.push({
+      id: "leads",
+      href: "/customers?acceptance=pending",
+      singular: role === "salesman" ? "lead to accept" : "lead waiting on a salesperson",
+      plural: role === "salesman" ? "leads to accept" : "leads waiting on a salesperson",
+    });
+  }
+  if (LEAD_DECLINE.has(role)) {
+    specs.push({
+      id: "declines",
+      href: "/customers?acceptance=declined",
+      singular: "lead was declined",
+      plural: "leads were declined",
+    });
+  }
   if (FOLLOWUPS.has(role)) {
     specs.push({
       id: "followups",

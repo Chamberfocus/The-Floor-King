@@ -337,5 +337,16 @@ export async function createCustomerSafe(
     };
   }
 
+  if (profile.role === "salesman" || profile.role === "sales_manager") {
+    await supabase
+      .from("customers")
+      .update({
+        lead_acceptance: "accepted",
+        lead_acceptance_at: new Date().toISOString(),
+        lead_assigned_by: profile.id,
+      })
+      .eq("id", data.id);
+  }
+
   redirect("/home");
 }

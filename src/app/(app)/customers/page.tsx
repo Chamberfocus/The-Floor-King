@@ -15,6 +15,7 @@ import { getSchedulingSettings } from "@/lib/data/scheduling";
 import { getUserPreferences } from "@/lib/data/preferences";
 import { requireProfile } from "@/lib/auth";
 import { SALES_ROLES, INSTALL_ROLES } from "@/lib/types";
+import { seesEveryLead } from "@/lib/lead-acceptance";
 import { parseArrivalWindows } from "@/lib/format";
 import { CustomerList, type ListShared } from "./customer-list";
 
@@ -30,6 +31,7 @@ export default async function CustomersPage({
     stuck?: string;
     view?: string;
     page?: string;
+    acceptance?: string;
   }>;
 }) {
   const sp = await searchParams;
@@ -42,10 +44,14 @@ export default async function CustomersPage({
   const stuck = sp.stuck === "1";
 
   const profile = await requireProfile();
-  const isAdmin = profile.role === "admin";
-  // Admins can filter the list down to one salesperson's book, or to clients
-  // that still have no salesperson ("unassigned").
-  const owner = isAdmin ? sp.owner?.trim() || undefined : undefined;
+  const seesAllLeads = seesEveryLead(profile.role);
+  // The owner, office, and a sales manager see every lead and can filter to one
+  // salesperson, to nobody yet, or to leads still waiting on an acceptance.
+  const owner = seesAllLeads ? sp.owner?.trim() || undefined : undefined;
+  const acceptance =
+    sp.acceptance === "pending" || sp.acceptance === "declined"
+      ? sp.acceptance
+      : undefined;
   const unassignedOnly = owner === "unassigned";
 
   // Load stages first so we can hide "Closed" customers from the active list by
@@ -96,6 +102,7 @@ export default async function CustomersPage({
       // still spans cancelled so past customers are findable.
       cancelledOnly: view === "cancelled" && !q,
       excludeCancelled: !q && (view === "active" || view === "closed"),
+      acceptance,
       page: parseListPage(sp.page),
     });
   } catch (error) {
@@ -145,6 +152,7 @@ export default async function CustomersPage({
       if (stage) params.set("stage", stage);
       if (owner) params.set("owner", owner);
       if (stuck) params.set("stuck", "1");
+      if (acceptance) params.set("acceptance", acceptance);
       if (view !== "active") params.set("view", view);
       if (listed.page > 1) params.set("page", String(listed.page));
       const qs = params.toString();
@@ -159,10 +167,22 @@ export default async function CustomersPage({
     if (stage) params.set("stage", stage);
     if (owner) params.set("owner", owner);
     if (!stuck) params.set("stuck", "1");
+    if (acceptance) params.set("acceptance", acceptance);
     if (view !== "active") params.set("view", view);
     const qs = params.toString();
     return qs ? `/customers?${qs}` : "/customers";
   })();
+  const acceptanceHref = (next: "pending" | "declined") => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (stage) params.set("stage", stage);
+    if (owner) params.set("owner", owner);
+    if (stuck) params.set("stuck", "1");
+    if (view !== "active") params.set("view", view);
+    if (acceptance !== next) params.set("acceptance", next);
+    const qs = params.toString();
+    return qs ? `/customers?${qs}` : "/customers";
+  };
 
   // Active | Closed | All tabs — preserve search/owner/stuck, drop the specific
   // stage filter (the tab is the high-level stage control).
@@ -171,6 +191,7 @@ export default async function CustomersPage({
     if (q) params.set("q", q);
     if (owner) params.set("owner", owner);
     if (stuck) params.set("stuck", "1");
+    if (acceptance) params.set("acceptance", acceptance);
     if (v !== "active") params.set("view", v);
     const qs = params.toString();
     return qs ? `/customers?${qs}` : "/customers";
@@ -187,9 +208,13 @@ export default async function CustomersPage({
       <PageHeader
         title="Customers"
         description={
-          listed.total
-            ? `${resultCountLabel(customers.length, listed.total, "customer")} — one row per customer.`
-            : "Everyone in your pipeline — leads and customers alike."
+          seesAllLeads
+            ? listed.total
+              ? `${resultCountLabel(customers.length, listed.total, "lead")} — every lead is on this list.`
+              : "Every lead is on this list. Assign one and the salesperson has to accept it."
+            : listed.total
+              ? `${resultCountLabel(customers.length, listed.total, "customer")} — one row per customer.`
+              : "Your leads and customers."
         }
       >
         <div className="flex gap-2">
@@ -247,7 +272,7 @@ export default async function CustomersPage({
             ...stages.map((s) => ({ value: s.id, label: s.name })),
           ]}
         />
-        {isAdmin ? (
+        {seesAllLeads ? (
           <SearchPicker
             className="w-48"
             name="owner"
@@ -276,9 +301,30 @@ export default async function CustomersPage({
               : "border-destructive/40 text-destructive hover:bg-destructive/10",
           })}
         >
-          <AlertTriangle className="size-4" /> Follow-ups due{stuck ? " ✓" : ""}
+          <AlertTriangle className="size-4" />           Follow-ups due{stuck ? " ✓" : ""}
         </Link>
-        {(q || stage || owner || stuck) && (
+        <Link
+          href={acceptanceHref("pending")}
+          className={buttonVariants({
+            variant: acceptance === "pending" ? "default" : "outline",
+            size: "lg",
+          })}
+        >
+          {seesAllLeads ? "Waiting on acceptance" : "Leads to accept"}
+          {acceptance === "pending" ? " ✓" : ""}
+        </Link>
+        {seesAllLeads ? (
+          <Link
+            href={acceptanceHref("declined")}
+            className={buttonVariants({
+              variant: acceptance === "declined" ? "default" : "outline",
+              size: "lg",
+            })}
+          >
+            Sent back{acceptance === "declined" ? " ✓" : ""}
+          </Link>
+        ) : null}
+        {(q || stage || owner || stuck || acceptance) && (
           <Link
             href="/customers"
             className={buttonVariants({ variant: "ghost", size: "lg" })}
@@ -294,21 +340,25 @@ export default async function CustomersPage({
         <EmptyState
           icon={Users}
           title={
-            q || stage || owner || stuck
+            q || stage || owner || stuck || acceptance
               ? stuck
                 ? "No follow-ups are due."
-                : q
-                  ? "No customers match this search."
-                  : "No customers match these filters."
+                : acceptance === "pending"
+                  ? "No leads are waiting to be accepted."
+                  : acceptance === "declined"
+                    ? "No leads have been sent back."
+                    : q
+                      ? "No customers match this search."
+                      : "No customers match these filters."
               : "No customers yet"
           }
           description={
-            q || stage || owner || stuck
+            q || stage || owner || stuck || acceptance
               ? undefined
               : "Add your first lead to get started."
           }
           action={
-            !q && !stage && !owner && !stuck ? (
+            !q && !stage && !owner && !stuck && !acceptance ? (
               <Link href="/customers/new" className={buttonVariants({})}>
                 <Plus className="size-4" /> Add customer
               </Link>
@@ -321,7 +371,7 @@ export default async function CustomersPage({
           contexts={contexts}
           activity={activity}
           shared={shared}
-          isAdmin={isAdmin}
+          isAdmin={seesAllLeads}
         />
       )}
       <WorkQueuePager
@@ -333,6 +383,7 @@ export default async function CustomersPage({
           if (stage) params.set("stage", stage);
           if (owner) params.set("owner", owner);
           if (stuck) params.set("stuck", "1");
+          if (acceptance) params.set("acceptance", acceptance);
           if (view !== "active") params.set("view", view);
           if (page > 1) params.set("page", String(page));
           const qs = params.toString();

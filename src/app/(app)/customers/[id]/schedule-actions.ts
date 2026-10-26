@@ -14,6 +14,7 @@ import { sendSms } from "@/lib/sms";
 import { advanceFromAutoAction } from "@/lib/workflow-engine";
 import { parseArrivalWindows, to12, formatDate, type ArrivalWindow } from "@/lib/format";
 import { todayLocalYmd } from "@/lib/booking";
+import { leadEstimateBlock } from "@/lib/lead-acceptance-guard";
 
 export interface SuggestResult {
   error: string | null;
@@ -64,6 +65,10 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
   // Land back on the customer file by default; the LIST passes its own URL.
   const redirectTo = str(formData.get("redirect_to")) || null;
   if (!customerId || !date || !time) return;
+  const leadBlock = await leadEstimateBlock(customerId);
+  if (leadBlock) {
+    redirect(`/customers/${customerId}?estimate_error=${encodeURIComponent(leadBlock)}`);
+  }
 
   const supabase = await createClient();
   const {
