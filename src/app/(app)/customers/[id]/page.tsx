@@ -201,6 +201,7 @@ export default async function CustomerPage({
     invoice_error?: string;
     stage_error?: string;
     customer_error?: string;
+    estimate_error?: string;
     notify?: string;
     notify_detail?: string;
   }>;
@@ -215,6 +216,7 @@ export default async function CustomerPage({
   const invoiceError = sp.invoice_error?.trim() || null;
   const stageError = sp.stage_error?.trim() || null;
   const customerError = sp.customer_error?.trim() || null;
+  const estimateError = sp.estimate_error?.trim() || null;
   const notify = sp.notify?.trim() || null;
   const notifyDetail = sp.notify_detail?.trim() || null;
   // The checklist links straight AT the scheduler ("?schedule=estimate"), so
@@ -830,6 +832,14 @@ export default async function CustomerPage({
           className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
         >
           {customerError}
+        </div>
+      ) : null}
+      {estimateError ? (
+        <div
+          role="alert"
+          className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
+          {estimateError}
         </div>
       ) : null}
       {notify === "success" ? (
@@ -1822,6 +1832,7 @@ export default async function CustomerPage({
               pos={customerPOs}
               stockPulls={stockPulls}
               attributed={attributedPoLines}
+              canCreate={profile.role === "admin" || profile.role === "office"}
             />
           </TabSection>
 
