@@ -62,6 +62,7 @@ import {
   UNIT_OPTIONS,
 } from "@/lib/units";
 import { lineColorFromCatalog } from "@/lib/catalog-identity";
+import { subfloorSheetCost } from "@/lib/price-book";
 import { catalogLineSnapshot, catalogToLineMeasure, PRICE_NEEDED } from "@/lib/catalog-pricing";
 import { productLabel } from "@/lib/product-label";
 import {
@@ -183,6 +184,26 @@ const rowHasDims = (m: MeasureRow): boolean =>
   ftInToIn(m.len_ft, m.len_in) > 0 && ftInToIn(m.wid_ft, m.wid_in) > 0;
 
 const round2s = (n: number) => String(Math.round(n * 100) / 100);
+/**
+ * A subfloor line that was stored as one installed rate still needs a cost
+ * and a sell. Move it onto material pricing, keeping the rate already typed.
+ */
+function revealLine(key: string) {
+  window.setTimeout(() => {
+    document.getElementById(`eline-${key}`)?.scrollIntoView({ block: "center" });
+  }, 0);
+}
+
+function subfloorAsMaterial(l: LineState): LineState {
+  if (!isSubfloor(l) || l.line_type === "mat_labor") return l;
+  return {
+    ...l,
+    line_type: "mat_labor",
+    material_rate: num(l.material_rate) > 0 ? l.material_rate : l.installed_rate,
+    installed_rate: "",
+  };
+}
+
 /** A line's effective margin — its own override, else the estimate overall. */
 function effMargin(l: LineState, overall: number): number {
   return l.margin_pct.trim() !== "" ? num(l.margin_pct) : overall;
@@ -225,16 +246,30 @@ function isLaborLine(l: LineState): boolean {
 /** Subfloor / underlayment sheet goods — priced by the sheet, valid under carpet
  *  or hard surface. "Confirm on site" leaves the count/price to fill in later. */
 const SUBFLOOR_OPTIONS = [
-  '1/4" Plywood',
-  '3/8" Plywood',
-  '1/2" Plywood',
-  '3/4" Plywood',
+  '1/4" subfloor',
+  '3/8" subfloor',
+  '1/2" subfloor',
+  '5/8" subfloor',
+  '3/4" subfloor',
   "Custom",
   "Confirm on job site",
 ] as const;
 /** A subfloor line is underlayment priced by the sheet. */
 function isSubfloor(l: LineState): boolean {
   return l.category === "underlayment" && l.unit === "sheet";
+}
+
+/** Sell box for an add-on. Installed lines bill `installed_rate`; a subfloor
+ *  that is still on that old type shows it until a cost or sell converts it. */
+function directSellValue(l: LineState): string {
+  if (l.line_type === "flat") return l.flat_amount;
+  if (isLaborLine(l)) return l.labor_rate;
+  if (isSubfloor(l)) {
+    if (l.line_type === "installed" && !(num(l.material_rate) > 0)) return l.installed_rate;
+    return l.material_rate;
+  }
+  if (l.line_type === "installed") return l.installed_rate;
+  return l.material_rate;
 }
 
 /** A COUNT-priced line: billed by the each / bag / linear ft… (an explicit
@@ -369,6 +404,67 @@ function LabeledNumber({
           className={cn(inputSm, width, prefix && "pl-5")}
         />
       </div>
+    </div>
+  );
+}
+
+/** Cost, sell, and quantity on the line itself — not only inside the side panel. */
+function DirectPriceBar({
+  line,
+  sUnit,
+  onQuantity,
+  onSqft,
+  onCost,
+  onSell,
+}: {
+  line: LineState;
+  sUnit: string;
+  onQuantity: (v: string) => void;
+  onSqft: (sqft: string) => void;
+  onCost: (v: string) => void;
+  onSell: (v: string) => void;
+}) {
+  const priceLabor = isLaborLine(line);
+  const yards = normalizeUnit(line.unit) === "sqyd";
+  const areaValue =
+    yards && num(line.sqft) > 0 ? String(Math.round((num(line.sqft) / 9) * 100) / 100) : line.sqft;
+  return (
+    <div className="flex flex-wrap items-end gap-3 border-t bg-muted/20 px-4 py-3">
+      {line.line_type === "flat" ? null : isSubfloor(line) || isCountLine(line) ? (
+        <LabeledNumber
+          label={isSubfloor(line) ? "# Sheets" : quantityCaption(unitLabel(line.unit) || line.unit || "qty")}
+          width="w-24"
+          value={line.quantity}
+          onChange={onQuantity}
+        />
+      ) : (
+        <LabeledNumber
+          label={yards ? "Sq yd" : "Sq ft"}
+          width="w-24"
+          value={yards ? areaValue : line.sqft}
+          onChange={(v) =>
+            onSqft(
+              yards ? (v.trim() === "" ? "" : String(Math.round(num(v) * 9 * 100) / 100)) : v,
+            )
+          }
+        />
+      )}
+      <LabeledNumber
+        label={priceLabor || line.line_type === "flat" ? "Our cost" : `Our cost${sUnit ? ` / ${sUnit}` : ""}`}
+        prefix="$"
+        width="w-28"
+        value={priceLabor ? line.labor_cost : line.material_cost}
+        onChange={onCost}
+      />
+      <LabeledNumber
+        label={
+          line.line_type === "flat" ? "Amount" : priceLabor ? "Sell" : `Sell${sUnit ? ` / ${sUnit}` : ""}`
+        }
+        prefix="$"
+        width="w-28"
+        value={directSellValue(line)}
+        onChange={onSell}
+      />
     </div>
   );
 }
@@ -830,25 +926,35 @@ export function EstimateBuilder({
     setOptions((prev) =>
       prev.map((o, i) => (i === oi ? { ...o, lines: [...o.lines, line] } : o)),
     );
-    setActiveLine(line.key);
+    // Leave the line on the page. Cost and sell are on the card — opening the
+    // side panel hid them, so an add-on stayed on PRICE NEEDED.
+    revealLine(line.key);
   };
 
   /** Add a subfloor line (underlayment, priced by the sheet). */
   const addSubfloor = (oi: number, label: string) => {
     const confirm = label === "Confirm on job site";
-    const line: LineState = {
+    const book = confirm ? null : subfloorSheetCost(label);
+    let line: LineState = {
       ...emptyLine(),
       category: "underlayment",
       room: activeArea,
       unit: "sheet",
-      line_type: "installed",
+      line_type: "mat_labor",
       description: confirm ? "Subfloor — confirm thickness & sheets on site" : `Subfloor — ${label}`,
+      material_cost: book != null ? String(book) : "",
       quantity: "",
     };
+    if (book != null) {
+      line = {
+        ...line,
+        ...ratesFromMargin(line, num(overallMargin), org?.freight_markup_pct ?? 0),
+      };
+    }
     setOptions((prev) =>
       prev.map((o, i) => (i === oi ? { ...o, lines: [...o.lines, line] } : o)),
     );
-    setActiveLine(line.key);
+    revealLine(line.key);
   };
 
   const addNamedArea = (name: string) => {
@@ -1334,7 +1440,8 @@ export function EstimateBuilder({
               ...o,
               lines: o.lines.map((l, j) => {
                 if (j !== li) return l;
-                const merged = { ...l, [field]: v };
+                const base = subfloorAsMaterial(l);
+                const merged = { ...base, [field]: v };
                 return { ...merged, ...ratesFromMargin(merged, effMargin(merged, num(overallMargin)), org?.freight_markup_pct ?? 0) };
               }),
             }
@@ -1351,7 +1458,7 @@ export function EstimateBuilder({
               ...o,
               lines: o.lines.map((l, j) => {
                 if (j !== li) return l;
-                const merged = { ...l, [field]: v };
+                const merged = { ...subfloorAsMaterial(l), [field]: v };
                 const cost =
                   field === "material_rate"
                     ? landedMaterialForTarget(
@@ -1368,6 +1475,20 @@ export function EstimateBuilder({
           : o,
       ),
     );
+
+  // Add-on sell. Flat and installed lines bill those fields; everything else
+  // bills material or labor sell (a leftover installed subfloor converts).
+  const applyDirectSell = (oi: number, li: number, line: LineState, v: string) => {
+    if (line.line_type === "flat") {
+      updateLine(oi, li, { flat_amount: v });
+      return;
+    }
+    if (line.line_type === "installed" && !isSubfloor(line)) {
+      updateLine(oi, li, { installed_rate: v });
+      return;
+    }
+    changeLineSell(oi, li, isLaborLine(line) ? "labor_rate" : "material_rate", v);
+  };
 
   // Persist a flooring line's measured pieces and derive its square footage from
   // them (the list is the source of truth). The primary cut (first add-piece) is
@@ -2833,6 +2954,11 @@ export function EstimateBuilder({
                   // at-a-glance identity, so it stays an essential for these.
                   const isFlooring =
                     isRollGoodCategory(line.category) || isHardSurfaceCategory(line.category);
+                  // Subfloor and every add-on (material, labor, or a flat fee) get
+                  // cost and sell on the card. A catalog flooring line keeps its
+                  // own takeoff — this is the path that was stuck on PRICE NEEDED.
+                  const directPrice = isSubfloor(line) || (!line.product_id && !isFlooring);
+                  const priceLabor = isLaborLine(line);
                   // Header name: the description, else the product's identity, else
                   // the category — so a real product line never reads "Untitled".
                   const displayName =
@@ -2845,7 +2971,7 @@ export function EstimateBuilder({
                       ? line.category.charAt(0).toUpperCase() + line.category.slice(1)
                       : "");
                   return (
-                    <div key={line.key} className="overflow-hidden rounded-xl border bg-card">
+                    <div key={line.key} id={`eline-${line.key}`} className="overflow-hidden rounded-xl border bg-card">
                       {/* Summary row — tap to edit */}
                       <button
                         type="button"
@@ -2929,15 +3055,35 @@ export function EstimateBuilder({
                               material_rate: line.material_rate,
                               material_cost: line.material_cost,
                               labor_rate: line.labor_rate,
+                              installed_rate: line.installed_rate,
+                              flat_amount: line.flat_amount,
                             })
                               ? PRICE_NEEDED
-                              : formatMoney(sSell)}
+                              : directPrice &&
+                                  line.line_type !== "flat" &&
+                                  sQty <= 0 &&
+                                  num(directSellValue(line)) > 0
+                                ? `${formatMoney(num(directSellValue(line)))}${sUnit ? ` / ${sUnit}` : ""}`
+                                : formatMoney(sSell)}
                           </div>
                           {sCost > 0 ? (
                             <div className="text-xs tabular-nums text-muted-foreground">{Math.round(sMargin)}% margin</div>
                           ) : null}
                         </div>
                       </button>
+
+                      {directPrice ? (
+                        <DirectPriceBar
+                          line={line}
+                          sUnit={sUnit}
+                          onQuantity={(v) => updateLine(oi, li, { quantity: v })}
+                          onSqft={(sqft) => updateLine(oi, li, { sqft, quantity: "" })}
+                          onCost={(v) =>
+                            changeLineCost(oi, li, priceLabor ? "labor_cost" : "material_cost", v)
+                          }
+                          onSell={(v) => applyDirectSell(oi, li, line, v)}
+                        />
+                      ) : null}
 
                       {/* Editor — opens in a focused side panel, one line at a
                           time, so you're never editing the whole page at once. */}
@@ -2957,6 +3103,18 @@ export function EstimateBuilder({
                             </SheetTitle>
                           </SheetHeader>
                           <div className="space-y-4 p-4">
+                        {directPrice ? (
+                          <DirectPriceBar
+                            line={line}
+                            sUnit={sUnit}
+                            onQuantity={(v) => updateLine(oi, li, { quantity: v })}
+                            onSqft={(sqft) => updateLine(oi, li, { sqft, quantity: "" })}
+                            onCost={(v) =>
+                              changeLineCost(oi, li, priceLabor ? "labor_cost" : "material_cost", v)
+                            }
+                            onSell={(v) => applyDirectSell(oi, li, line, v)}
+                          />
+                        ) : null}
                         {/* 1 · PRODUCT — the single per-line search. Shows the
                             picked product and lets you swap it; the section-top
                             box is the only place that ADDS a new line. */}
@@ -3327,8 +3485,10 @@ export function EstimateBuilder({
                           )
                         ) : null}
 
-                        {/* 4 · PRICE — cost / margin / sell (or installed / flat). */}
-                        {line.line_type === "mat_labor" ? (
+                        {/* 4 · PRICE — cost / margin / sell (or installed / flat).
+                            Subfloor always gets cost and sell, even when an
+                            older line was stored as one installed rate. */}
+                        {line.line_type === "mat_labor" || isSubfloor(line) ? (
                           (() => {
                             const labor = isLaborLine(line);
                             const unitLbl = lineDisplayUnit(line);
@@ -3361,7 +3521,15 @@ export function EstimateBuilder({
                                     label={`Sell /${unitLbl}`}
                                     prefix="$"
                                     width="w-full"
-                                    value={labor ? line.labor_rate : line.material_rate}
+                                    value={
+                                      labor
+                                        ? line.labor_rate
+                                        : isSubfloor(line) &&
+                                            line.line_type === "installed" &&
+                                            !(num(line.material_rate) > 0)
+                                          ? line.installed_rate
+                                          : line.material_rate
+                                    }
                                     onChange={(v) => changeLineSell(oi, li, labor ? "labor_rate" : "material_rate", v)}
                                   />
                                 </div>
@@ -3383,9 +3551,11 @@ export function EstimateBuilder({
                                   material_rate: line.material_rate,
                                   material_cost: line.material_cost,
                                   labor_rate: line.labor_rate,
+                                  installed_rate: line.installed_rate,
+                                  flat_amount: line.flat_amount,
                                 }) ? (
                                   <p className="text-xs font-medium text-amber-700">
-                                    PRICE NEEDED — this product has no catalog or vendor cost on file.
+                                    PRICE NEEDED — type our cost or a sell price. It does not have to come from the catalog.
                                   </p>
                                 ) : null}
                                 {/* Save scope — one-off by default so tweaking a
@@ -3491,27 +3661,46 @@ export function EstimateBuilder({
                           })()
                         ) : null}
 
-                        {line.line_type === "installed" ? (
-                          <LabeledNumber
-                            label={
-                              isSubfloor(line)
-                                ? "$ / sheet (installed)"
-                                : `Installed /${lineDisplayUnit(line)}`
-                            }
-                            prefix="$"
-                            value={line.installed_rate}
-                            onChange={(v) => updateLine(oi, li, { installed_rate: v })}
-                          />
+                        {line.line_type === "installed" && !isSubfloor(line) ? (
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <LabeledNumber
+                              label={`Our cost /${lineDisplayUnit(line)}`}
+                              prefix="$"
+                              width="w-full"
+                              value={priceLabor ? line.labor_cost : line.material_cost}
+                              onChange={(v) =>
+                                changeLineCost(oi, li, priceLabor ? "labor_cost" : "material_cost", v)
+                              }
+                            />
+                            <LabeledNumber
+                              label={`Installed /${lineDisplayUnit(line)}`}
+                              prefix="$"
+                              width="w-full"
+                              value={line.installed_rate}
+                              onChange={(v) => updateLine(oi, li, { installed_rate: v })}
+                            />
+                          </div>
                         ) : null}
 
                         {line.line_type === "flat" ? (
-                          <LabeledNumber
-                            label="Flat amount"
-                            prefix="$"
-                            width="w-32"
-                            value={line.flat_amount}
-                            onChange={(v) => updateLine(oi, li, { flat_amount: v })}
-                          />
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <LabeledNumber
+                              label="Our cost"
+                              prefix="$"
+                              width="w-full"
+                              value={priceLabor ? line.labor_cost : line.material_cost}
+                              onChange={(v) =>
+                                changeLineCost(oi, li, priceLabor ? "labor_cost" : "material_cost", v)
+                              }
+                            />
+                            <LabeledNumber
+                              label="Amount"
+                              prefix="$"
+                              width="w-full"
+                              value={line.flat_amount}
+                              onChange={(v) => updateLine(oi, li, { flat_amount: v })}
+                            />
+                          </div>
                         ) : null}
 
                         {/* MORE OPTIONS — everything advanced/rarely-used, tucked

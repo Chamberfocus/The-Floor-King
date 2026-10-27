@@ -124,3 +124,18 @@ export const PRICE_BOOK: PriceGroup[] = [
 
 /** Flat list of every price-book item (for search / lookup). */
 export const PRICE_BOOK_ITEMS: PriceItem[] = PRICE_BOOK.flatMap((g) => g.items);
+
+/**
+ * Starting sheet cost for a subfloor line. Matches "1/2\" Plywood" and
+ * "1/2\" subfloor" to the same price-book row. Null when the label has no
+ * thickness — the estimator types the cost.
+ */
+export function subfloorSheetCost(label: string): number | null {
+  const thick = label.match(/\d+\s*\/\s*\d+/)?.[0]?.replace(/\s+/g, "");
+  if (!thick) return null;
+  const item = PRICE_BOOK_ITEMS.find((i) => {
+    const name = i.label.replace(/\s+/g, "").toLowerCase();
+    return name.startsWith(thick) && name.includes("subfloor");
+  });
+  return item && item.cost > 0 ? item.cost : null;
+}
