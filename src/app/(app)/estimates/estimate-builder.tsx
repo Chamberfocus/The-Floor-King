@@ -412,6 +412,7 @@ function LabeledNumber({
 function DirectPriceBar({
   line,
   sUnit,
+  showQty = true,
   onQuantity,
   onSqft,
   onCost,
@@ -419,6 +420,8 @@ function DirectPriceBar({
 }: {
   line: LineState;
   sUnit: string;
+  /** Add-ons edit quantity here. Flooring keeps its own takeoff. */
+  showQty?: boolean;
   onQuantity: (v: string) => void;
   onSqft: (sqft: string) => void;
   onCost: (v: string) => void;
@@ -430,14 +433,14 @@ function DirectPriceBar({
     yards && num(line.sqft) > 0 ? String(Math.round((num(line.sqft) / 9) * 100) / 100) : line.sqft;
   return (
     <div className="flex flex-wrap items-end gap-3 border-t bg-muted/20 px-4 py-3">
-      {line.line_type === "flat" ? null : isSubfloor(line) || isCountLine(line) ? (
+      {showQty && line.line_type !== "flat" && (isSubfloor(line) || isCountLine(line)) ? (
         <LabeledNumber
           label={isSubfloor(line) ? "# Sheets" : quantityCaption(unitLabel(line.unit) || line.unit || "qty")}
           width="w-24"
           value={line.quantity}
           onChange={onQuantity}
         />
-      ) : (
+      ) : showQty && line.line_type !== "flat" ? (
         <LabeledNumber
           label={yards ? "Sq yd" : "Sq ft"}
           width="w-24"
@@ -448,7 +451,7 @@ function DirectPriceBar({
             )
           }
         />
-      )}
+      ) : null}
       <LabeledNumber
         label={priceLabor || line.line_type === "flat" ? "Our cost" : `Our cost${sUnit ? ` / ${sUnit}` : ""}`}
         prefix="$"
@@ -2954,9 +2957,8 @@ export function EstimateBuilder({
                   // at-a-glance identity, so it stays an essential for these.
                   const isFlooring =
                     isRollGoodCategory(line.category) || isHardSurfaceCategory(line.category);
-                  // Subfloor and every add-on (material, labor, or a flat fee) get
-                  // cost and sell on the card. A catalog flooring line keeps its
-                  // own takeoff — this is the path that was stuck on PRICE NEEDED.
+                  // Every item shows our cost and sell on the card. Add-ons also
+                  // edit quantity here. Flooring keeps its cut list / takeoff.
                   const directPrice = isSubfloor(line) || (!line.product_id && !isFlooring);
                   const priceLabor = isLaborLine(line);
                   // Header name: the description, else the product's identity, else
@@ -3066,24 +3068,24 @@ export function EstimateBuilder({
                                 ? `${formatMoney(num(directSellValue(line)))}${sUnit ? ` / ${sUnit}` : ""}`
                                 : formatMoney(sSell)}
                           </div>
-                          {sCost > 0 ? (
-                            <div className="text-xs tabular-nums text-muted-foreground">{Math.round(sMargin)}% margin</div>
-                          ) : null}
+                          <div className="text-xs tabular-nums text-muted-foreground">
+                            Cost {sCost > 0 ? formatMoney(sCost) : "—"}
+                            {sCost > 0 ? ` · ${Math.round(sMargin)}%` : ""}
+                          </div>
                         </div>
                       </button>
 
-                      {directPrice ? (
-                        <DirectPriceBar
-                          line={line}
-                          sUnit={sUnit}
-                          onQuantity={(v) => updateLine(oi, li, { quantity: v })}
-                          onSqft={(sqft) => updateLine(oi, li, { sqft, quantity: "" })}
-                          onCost={(v) =>
-                            changeLineCost(oi, li, priceLabor ? "labor_cost" : "material_cost", v)
-                          }
-                          onSell={(v) => applyDirectSell(oi, li, line, v)}
-                        />
-                      ) : null}
+                      <DirectPriceBar
+                        line={line}
+                        sUnit={sUnit}
+                        showQty={directPrice}
+                        onQuantity={(v) => updateLine(oi, li, { quantity: v })}
+                        onSqft={(sqft) => updateLine(oi, li, { sqft, quantity: "" })}
+                        onCost={(v) =>
+                          changeLineCost(oi, li, priceLabor ? "labor_cost" : "material_cost", v)
+                        }
+                        onSell={(v) => applyDirectSell(oi, li, line, v)}
+                      />
 
                       {/* Editor — opens in a focused side panel, one line at a
                           time, so you're never editing the whole page at once. */}
@@ -3103,18 +3105,17 @@ export function EstimateBuilder({
                             </SheetTitle>
                           </SheetHeader>
                           <div className="space-y-4 p-4">
-                        {directPrice ? (
-                          <DirectPriceBar
-                            line={line}
-                            sUnit={sUnit}
-                            onQuantity={(v) => updateLine(oi, li, { quantity: v })}
-                            onSqft={(sqft) => updateLine(oi, li, { sqft, quantity: "" })}
-                            onCost={(v) =>
-                              changeLineCost(oi, li, priceLabor ? "labor_cost" : "material_cost", v)
-                            }
-                            onSell={(v) => applyDirectSell(oi, li, line, v)}
-                          />
-                        ) : null}
+                        <DirectPriceBar
+                          line={line}
+                          sUnit={sUnit}
+                          showQty={directPrice}
+                          onQuantity={(v) => updateLine(oi, li, { quantity: v })}
+                          onSqft={(sqft) => updateLine(oi, li, { sqft, quantity: "" })}
+                          onCost={(v) =>
+                            changeLineCost(oi, li, priceLabor ? "labor_cost" : "material_cost", v)
+                          }
+                          onSell={(v) => applyDirectSell(oi, li, line, v)}
+                        />
                         {/* 1 · PRODUCT — the single per-line search. Shows the
                             picked product and lets you swap it; the section-top
                             box is the only place that ADDS a new line. */}

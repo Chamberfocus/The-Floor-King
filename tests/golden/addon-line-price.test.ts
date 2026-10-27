@@ -106,4 +106,14 @@ describe("subfloor and add-on prices", () => {
     expect(src).toContain(PRICE_NEEDED);
     expect(src).toContain("type our cost or a sell price");
   });
+
+  it("shows an editable cost on every item, including catalog flooring", () => {
+    const src = readFileSync("src/app/(app)/estimates/estimate-builder.tsx", "utf8");
+    const card = src.slice(src.indexOf("Summary row"), src.indexOf("Editor — opens"));
+    expect(card).toContain("<DirectPriceBar");
+    expect(card).toContain("showQty={directPrice}");
+    expect(card).toContain("changeLineCost");
+    expect(card).not.toContain("{directPrice ? (");
+    expect(card).toContain('Cost {sCost > 0 ? formatMoney(sCost) : "—"}');
+  });
 });
