@@ -61,7 +61,9 @@ import {
   unitLabel,
   UNIT_OPTIONS,
 } from "@/lib/units";
+import { lineColorFromCatalog } from "@/lib/catalog-identity";
 import { catalogLineSnapshot, catalogToLineMeasure, PRICE_NEEDED } from "@/lib/catalog-pricing";
+import { productLabel } from "@/lib/product-label";
 import {
   hydrateBuilderMaterialRate,
   materialSellUnresolved,
@@ -783,7 +785,7 @@ export function EstimateBuilder({
       return next;
     });
 
-  const addLine = (oi: number, asLabor = false) => {
+  const addLine = (oi: number, asLabor = false, open = true) => {
     // Carry the manufacturer forward from the last material line so multiple cuts
     // of the same carpet don't need it retyped (the catalog fills it when picked).
     let manufacturer = "";
@@ -799,7 +801,7 @@ export function EstimateBuilder({
     setOptions((prev) =>
       prev.map((o, i) => (i === oi ? { ...o, lines: [...o.lines, line] } : o)),
     );
-    setActiveLine(line.key); // open the new line for editing
+    if (open) setActiveLine(line.key);
   };
 
   // Add a catalog add-on as a pre-priced line — configured in Settings →
@@ -1463,7 +1465,7 @@ export function EstimateBuilder({
                    */
                   manufacturer: p.manufacturer ?? "",
                   style: p.style ?? "",
-                  color: p.color ?? "",
+                  color: lineColorFromCatalog(p.color, p.notes),
                   item_no: p.sku ?? "",
                   measure_unit,
                   unit: lineUnit,
@@ -1609,13 +1611,23 @@ export function EstimateBuilder({
   const addMaterialFromPick = (oi: number, p: Product | null) => {
     if (!p) return;
     const li = options[oi]?.lines.length ?? 0;
-    addLine(oi, false);
+    // Stay on the estimate. Opening the line editor on every pick is what made
+    // adding a product feel like starting over.
+    addLine(oi, false, false);
+    setActiveLine(null);
     pickProduct(oi, li, p);
+    toast.success(
+      activeArea ? `Added ${productLabel(p)} to ${activeArea}` : `Added ${productLabel(p)}`,
+    );
   };
   const addMaterialUseOnce = (oi: number, input: CustomProductInput) => {
     const li = options[oi]?.lines.length ?? 0;
-    addLine(oi, false);
+    addLine(oi, false, false);
+    setActiveLine(null);
     useOnceProduct(oi, li, input);
+    toast.success(
+      activeArea ? `Added ${input.name} to ${activeArea}` : `Added ${input.name}`,
+    );
   };
 
   const buildInput = (): SaveEstimateInput => ({
@@ -2171,6 +2183,21 @@ export function EstimateBuilder({
               <p className="text-sm text-muted-foreground">{siteAddress}</p>
             ) : null}
           </div>
+          {/* Pricing stays one tap away. The products are the estimate. */}
+          <details className="rounded-xl border border-primary/30 bg-primary/5">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-3 [&::-webkit-details-marker]:hidden">
+              <span>
+                <span className="block text-sm font-semibold">Pricing</span>
+                <span className="block text-xs text-muted-foreground">
+                  Target {overallMargin}% · open to change it or price the job to a total
+                </span>
+              </span>
+              <span className="text-right">
+                <span className="block text-lg font-semibold tabular-nums">{grandMargin.toFixed(1)}%</span>
+                <span className="block text-xs text-muted-foreground">actual · {formatMoney(grandProfit.revenue)}</span>
+              </span>
+            </summary>
+            <div className="space-y-3 border-t border-primary/20 p-3">
           {/* Overall profit margin — drives every line without its own override */}
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3">
             <div className="min-w-0">
@@ -2296,6 +2323,8 @@ export function EstimateBuilder({
               </Button>
             </div>
           </div>
+            </div>
+          </details>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
@@ -2638,6 +2667,22 @@ export function EstimateBuilder({
                     </div>
                   );
                 })()}
+                <div id="sec-materials" className="scroll-mt-16 rounded-lg border bg-muted/20 p-3">
+                  <ProductPicker
+                    value=""
+                    purpose="sell"
+                    openOnFocus
+                    label={activeArea ? `Add a product to ${activeArea}` : "Add a product"}
+                    fullWidth
+                    onPick={(p) => addMaterialFromPick(oi, p)}
+                    onCreated={(p) => addMaterialFromPick(oi, p)}
+                    onUseOnce={(input) => addMaterialUseOnce(oi, input)}
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Type any part of the color, the style, the style number, or the color number.
+                    The line lands in {activeArea || "Unassigned"} and stays on this page.
+                  </p>
+                </div>
                 {(["mat", "labor"] as const).map((section) => {
                   const secLines = option.lines
                     .map((line, li) => ({ line, li }))
@@ -2647,7 +2692,7 @@ export function EstimateBuilder({
                     <div
                       key={section}
                       className="space-y-2 scroll-mt-16"
-                      id={section === "labor" ? "sec-labor" : "sec-materials"}
+                      id={section === "labor" ? "sec-labor" : undefined}
                     >
                       <div className="flex items-center justify-between border-b pb-1.5">
                         <h3 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
@@ -2655,25 +2700,6 @@ export function EstimateBuilder({
                         </h3>
                         <span className="text-sm font-semibold tabular-nums">{formatMoney(secSub)}</span>
                       </div>
-                      {/* Search-first add — find any product (or add on the fly) and
-                          it drops in as a type-aware line. Materials only. */}
-                      {section !== "labor" ? (
-                        <div className="rounded-lg border bg-muted/20 p-2">
-                          <ProductPicker
-                            value=""
-                            purpose="sell"
-                            label={
-                              activeArea
-                                ? `Add a product to ${activeArea} — search name, color, manufacturer, or item number`
-                                : "Add a product — search name, color, manufacturer, or item number"
-                            }
-                            fullWidth
-                            onPick={(p) => addMaterialFromPick(oi, p)}
-                            onCreated={(p) => addMaterialFromPick(oi, p)}
-                            onUseOnce={(input) => addMaterialUseOnce(oi, input)}
-                          />
-                        </div>
-                      ) : null}
                       {secLines.length === 0 ? (
                         <p className="px-1 py-1 text-xs text-muted-foreground">
                           {section === "labor"
@@ -2839,9 +2865,17 @@ export function EstimateBuilder({
                             )}
                           </div>
                           {(() => {
-                            const bits = [line.manufacturer, line.style, line.color, line.item_no]
-                              .map((part) => part.trim())
-                              .filter((part) => part && !displayName.toLowerCase().includes(part.toLowerCase()));
+                            const title = displayName.toLowerCase();
+                            const styleBit = line.style.trim();
+                            const colorBit = line.color.trim();
+                            const styleNo = line.item_no.trim();
+                            const bits = [
+                              styleBit && !title.includes(styleBit.toLowerCase()) ? styleBit : null,
+                              colorBit && (!title.includes(colorBit.toLowerCase()) || colorBit.includes("#"))
+                                ? colorBit
+                                : null,
+                              styleNo ? `Style # ${styleNo}` : null,
+                            ].filter(Boolean);
                             if (!bits.length) return null;
                             return <div className="truncate text-xs text-muted-foreground">{bits.join(" · ")}</div>;
                           })()}
@@ -2935,7 +2969,7 @@ export function EstimateBuilder({
                             label={
                               line.product_id
                                 ? "Product"
-                                : "Product — search the catalog (name, color, mfr, SKU) or add new"
+                                : "Product — color, style, style #, or color #"
                             }
                             onPick={(p) => pickProduct(oi, li, p)}
                             onCreated={(p) => handleProductCreated(oi, li, p)}
@@ -3578,7 +3612,7 @@ export function EstimateBuilder({
                                     ["Manufacturer", line.manufacturer],
                                     ["Style", line.style],
                                     !isFlooring ? ["Color", line.color] : null,
-                                    ["Item #", line.item_no],
+                                    ["Style #", line.item_no],
                                   ].filter((f): f is [string, string] => !!f && !!f[1] && f[1].trim() !== "");
                                   if (facts.length === 0) return null;
                                   return (
@@ -3629,11 +3663,11 @@ export function EstimateBuilder({
                                     />
                                   </div>
                                   <div>
-                                    <label className="mb-1 block text-xs text-muted-foreground">Item #</label>
+                                    <label className="mb-1 block text-xs text-muted-foreground">Style #</label>
                                     <Input
                                       value={line.item_no}
                                       onChange={(e) => updateLine(oi, li, { item_no: e.target.value })}
-                                      placeholder="Item #"
+                                      placeholder="Style #"
                                       className="h-11 sm:h-9 text-base sm:text-sm"
                                     />
                                   </div>
@@ -3853,7 +3887,7 @@ export function EstimateBuilder({
                           // subfloor — all in one menu.
                           <details className="relative [&_summary]:list-none">
                             <summary className="inline-flex cursor-pointer items-center gap-1 rounded-md border bg-card px-3 py-1.5 text-sm font-semibold hover:bg-muted">
-                              <Plus className="size-3.5" /> Add item
+                              <Plus className="size-3.5" /> Blank line or subfloor
                             </summary>
                             <div className="absolute z-20 mt-1 max-h-80 w-72 overflow-y-auto rounded-md border bg-popover p-1 shadow-md">
                               <button
@@ -3864,8 +3898,8 @@ export function EstimateBuilder({
                                 }}
                                 className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm font-medium hover:bg-muted"
                               >
-                                <Plus className="size-4 text-primary" /> Material line
-                                <span className="text-xs font-normal text-muted-foreground">— search the catalog or type your own</span>
+                                <Plus className="size-4 text-primary" /> Blank material line
+                                <span className="text-xs font-normal text-muted-foreground">— type your own, no catalog product</span>
                               </button>
                               <div className="mt-1 border-t px-2 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                                 Subfloor (by the sheet)

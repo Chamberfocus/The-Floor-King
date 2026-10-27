@@ -269,7 +269,8 @@ UNIT:
 
 NAME & FIELDS — separate signal from codes:
 - Build "name" so a person reads it cleanly: e.g. "Shaw Coretec Plus HD — Honey Oak". Keep raw item/style NUMBERS out of "name" (put them in "sku").
-- Put the color NAME in "color", the collection/pattern NAME in "style", the brand in "manufacturer", the number/code in "sku".
+- Put the color NAME in "color", the collection/pattern NAME in "style", the brand in "manufacturer", the style NUMBER in "sku".
+- If the sheet has a COLOR NUMBER (color code) separate from the color name, keep the name in "color" and start "notes" with "Color # <that number>" so it can be searched. Do not drop the number.
 - Use null for anything not present. NEVER invent a brand, color, style, or price.
 
 CATEGORY — infer from the product: LVP/LVT/SPC/WPC/rigid core → lvp; broadloom → carpet; engineered/solid wood → hardwood; ceramic/porcelain → tile; sheet vinyl → vinyl; pad/cushion/underlayment → underlayment; molding/transition/base/reducer → trim; install/labor → labor; otherwise other.

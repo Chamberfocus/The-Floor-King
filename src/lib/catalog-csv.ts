@@ -1,5 +1,6 @@
 // Structured catalog CSV: a clean template + a fast parser that skips the AI
 // when a file already has recognizable column headers. Browser-safe (no deps).
+import { foldCatalogColor } from "@/lib/catalog-identity";
 import type { PriceRow } from "@/lib/extract";
 import { normalizeUnit } from "@/lib/units";
 
@@ -294,7 +295,10 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
   const iStyleName = col("stylename", "pattern", "collection", "series", "design");
   const iColorName = col("colorname", "colourname", "shade", "finish");
   const iStyleNum = col("style", "styleno", "stylenumber", "stylenum", "sku", "itemno", "itemnumber", "item", "partno", "partnumber", "productcode", "code");
-  const iColorNum = col("color", "colour", "colorno", "colornumber", "colorcode");
+  // A dedicated color-number column wins over a generic "Color" column, so a
+  // sheet that has both keeps the name and the number.
+  const iColorCode = col("colorno", "colornumber", "colornum", "colourno", "colournumber", "colorcode", "colourcode");
+  const iColorGeneric = col("color", "colour");
   const iMfg = col("sellingcompanyname", "manufacturer", "mfg", "mfr", "brand", "vendor", "supplier", "make", "mill");
   const iCat = col("category", "prodtype", "producttype", "type", "flooringtype", "productcategory");
   const iUnit = col("unitofmeasure", "unit", "uom", "priceper", "sellunit");
@@ -371,11 +375,12 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
     const get = (i: number) => (i >= 0 ? (cells[i] ?? "").trim() : "");
 
     const styleName = get(iStyleName);
-    const colorName = get(iColorName);
+    const colorName = get(iColorName) || (iColorCode >= 0 ? get(iColorGeneric) : "");
+    const colorCode = iColorCode >= 0 ? get(iColorCode) : "";
     let name = get(iName);
     if (!name) {
       const sn = styleName || get(iStyleNum);
-      const cn = colorName || get(iColorNum);
+      const cn = colorName || colorCode || get(iColorGeneric);
       name = [sn, cn].filter(Boolean).join(" ").trim();
     }
     if (!name) continue;
@@ -387,6 +392,10 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
       get(iNotes) ||
       [priceNote, sizeNote ? `Size: ${sizeNote}` : null].filter(Boolean).join(" · ") ||
       null;
+    // "Color" alone is the color (name or number). A separate color-number
+    // column used to be read and then dropped whenever a color name existed.
+    const colorOnly = colorName || colorCode || get(iColorGeneric);
+    const folded = foldCatalogColor(colorOnly, colorName ? colorCode : "", notes);
     rows.push({
       name,
       category,
@@ -396,8 +405,8 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
       labor_rate: iLabor >= 0 ? toNum(get(iLabor)) : null,
       manufacturer: get(iMfg) || null,
       style: styleName || null,
-      color: colorName || null,
-      notes,
+      color: folded.color,
+      notes: folded.notes,
     });
   }
   return rows.length ? rows : null;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { catalogPickerDetail } from "@/lib/catalog-identity";
 import { productLabel } from "@/lib/product-label";
 import { toast } from "sonner";
 import { Check, ChevronDown, Plus, Search, X } from "lucide-react";
@@ -198,6 +199,10 @@ export function ProductPicker({
   fullWidth = false,
   purpose = "sell",
   viewerRole = null,
+  /** Empty add box: open the list on focus so typing can start immediately.
+   *  Leave this off when a line already has a product — opening the catalog
+   *  over an editor the salesperson has not asked to change gets in the way. */
+  openOnFocus = false,
   onPick,
   onCreated,
   onUseOnce,
@@ -213,6 +218,7 @@ export function ProductPicker({
   /** sell = estimates/counter; cost = PO/warehouse; identity = samples. */
   purpose?: CatalogPricePurpose;
   viewerRole?: UserRole | null;
+  openOnFocus?: boolean;
   onPick: (product: Product | null) => void;
   onCreated: (product: Product) => void;
   /** Add a one-off product to this estimate only, without saving to the catalog. */
@@ -357,6 +363,7 @@ export function ProductPicker({
     }
     onPick(p);
     setOpen(false);
+    if (!value) setQ("");
   };
   const liveTerm = open ? (q.trim() === initialLabel.trim() ? "" : q.trim()) : "";
   const recentRows = (recentTick >= 0 ? recentPicked : []).filter(
@@ -507,16 +514,18 @@ export function ProductPicker({
               setAdding(false);
             }}
             onFocus={(e) => {
-              // Deliberately does NOT open the list. Landing in this box — or
-              // opening a line to edit it — used to throw the whole catalog up
-              // over the form before you'd decided you wanted to change
-              // anything. Type, press the arrow key, or tap the chevron.
+              // A line that already has a product does not pop the catalog on
+              // focus — that used to cover the editor before you meant to
+              // change anything. An empty add box does, so you can type.
               e.currentTarget.select();
+              if (openOnFocus) setOpen(true);
             }}
             onKeyDown={onKeyDown}
             autoFocus={editing}
             placeholder={
-              scope.label && !searchAll ? `Search ${scope.label.toLowerCase()}…` : "Type a product name…"
+              scope.label && !searchAll
+                ? `Search ${scope.label.toLowerCase()} — any part of the color, style, or number`
+                : "Color, style, style #, or color #"
             }
             className={cn(inputSm, "w-full pl-9 pr-9 text-base", fullWidth ? "h-12" : "h-11")}
           />
@@ -730,17 +739,23 @@ export function ProductPicker({
                             ) : null}
                             <span className="break-words">{productLabel(p)}</span>
                           </span>
-                          <span className="mt-0.5 block break-words text-xs text-muted-foreground">
-                            {[
-                              p.manufacturer,
-                              PRODUCT_CATEGORY_LABELS[p.category],
-                              p.style,
-                              p.color,
-                              p.sku ? `#${p.sku}` : null,
-                            ]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </span>
+                          {(() => {
+                            const detail = catalogPickerDetail({
+                              name: p.name,
+                              manufacturer: p.manufacturer,
+                              style: p.style,
+                              color: p.color,
+                              sku: p.sku,
+                              notes: p.notes,
+                              categoryLabel: PRODUCT_CATEGORY_LABELS[p.category],
+                            });
+                            if (!detail) return null;
+                            return (
+                              <span className="mt-0.5 block break-words text-xs text-muted-foreground">
+                                {detail}
+                              </span>
+                            );
+                          })()}
                           <span className="mt-0.5 flex flex-wrap gap-1">
                             {p.clearance && p.clearance_price != null ? (
                               <span className="inline-block rounded bg-amber-200 px-1.5 py-0.5 text-xs font-medium text-amber-800">

@@ -28,6 +28,7 @@ import { SearchPicker } from "@/components/ui/search-picker";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
+import { foldCatalogColor } from "@/lib/catalog-identity";
 import { fileToGrid, chunkText } from "@/lib/pdf-client";
 import {
   parseStructuredRows,
@@ -59,7 +60,8 @@ const FIELDS: { key: string; label: string; syn: string[] }[] = [
   { key: "sku", label: "SKU / item #", syn: ["sku", "style", "styleno", "stylenumber", "item", "itemno", "itemnumber", "partno", "partnumber", "productcode", "code"] },
   { key: "manufacturer", label: "Manufacturer", syn: ["manufacturer", "mfg", "mfr", "brand", "vendor", "supplier", "mill", "sellingcompanyname"] },
   { key: "style", label: "Style", syn: ["stylename", "pattern", "collection", "series", "design"] },
-  { key: "color", label: "Color", syn: ["colorname", "color", "colour", "shade", "finish"] },
+  { key: "color", label: "Color", syn: ["colorname", "colourname", "shade", "finish", "color", "colour"] },
+  { key: "color_number", label: "Color #", syn: ["colorno", "colornumber", "colornum", "colourno", "colournumber", "colorcode", "colourcode"] },
   { key: "category", label: "Category", syn: ["category", "prodtype", "producttype", "type", "flooringtype"] },
   { key: "unit", label: "Unit", syn: ["unit", "uom", "unitofmeasure", "priceper"] },
   { key: "notes", label: "Notes", syn: ["notes", "note", "comments", "remarks", "size"] },
@@ -410,6 +412,11 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
         rawCategory === "carpet" && rawUnit === "sqft" && rawMat != null && rawMat > 0 && rawMat <= 8;
       const x9 = (v: number | null) =>
         v == null ? v : Math.round(v * 9 * 100) / 100;
+      const folded = foldCatalogColor(
+        cell(row, "color"),
+        cell(row, "color_number"),
+        cell(row, "notes") || null,
+      );
       out.push({
         name,
         category: rawCategory,
@@ -419,8 +426,8 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
         labor_rate: yardify ? x9(rawLab) : rawLab,
         manufacturer: cell(row, "manufacturer") || null,
         style: cell(row, "style") || null,
-        color: cell(row, "color") || null,
-        notes: cell(row, "notes") || null,
+        color: folded.color,
+        notes: folded.notes,
       });
     }
     return out;

@@ -207,7 +207,29 @@ const SEARCH_COLS = [
   "style",
   "color",
   "supplier",
+  "notes",
 ] as const;
+
+/** Columns a scoped or identity search matches. search_text already folds
+ *  style, color, and sku; notes holds the color number. */
+const TEXT_MATCH_COLS = [
+  "search_text",
+  "name",
+  "sku",
+  "manufacturer",
+  "style",
+  "color",
+  "notes",
+] as const;
+
+function tokenColumnOr(token: string, cols: readonly string[]): string {
+  const parts: string[] = [];
+  for (const alias of tokenAliases(token)) {
+    const pat = alias === token ? likePattern(token) : likePattern(alias);
+    for (const c of cols) parts.push(`${c}.ilike.${pat}`);
+  }
+  return parts.join(",");
+}
 
 // Category enum values + a few natural-language synonyms, so a token like
 // "carpet", "lvp", "tile", or "pad" also matches by category — not just text.
@@ -307,8 +329,9 @@ export function tokenAliases(token: string): string[] {
 /**
  * Smart, server-side product search. Splits the query into words and requires
  * EVERY word to appear somewhere in the name / sku / manufacturer / style /
- * color (in any order) — so "coretec mustang", "oak reducer 94", and "1/2
- * cheers" all match. Case-insensitive; handles fractions & special characters.
+ * color / notes (in any order) — so "coretec mustang", "oak reducer 94",
+ * "1/2 cheers", and a fragment of a style number or color number all match.
+ * Case-insensitive; handles fractions & special characters.
  * Empty query returns the first `limit` by name.
  */
 export interface CatalogSearchOpts {
@@ -375,7 +398,7 @@ export async function searchCatalogWith(
       const cats = [
         ...new Set(tokens.map(tokenCategory).filter(Boolean) as string[]),
       ];
-      const [byText, byCat] = await Promise.all([
+      const [byText, byCat, byIdentity] = await Promise.all([
         supabase.rpc("search_products", {
           q: query,
           lim: displayLimit,
@@ -394,11 +417,21 @@ export async function searchCatalogWith(
               return cq;
             })()
           : Promise.resolve({ data: [], error: null }),
+        tokens.length
+          ? searchCatalogIdentity(supabase, tokens, displayLimit, opts)
+          : Promise.resolve([] as Product[]),
       ]);
       if (!byText.error && Array.isArray(byText.data)) {
         const seen = new Set<string>();
         const merged: Product[] = [];
         for (const p of byText.data as Product[]) {
+          if (seen.has(p.id)) continue;
+          seen.add(p.id);
+          merged.push(p);
+        }
+        // Notes (color numbers) are not in search_text until 0503 is applied.
+        // Pull those matches in here so a fragment still finds the product.
+        for (const p of byIdentity) {
           if (seen.has(p.id)) continue;
           seen.add(p.id);
           merged.push(p);
@@ -428,12 +461,7 @@ export async function searchCatalogWith(
     .limit(pool);
   if (opts.activeOnly) q = q.eq("active", true);
   for (const token of tokens) {
-    const like = likePattern(token);
-    const parts: string[] = [];
-    for (const alias of tokenAliases(token)) {
-      const pat = alias === token ? like : likePattern(alias);
-      for (const c of SEARCH_COLS) parts.push(`${c}.ilike.${pat}`);
-    }
+    const parts = [tokenColumnOr(token, SEARCH_COLS)];
     const cat = tokenCategory(token);
     if (cat) parts.push(`category.eq.${cat}`);
     q = q.or(parts.join(","));
@@ -448,6 +476,35 @@ export async function searchCatalogWith(
   return enrichCatalogProducts(
     supabase,
     rankCatalogProducts(rows, query).slice(0, displayLimit),
+  );
+}
+
+/**
+ * Direct match on style, color, sku, and notes. Merged with search_products
+ * so a color number kept in notes is found before migration 0503 is applied,
+ * and a fragment of the style or color still matches when the RPC ranks a
+ * name hit ahead of it.
+ */
+async function searchCatalogIdentity(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: { from: (t: string) => any },
+  tokens: string[],
+  displayLimit: number,
+  opts: CatalogSearchOpts,
+): Promise<Product[]> {
+  if (!tokens.length) return [];
+  const pool = Math.min(Math.max(displayLimit, 40), 80);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let q: any = supabase
+    .from("products")
+    .select(CATALOG_PRODUCT_COLUMNS)
+    .limit(pool);
+  if (opts.activeOnly !== false) q = q.eq("active", true);
+  for (const token of tokens) q = q.or(tokenColumnOr(token, TEXT_MATCH_COLS));
+  const { data, error } = await q;
+  if (error || !Array.isArray(data)) return [];
+  return (data as Product[]).filter(
+    (p) => opts.includeLabor || p.category !== "labor",
   );
 }
 
@@ -481,20 +538,11 @@ async function searchCatalogScoped(
   else if (categories.length > 1) q = q.in("category", categories);
 
   if (!tokens.length && browse.length) {
-    const parts: string[] = [];
-    for (const token of browse) {
-      const pat = likePattern(token);
-      parts.push(`search_text.ilike.${pat}`, `name.ilike.${pat}`, `sku.ilike.${pat}`);
-    }
+    const parts = browse.map((token) => tokenColumnOr(token, TEXT_MATCH_COLS));
     q = q.or(parts.join(","));
   }
   for (const token of tokens) {
-    const parts: string[] = [];
-    for (const alias of tokenAliases(token)) {
-      const pat = alias === token ? likePattern(token) : likePattern(alias);
-      parts.push(`search_text.ilike.${pat}`, `name.ilike.${pat}`, `sku.ilike.${pat}`);
-    }
-    q = q.or(parts.join(","));
+    q = q.or(tokenColumnOr(token, TEXT_MATCH_COLS));
   }
 
   const { data, error } = await q;
