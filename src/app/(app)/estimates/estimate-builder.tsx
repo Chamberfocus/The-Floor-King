@@ -378,16 +378,19 @@ function LabeledNumber({
   onChange,
   width = "w-24",
   prefix,
+  dense = false,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   width?: string;
   prefix?: string;
+  /** One short field for the line row. The name stays available to the field. */
+  dense?: boolean;
 }) {
   return (
     <div>
-      <label className="mb-1 block text-xs text-muted-foreground">{label}</label>
+      <label className={dense ? "mb-0.5 block text-[10px] leading-none text-muted-foreground" : "mb-1 block text-xs text-muted-foreground"}>{label}</label>
       <div className="relative">
         {prefix ? (
           <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
@@ -399,9 +402,10 @@ function LabeledNumber({
           step="0.01"
           min="0"
           inputMode="decimal"
+          aria-label={label}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className={cn(inputSm, width, prefix && "pl-5")}
+          className={cn(dense ? "h-8 rounded-md border border-input bg-transparent px-2 text-sm" : inputSm, width, prefix && "pl-5")}
         />
       </div>
     </div>
@@ -417,6 +421,7 @@ function DirectPriceBar({
   onSqft,
   onCost,
   onSell,
+  dense = false,
 }: {
   line: LineState;
   sUnit: string;
@@ -426,24 +431,28 @@ function DirectPriceBar({
   onSqft: (sqft: string) => void;
   onCost: (v: string) => void;
   onSell: (v: string) => void;
+  /** Sit on the line row. Labels stay on the fields for screen readers. */
+  dense?: boolean;
 }) {
   const priceLabor = isLaborLine(line);
   const yards = normalizeUnit(line.unit) === "sqyd";
   const areaValue =
     yards && num(line.sqft) > 0 ? String(Math.round((num(line.sqft) / 9) * 100) / 100) : line.sqft;
   return (
-    <div className="flex flex-wrap items-end gap-3 border-t bg-muted/20 px-4 py-3">
+    <div className={cn("flex flex-wrap items-center gap-2", dense ? "" : "border-t bg-muted/20 px-3 py-2")}>
       {showQty && line.line_type !== "flat" && (isSubfloor(line) || isCountLine(line)) ? (
         <LabeledNumber
           label={isSubfloor(line) ? "# Sheets" : quantityCaption(unitLabel(line.unit) || line.unit || "qty")}
-          width="w-24"
+          width={dense ? "w-16" : "w-24"}
+          dense={dense}
           value={line.quantity}
           onChange={onQuantity}
         />
       ) : showQty && line.line_type !== "flat" ? (
         <LabeledNumber
           label={yards ? "Sq yd" : "Sq ft"}
-          width="w-24"
+          width={dense ? "w-16" : "w-24"}
+          dense={dense}
           value={yards ? areaValue : line.sqft}
           onChange={(v) =>
             onSqft(
@@ -453,18 +462,34 @@ function DirectPriceBar({
         />
       ) : null}
       <LabeledNumber
-        label={priceLabor || line.line_type === "flat" ? "Our cost" : `Our cost${sUnit ? ` / ${sUnit}` : ""}`}
+        label={
+          dense
+            ? "Cost"
+            : priceLabor || line.line_type === "flat"
+              ? "Our cost"
+              : `Our cost${sUnit ? ` / ${sUnit}` : ""}`
+        }
         prefix="$"
-        width="w-28"
+        width={dense ? "w-20" : "w-28"}
+        dense={dense}
         value={priceLabor ? line.labor_cost : line.material_cost}
         onChange={onCost}
       />
       <LabeledNumber
         label={
-          line.line_type === "flat" ? "Amount" : priceLabor ? "Sell" : `Sell${sUnit ? ` / ${sUnit}` : ""}`
+          dense
+            ? line.line_type === "flat"
+              ? "Amount"
+              : "Sell"
+            : line.line_type === "flat"
+              ? "Amount"
+              : priceLabor
+                ? "Sell"
+                : `Sell${sUnit ? ` / ${sUnit}` : ""}`
         }
         prefix="$"
-        width="w-28"
+        width={dense ? "w-20" : "w-28"}
+        dense={dense}
         value={directSellValue(line)}
         onChange={onSell}
       />
@@ -770,6 +795,9 @@ export function EstimateBuilder({
   // can't cause the input glitch. A subtle indicator shows it's safe.
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">(draft ? "saved" : "idle");
   const [activeArea, setActiveArea] = useState("");
+  /** "all" shows every room. A room name shows only that room while you work it. */
+  const [roomList, setRoomList] = useState<string>("all");
+  const [extraQuery, setExtraQuery] = useState("");
   const [pendingAreas, setPendingAreas] = useState<string[]>([]);
   const [areaDraft, setAreaDraft] = useState("");
   const [renameDraft, setRenameDraft] = useState<string | null>(null);
@@ -965,6 +993,7 @@ export function EstimateBuilder({
     if (!next) return;
     setPendingAreas((areas) => listAreas([], [...areas, next]));
     setActiveArea(next);
+    setRoomList(next);
     setAreaDraft("");
   };
 
@@ -979,6 +1008,7 @@ export function EstimateBuilder({
     );
     setPendingAreas((areas) => areas.map((area) => (roomMatches(area, from) ? next : area)));
     setActiveArea(next);
+    setRoomList(next);
     setRenameDraft(null);
   };
 
@@ -1005,6 +1035,7 @@ export function EstimateBuilder({
       curr.map((o, i) => (i === oi ? { ...o, lines: [...o.lines, ...copies] } : o)),
     );
     setActiveArea(copyName);
+    setRoomList(copyName);
   };
 
   const discardUnsavedRooms = () => {
@@ -2450,6 +2481,11 @@ export function EstimateBuilder({
             </div>
           </details>
 
+          <details className="rounded-lg border">
+            <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
+              Title, tax, and the note the customer sees
+            </summary>
+            <div className="space-y-4 border-t p-3">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="title">Estimate title</Label>
@@ -2507,6 +2543,8 @@ export function EstimateBuilder({
               className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
           </div>
+            </div>
+          </details>
         </CardContent>
       </Card>
 
@@ -2668,25 +2706,43 @@ export function EstimateBuilder({
                           Rooms / areas
                         </h3>
                         <p className="text-xs text-muted-foreground">
-                          {activeChip?.pending
-                            ? `${activeChip.name} is not saved yet. Add a product or labor line to keep it.`
-                            : activeArea
-                              ? `Adding to ${activeArea}`
+                          {roomList === "all"
+                            ? activeArea
+                              ? `Every room. New items go to ${activeArea}.`
                               : areaNames.length
-                                ? "Choose a room, then add products."
-                                : "Add a room or area to start this estimate."}
+                                ? "Every room. Pick one and new items go there."
+                                : "Add a room, then a product."
+                            : activeChip?.pending
+                              ? `${activeChip.name} is not saved yet. Add a product or labor line to keep it.`
+                              : activeArea
+                                ? `Only ${activeArea}. New items go there.`
+                                : "Unassigned items."}
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         <button
                           type="button"
                           onClick={() => {
-                            setActiveArea("");
+                            setRoomList("all");
                             setRenameDraft(null);
                           }}
                           className={cn(
                             "min-h-11 rounded-full border px-3 text-sm font-medium",
-                            !activeArea ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted",
+                            roomList === "all" ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted",
+                          )}
+                        >
+                          All rooms
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveArea("");
+                            setRoomList("");
+                            setRenameDraft(null);
+                          }}
+                          className={cn(
+                            "min-h-11 rounded-full border px-3 text-sm font-medium",
+                            roomList !== "all" && !activeArea ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted",
                           )}
                         >
                           Unassigned
@@ -2697,12 +2753,13 @@ export function EstimateBuilder({
                             type="button"
                             onClick={() => {
                               setActiveArea(chip.name);
+                              setRoomList(chip.name);
                               setRenameDraft(null);
                             }}
                             className={cn(
                               "min-h-11 rounded-full border px-3 text-sm font-medium",
                               chip.pending && "border-dashed",
-                              roomMatches(activeArea, chip.name)
+                              roomList !== "all" && roomMatches(activeArea, chip.name)
                                 ? "border-primary bg-primary text-primary-foreground"
                                 : "hover:bg-muted",
                             )}
@@ -2768,24 +2825,29 @@ export function EstimateBuilder({
                             </Button>
                           </>
                         ) : activeArea ? (
-                          <>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="min-h-11"
-                              onClick={() => setRenameDraft(activeArea)}
-                            >
-                              Rename
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="min-h-11"
-                              onClick={() => duplicateArea(oi, activeArea)}
-                            >
-                              <Copy className="size-3.5" /> Duplicate area
-                            </Button>
-                          </>
+                          <details className="[&_summary]:list-none">
+                            <summary className="inline-flex min-h-11 cursor-pointer items-center rounded-md border px-3 text-sm font-medium hover:bg-muted">
+                              Room tools
+                            </summary>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="min-h-11"
+                                onClick={() => setRenameDraft(activeArea)}
+                              >
+                                Rename
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="min-h-11"
+                                onClick={() => duplicateArea(oi, activeArea)}
+                              >
+                                <Copy className="size-3.5" /> Duplicate area
+                              </Button>
+                            </div>
+                          </details>
                         ) : null}
                       </div>
                     </div>
@@ -2810,7 +2872,8 @@ export function EstimateBuilder({
                 {(["mat", "labor"] as const).map((section) => {
                   const secLines = option.lines
                     .map((line, li) => ({ line, li }))
-                    .filter(({ line }) => (section === "labor") === isLaborLine(line));
+                    .filter(({ line }) => (section === "labor") === isLaborLine(line))
+                    .filter(({ line }) => roomList === "all" || roomMatches(line.room, roomList));
                   const secSub = secLines.reduce((s, { line }) => s + lineTotal(toCalc(line)), 0);
                   return (
                     <div
@@ -2826,21 +2889,22 @@ export function EstimateBuilder({
                       </div>
                       {secLines.length === 0 ? (
                         <p className="px-1 py-1 text-xs text-muted-foreground">
-                          {section === "labor"
-                            ? "Add a product or labor item."
-                            : "Choose a product."}
+                          {roomList !== "all"
+                            ? "Nothing in this room yet."
+                            : section === "labor"
+                              ? "Add a product or labor item."
+                              : "Choose a product."}
                         </p>
                       ) : null}
                       {groupIndexedByRoom(secLines).map((group) => (
-                        <div key={`${section}-${group.name || "none"}`} className="space-y-2">
-                          <div className="flex flex-wrap items-center justify-between gap-2 px-1 pt-1">
-                            <h4 className="text-sm font-semibold">
-                              {group.name || "No room yet"}
-                            </h4>
-                            <span className="text-xs text-muted-foreground">
-                              {section === "labor" ? "Labor" : "Products"}
-                            </span>
-                          </div>
+                        <div key={`${section}-${group.name || "none"}`} className="overflow-hidden rounded-lg border">
+                          {roomList === "all" ? (
+                            <div className="flex items-center justify-between border-b bg-muted/30 px-3 py-1.5">
+                              <h4 className="text-sm font-semibold">
+                                {group.name || "No room yet"}
+                              </h4>
+                            </div>
+                          ) : null}
                           {group.rows.map(({ line, li }) => {
                   const summ = {
                     // Carry category, or a labor line's per-line price shows a
@@ -2973,12 +3037,13 @@ export function EstimateBuilder({
                       ? line.category.charAt(0).toUpperCase() + line.category.slice(1)
                       : "");
                   return (
-                    <div key={line.key} id={`eline-${line.key}`} className="overflow-hidden rounded-xl border bg-card">
+                    <div key={line.key} id={`eline-${line.key}`} className="border-b bg-card last:border-b-0">
+                      <div className="flex flex-col gap-2 p-2 sm:flex-row sm:items-center sm:gap-3 sm:px-3">
                       {/* Summary row — tap to edit */}
                       <button
                         type="button"
                         onClick={() => toggleLine(line.key)}
-                        className="flex w-full flex-wrap items-start gap-3 p-4 text-left transition-colors hover:bg-muted/40 sm:items-center"
+                        className="flex min-w-0 flex-1 items-start gap-2 text-left"
                       >
                         <ChevronRight
                           className={cn(
@@ -3028,11 +3093,7 @@ export function EstimateBuilder({
                               <span className="rounded-full bg-sky-100 px-1.5 py-0.5 font-medium text-sky-800 dark:bg-sky-500/20 dark:text-sky-200">
                                 Labor
                               </span>
-                            ) : (
-                              <span className="rounded-full bg-muted px-1.5 py-0.5 font-medium">
-                                Material
-                              </span>
-                            )}
+                            ) : null}
                             {line.from_stock ? (
                               <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-medium text-amber-700 dark:bg-amber-500/20 dark:text-amber-400">
                                 From stock
@@ -3079,6 +3140,7 @@ export function EstimateBuilder({
                         line={line}
                         sUnit={sUnit}
                         showQty={directPrice}
+                        dense
                         onQuantity={(v) => updateLine(oi, li, { quantity: v })}
                         onSqft={(sqft) => updateLine(oi, li, { sqft, quantity: "" })}
                         onCost={(v) =>
@@ -3086,6 +3148,7 @@ export function EstimateBuilder({
                         }
                         onSell={(v) => applyDirectSell(oi, li, line, v)}
                       />
+                      </div>
 
                       {/* Editor — opens in a focused side panel, one line at a
                           time, so you're never editing the whole page at once. */}
@@ -3105,17 +3168,6 @@ export function EstimateBuilder({
                             </SheetTitle>
                           </SheetHeader>
                           <div className="space-y-4 p-4">
-                        <DirectPriceBar
-                          line={line}
-                          sUnit={sUnit}
-                          showQty={directPrice}
-                          onQuantity={(v) => updateLine(oi, li, { quantity: v })}
-                          onSqft={(sqft) => updateLine(oi, li, { sqft, quantity: "" })}
-                          onCost={(v) =>
-                            changeLineCost(oi, li, priceLabor ? "labor_cost" : "material_cost", v)
-                          }
-                          onSell={(v) => applyDirectSell(oi, li, line, v)}
-                        />
                         {/* 1 · PRODUCT — the single per-line search. Shows the
                             picked product and lets you swap it; the section-top
                             box is the only place that ADDS a new line. */}
@@ -4116,31 +4168,44 @@ export function EstimateBuilder({
                 })}
 
                 {addonCatalog.length ? (
-                  <div id="sec-extras" className="scroll-mt-16 space-y-2">
-                    <h3 className="border-b pb-1.5 text-sm font-bold uppercase tracking-wide text-muted-foreground">
-                      Extras
-                    </h3>
-                    <p className="text-xs text-muted-foreground">
-                      Add a saved extra to {activeArea || "this estimate"}. Prices come from your default pricing.
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {addonCatalog.map((a) => (
-                        <Button
-                          key={a.label}
-                          type="button"
-                          variant="outline"
-                          className="min-h-11"
-                          onClick={() => addAddon(oi, a)}
-                        >
-                          <Plus className="size-3.5" />
-                          {a.label}
-                          <span className="text-xs font-normal text-muted-foreground">
-                            {a.labor ? "Labor" : "Material"}
-                            {a.sell != null ? ` · ${formatMoney(a.sell)}` : ""}
-                          </span>
-                        </Button>
-                      ))}
-                    </div>
+                  <div id="sec-extras" className="scroll-mt-16">
+                    <details className="relative [&_summary]:list-none">
+                      <summary className="inline-flex min-h-11 cursor-pointer items-center gap-1 rounded-md border bg-card px-3 text-sm font-semibold hover:bg-muted">
+                        <Plus className="size-3.5" /> Add an extra
+                        {activeArea ? <span className="font-normal text-muted-foreground">to {activeArea}</span> : null}
+                      </summary>
+                      <div className="absolute z-20 mt-1 w-72 rounded-md border bg-popover p-1 shadow-md">
+                        <input
+                          value={extraQuery}
+                          onChange={(e) => setExtraQuery(e.target.value)}
+                          placeholder="Search extras"
+                          aria-label="Search extras"
+                          className={cn(inputSm, "mb-1 w-full")}
+                        />
+                        <div className="max-h-72 overflow-y-auto">
+                          {addonCatalog
+                            .filter((a) => a.label.toLowerCase().includes(extraQuery.trim().toLowerCase()))
+                            .map((a) => (
+                              <button
+                                key={a.label}
+                                type="button"
+                                onClick={(e) => {
+                                  addAddon(oi, a);
+                                  setExtraQuery("");
+                                  (e.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open");
+                                }}
+                                className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                              >
+                                <span>{a.label}</span>
+                                <span className="shrink-0 text-xs text-muted-foreground">
+                                  {a.labor ? "Labor" : "Material"}
+                                  {a.sell != null ? ` · ${formatMoney(a.sell)}` : ""}
+                                </span>
+                              </button>
+                            ))}
+                        </div>
+                      </div>
+                    </details>
                   </div>
                 ) : (
                   <div id="sec-extras" className="scroll-mt-16 text-xs text-muted-foreground">
@@ -4355,8 +4420,8 @@ export function EstimateBuilder({
           <div className="flex items-baseline gap-2">
             <span className="text-xs text-muted-foreground">Total</span>
             <span className="text-xl font-bold tabular-nums">{formatMoney(grand.total)}</span>
-            <span className="hidden text-xs text-muted-foreground sm:inline">
-              (sub {formatMoney(grand.subtotal)} · tax {formatMoney(grand.tax)})
+            <span className="text-xs tabular-nums text-muted-foreground">
+              Cost {formatMoney(grandProfit.cost)} · {Math.round(grandMargin)}%
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -4371,10 +4436,10 @@ export function EstimateBuilder({
             {commitNote
               ? commitNote.text
               : saveState === "saving"
-                ? "Keeping a working copy…"
+                ? "Saving a copy…"
                 : saveState === "saved"
-                  ? "Working copy kept — Save writes the estimate"
-                  : "Save this estimate before sending it."}
+                  ? "Copy kept. Save writes the estimate."
+                  : "Save before sending."}
           </span>
           <Button
             type="button"
