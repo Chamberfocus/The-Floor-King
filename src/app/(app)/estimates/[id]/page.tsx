@@ -65,7 +65,8 @@ import { padRollCount } from "@/lib/job-scope";
 import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
 import { jobProfit } from "@/lib/job-profit";
 import { parseProjectDetails } from "@/lib/customer-scope";
-import { formatMoney, formatDate } from "@/lib/format";
+import { formatMoney, formatDate, formatDateTime } from "@/lib/format";
+import { estimateViewLabel } from "@/lib/estimate-client-response";
 import { cn } from "@/lib/utils";
 import type { EstimateLineItem, EstimateOption } from "@/lib/types";
 import { setEstimateStatus, duplicateOption, unapproveEstimate } from "../actions";
@@ -213,6 +214,12 @@ export default async function EstimatePage({
     status: estimate.status,
     sentAt: estimate.sent_at,
     approvedAt: estimate.approved_at,
+    viewedAt: delivery.first_viewed_at,
+    viewCount: delivery.view_count,
+    openedAt: delivery.first_viewed_at,
+    discussionRequestedAt: estimate.discussion_requested_at ?? null,
+    discussionNote: estimate.discussion_note ?? null,
+    responseNote: estimate.customer_response_note,
     approvalStale: estimate.approval_stale === true,
     hasOptions: (estimate.options ?? []).length > 0,
     hasEmail: !!customer?.email,
@@ -294,6 +301,7 @@ export default async function EstimatePage({
           <p className="text-sm text-muted-foreground">
             {customer?.full_name} · Created {formatDate(estimate.created_at)} ·{" "}
             {detailed ? "Itemized" : "Lump sum"}
+            {delivery.sent_at ? ` · ${estimateViewLabel(delivery.view_count)}` : ""}
           </p>
           <div className="mt-2">
             <EstimateAddress
@@ -325,6 +333,29 @@ export default async function EstimatePage({
           <CopyEstimate estimateId={estimate.id} />
         </div>
       </div>
+
+      {delivery.sent_at ? (
+        <div className="mb-6 space-y-3">
+          {estimate.discussion_requested_at &&
+          (estimate.status === "sent" || estimate.status === "changes_requested") ? (
+            <p className="rounded-md border border-sky-300 bg-sky-50 p-3 text-sm text-sky-950 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
+              <span className="font-medium">
+                Customer wants to discuss this estimate
+              </span>
+              {` · asked ${formatDateTime(estimate.discussion_requested_at)}`}
+              {estimate.discussion_note ? (
+                <span className="mt-1 block">{estimate.discussion_note}</span>
+              ) : (
+                <span className="mt-1 block">
+                  They did not leave a note. Call them — they have not approved
+                  or declined.
+                </span>
+              )}
+            </p>
+          ) : null}
+          <EstimateDeliveryCard d={delivery} />
+        </div>
+      ) : null}
 
       {/* Customer copy — itemized vs lump sum, and whether the captured
           questionnaire answers appear (print / PDF / portal). Presentation only. */}
@@ -490,7 +521,7 @@ export default async function EstimatePage({
                   <div className="font-semibold">Ready to send?</div>
                   <p className="text-sm text-muted-foreground">
                     Email this estimate to {customer.full_name} at {customer.email}{" "}
-                    so they can review, approve, or request changes.
+                    so they can review, approve, decline, or ask to discuss it.
                   </p>
                 </div>
                 <form action={setEstimateStatus}>
@@ -501,7 +532,7 @@ export default async function EstimatePage({
                     clientName={customer.full_name}
                     email={customer.email}
                     title={`Send this estimate to ${customer.full_name}?`}
-                    description="They'll get your branded estimate email with a link to review, approve, or request changes."
+                    description="They'll get your branded estimate email with a link to review, approve, decline, or ask to discuss it."
                     sendLabel="Send estimate"
                     skipLabel="Mark sent, no email"
                   >
@@ -548,23 +579,23 @@ export default async function EstimatePage({
           ) : estimate.status === "sent" || estimate.status === "changes_requested" ? (
             // Sent → waiting on the customer; approving lives in the workflow card
             // (option picker). Do not duplicate Approve here — that locked option 1.
-            <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="font-semibold">
-                  {estimate.status === "changes_requested"
-                    ? "Changes requested"
-                    : "Sent — waiting on the customer"}
+                  {estimate.discussion_requested_at
+                    ? "Customer wants to discuss"
+                    : estimate.status === "changes_requested"
+                      ? "Changes requested"
+                      : "Sent — waiting on the customer"}
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  {estimate.status === "changes_requested"
-                    ? "The customer asked for changes. Update the estimate, then re-send."
-                    : "When they approve (or you approve the chosen option in Status & workflow below), the job, PO & invoice unlock."}
+                  {estimate.discussion_requested_at
+                    ? "They asked to talk this estimate through. They have not approved or declined it."
+                    : estimate.status === "changes_requested"
+                      ? "The customer asked for changes. Update the estimate, then re-send."
+                      : "When they approve (or you approve the chosen option in Status & workflow below), the job, PO & invoice unlock."}
                 </p>
               </div>
-            </div>
-            {/* Did it land, and have they read it? */}
-            <EstimateDeliveryCard d={delivery} />
             </div>
           ) : (
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -824,7 +855,12 @@ export default async function EstimatePage({
           <CardTitle className="text-base">Status &amp; workflow</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
-          {estimate.customer_response_note ? (
+          {estimate.status === "declined" && estimate.customer_response_note ? (
+            <p className="rounded-md bg-muted p-3">
+              <span className="font-medium">Why they declined:</span>{" "}
+              {estimate.customer_response_note}
+            </p>
+          ) : estimate.customer_response_note ? (
             <p className="rounded-md bg-muted p-3">
               <span className="font-medium">Customer response:</span>{" "}
               {estimate.customer_response_note}
@@ -870,6 +906,9 @@ export default async function EstimatePage({
                 <form action={setEstimateStatus} className="space-y-2">
                   <input type="hidden" name="id" value={estimate.id} />
                   <input type="hidden" name="status" value="declined" />
+                  <label className="block text-xs text-muted-foreground">
+                    Reason for declining (required)
+                  </label>
                   <textarea
                     name="customer_response_note"
                     rows={2}

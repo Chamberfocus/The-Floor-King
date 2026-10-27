@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Check } from "lucide-react";
+import { ArrowLeft, Check, MessageSquare } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -33,6 +33,7 @@ import {
   portalApproveEstimate,
   portalDeclineEstimate,
   portalRequestChanges,
+  portalRequestDiscussion,
 } from "../../actions";
 
 export const metadata: Metadata = { title: "Estimate" };
@@ -452,68 +453,101 @@ export default async function PortalEstimatePage({
         </p>
       ) : null}
 
+      {estimate.discussion_requested_at && canRespond ? (
+        <p className="mt-4 rounded-md border border-sky-300 bg-sky-50 p-3 text-sm text-sky-950 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
+          You asked to discuss this estimate
+          {estimate.discussion_note ? `: ${estimate.discussion_note}` : "."} You
+          can still approve or decline it below.
+        </p>
+      ) : null}
+
       {canRespond ? (
         <Card className="mt-6">
           <CardHeader>
             <CardTitle className="text-base">
-              {showComparison
-                ? "Prefer to talk it over?"
-                : revisionPending
-                  ? "Approve the revised proposal?"
-                  : "Your decision"}
+              {revisionPending ? "Approve the revised proposal?" : "Your decision"}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {!showComparison ? (
-              <form
-                action={portalApproveEstimate}
-                className="flex flex-wrap items-end gap-2"
-              >
+            {showComparison ? (
+              <p className="text-sm text-muted-foreground">
+                Choose an option above to approve it, or use the choices below.
+              </p>
+            ) : (
+              <form action={portalApproveEstimate}>
                 <input type="hidden" name="estimate_id" value={estimate.id} />
                 <input
                   type="hidden"
                   name="accepted_option_id"
                   value={chosen?.id ?? options[0]?.id ?? ""}
                 />
-                <Button type="submit">
+                <Button type="submit" className="w-full sm:w-auto">
                   <Check className="size-4" />{" "}
                   {revisionPending ? "Approve revised estimate" : "Approve estimate"}
                 </Button>
               </form>
-            ) : null}
+            )}
+
+            <form
+              action={portalRequestDiscussion}
+              className="space-y-2 rounded-md border p-3"
+            >
+              <input type="hidden" name="estimate_id" value={estimate.id} />
+              <p className="text-sm font-medium">Want to talk it through first?</p>
+              <textarea
+                name="note"
+                rows={2}
+                maxLength={2000}
+                placeholder="Anything you want to cover? (optional)"
+                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+              />
+              <Button type="submit" variant="outline" className="w-full sm:w-auto">
+                <MessageSquare className="size-4" /> I want to discuss this estimate
+              </Button>
+            </form>
+
+            <form
+              action={portalDeclineEstimate}
+              className="space-y-2 rounded-md border p-3"
+            >
+              <input type="hidden" name="estimate_id" value={estimate.id} />
+              <label htmlFor="decline-reason" className="text-sm font-medium">
+                Decline this estimate
+              </label>
+              <textarea
+                id="decline-reason"
+                name="note"
+                rows={2}
+                required
+                maxLength={2000}
+                placeholder="Why are you declining? This is required."
+                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                A reason is required so we know what didn’t work.
+              </p>
+              <Button type="submit" variant="outline" className="w-full sm:w-auto">
+                Decline estimate
+              </Button>
+            </form>
 
             <details className="rounded-md border p-3 text-sm">
               <summary className="cursor-pointer text-muted-foreground">
-                Request changes or decline
+                Request specific changes instead
               </summary>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <form action={portalRequestChanges} className="space-y-2">
-                  <input type="hidden" name="estimate_id" value={estimate.id} />
-                  <textarea
-                    name="note"
-                    rows={2}
-                    required
-                    placeholder="What would you like changed? (e.g. different product, lower price)"
-                    className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
-                  />
-                  <Button type="submit" variant="outline" size="sm">
-                    Request changes
-                  </Button>
-                </form>
-                <form action={portalDeclineEstimate} className="space-y-2">
-                  <input type="hidden" name="estimate_id" value={estimate.id} />
-                  <textarea
-                    name="note"
-                    rows={2}
-                    required
-                    placeholder="Reason for declining"
-                    className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
-                  />
-                  <Button type="submit" variant="outline" size="sm">
-                    Decline
-                  </Button>
-                </form>
-              </div>
+              <form action={portalRequestChanges} className="mt-3 space-y-2">
+                <input type="hidden" name="estimate_id" value={estimate.id} />
+                <textarea
+                  name="note"
+                  rows={2}
+                  required
+                  placeholder="What would you like changed? (e.g. different product, lower price)"
+                  className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+                />
+                <Button type="submit" variant="outline" size="sm">
+                  Request changes
+                </Button>
+              </form>
             </details>
           </CardContent>
         </Card>

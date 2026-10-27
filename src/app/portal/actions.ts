@@ -15,8 +15,14 @@ import { formatDate } from "@/lib/format";
 import { getCustomerDepositSummary } from "@/lib/data/customer-deposits";
 import {
   onEstimateChangesRequestedOps,
+  onEstimateDiscussionRequestedOps,
   onEstimateResolvedOps,
 } from "@/lib/data/ops-automation";
+import {
+  DECLINE_REASON_REQUIRED_MESSAGE,
+  declineReason,
+  escapeHtml,
+} from "@/lib/estimate-client-response";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -338,10 +344,17 @@ export async function portalDeclineEstimate(formData: FormData): Promise<void> {
       )}`,
     );
   }
-  const note = str(formData.get("note"));
+  const note = declineReason(str(formData.get("note")));
+  if (!note) {
+    redirect(
+      `/portal/estimates/${id}?approval_error=${encodeURIComponent(
+        DECLINE_REASON_REQUIRED_MESSAGE,
+      )}`,
+    );
+  }
   const { data: updated, error } = await supabase
     .from("estimates")
-    .update({ status: "declined", customer_response_note: note || null })
+    .update({ status: "declined", customer_response_note: note })
     .eq("id", id)
     .eq("customer_id", portalCustomerId)
     .select("id");
@@ -368,7 +381,7 @@ export async function portalDeclineEstimate(formData: FormData): Promise<void> {
     supabase,
     id,
     "Estimate declined",
-    note ? `<p>Reason: ${note}</p>` : "",
+    `<p>Reason: ${escapeHtml(note)}</p>`,
   );
   revalidatePath(`/portal/estimates/${id}`);
   revalidatePath("/portal");
@@ -446,8 +459,104 @@ export async function portalRequestChanges(formData: FormData): Promise<void> {
     supabase,
     id,
     "Changes requested on estimate",
-    note ? `<p>What they want: ${note}</p>` : "",
+    note ? `<p>What they want: ${escapeHtml(note)}</p>` : "",
   );
+  revalidatePath(`/portal/estimates/${id}`);
+  revalidatePath("/portal");
+  await revalidateEstimateStaffViews(supabase, id);
+}
+
+/** The customer wants to talk about the estimate. It stays open so they can
+ *  still approve or decline afterward. */
+export async function portalRequestDiscussion(formData: FormData): Promise<void> {
+  const id = str(formData.get("estimate_id"));
+  if (!id) return;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+  const { data: prof } = await supabase
+    .from("profiles")
+    .select("customer_id")
+    .eq("id", user.id)
+    .maybeSingle();
+  const portalCustomerId = (prof?.customer_id as string | null) ?? null;
+  if (!portalCustomerId) {
+    redirect(
+      `/portal/estimates/${id}?approval_error=${encodeURIComponent(
+        "Your account is not linked to a customer profile.",
+      )}`,
+    );
+  }
+  const note = str(formData.get("note")).slice(0, 2000);
+  const { data, error } = await supabase.rpc("portal_request_estimate_discussion", {
+    p_estimate_id: id,
+    p_note: note || null,
+  });
+  const payload = (data ?? null) as { ok?: boolean; error?: string } | null;
+  if (error || !payload?.ok) {
+    redirect(
+      `/portal/estimates/${id}?approval_error=${encodeURIComponent(
+        payload?.error ||
+          "We couldn’t record that you want to discuss this estimate. Please try again, or contact us.",
+      )}`,
+    );
+  }
+
+  const { data: changeOwner } = await supabase
+    .from("customers")
+    .select("assigned_to, workflow_owner_id, full_name")
+    .eq("id", portalCustomerId)
+    .maybeSingle();
+  const { data: est } = await supabase
+    .from("estimates_customer")
+    .select("title")
+    .eq("id", id)
+    .maybeSingle();
+  await onEstimateDiscussionRequestedOps({
+    estimateId: id,
+    customerId: portalCustomerId,
+    assignedTo:
+      (changeOwner?.workflow_owner_id as string | null) ??
+      (changeOwner?.assigned_to as string | null) ??
+      null,
+    actorId: user.id,
+    title: (est?.title as string | null) ?? null,
+    note: note || null,
+    db: supabase,
+  });
+  await notifyOwner(
+    supabase,
+    id,
+    "Customer wants to discuss an estimate",
+    note
+      ? `<p>They want to discuss it. They said: ${escapeHtml(note)}</p>`
+      : "<p>They want to discuss this estimate. A call is the next step — they have not approved or declined.</p>",
+  );
+  const repId =
+    (changeOwner?.assigned_to as string | null) ??
+    (changeOwner?.workflow_owner_id as string | null);
+  if (repId) {
+    const { data: rep } = await supabase
+      .from("profiles")
+      .select("email")
+      .eq("id", repId)
+      .maybeSingle();
+    if (rep?.email) {
+      await sendEmail({
+        to: rep.email as string,
+        subject: `Customer wants to discuss — ${changeOwner?.full_name ?? ""}`.trim(),
+        html: emailLayout(
+          "A customer wants to discuss their estimate",
+          `<p>${escapeHtml((changeOwner?.full_name as string) ?? "Your customer")} wants to talk about their estimate. They have not approved or declined it.</p>${
+            note ? `<p>They said: ${escapeHtml(note)}</p>` : ""
+          }`,
+          { label: "Open estimate", url: `${siteUrl()}/estimates/${id}` },
+        ),
+      });
+    }
+  }
   revalidatePath(`/portal/estimates/${id}`);
   revalidatePath("/portal");
   await revalidateEstimateStaffViews(supabase, id);

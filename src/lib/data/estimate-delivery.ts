@@ -54,3 +54,67 @@ export async function getEstimateDelivery(
     click_count: Number(data.click_count ?? 0),
   };
 }
+
+export interface EstimateClientSignal {
+  view_count: number;
+  first_viewed_at: string | null;
+  last_viewed_at: string | null;
+  discussion_requested_at: string | null;
+  discussion_note: string | null;
+}
+
+/**
+ * Opens and discussion requests for a page of estimates.
+ * Each half fails soft so a list still renders before 0139 or 0502 is applied.
+ */
+export async function listEstimateClientSignals(estimateIds: string[]): Promise<{
+  viewsAvailable: boolean;
+  discussionAvailable: boolean;
+  byId: Map<string, EstimateClientSignal>;
+}> {
+  const byId = new Map<string, EstimateClientSignal>();
+  const ids = [...new Set(estimateIds.filter(Boolean))];
+  if (!ids.length) {
+    return { viewsAvailable: true, discussionAvailable: true, byId };
+  }
+  const supabase = await createClient();
+
+  const views = await supabase
+    .from("estimate_delivery")
+    .select("estimate_id, view_count, first_viewed_at, last_viewed_at")
+    .in("estimate_id", ids);
+  const viewsAvailable = !views.error;
+  if (viewsAvailable) {
+    for (const row of views.data ?? []) {
+      const id = row.estimate_id as string;
+      byId.set(id, {
+        view_count: Number(row.view_count ?? 0),
+        first_viewed_at: (row.first_viewed_at as string) ?? null,
+        last_viewed_at: (row.last_viewed_at as string) ?? null,
+        discussion_requested_at: null,
+        discussion_note: null,
+      });
+    }
+  }
+
+  const discussion = await supabase
+    .from("estimates")
+    .select("id, discussion_requested_at, discussion_note")
+    .in("id", ids);
+  const discussionAvailable = !discussion.error;
+  if (discussionAvailable) {
+    for (const row of discussion.data ?? []) {
+      const id = row.id as string;
+      const prev = byId.get(id);
+      byId.set(id, {
+        view_count: prev?.view_count ?? 0,
+        first_viewed_at: prev?.first_viewed_at ?? null,
+        last_viewed_at: prev?.last_viewed_at ?? null,
+        discussion_requested_at: (row.discussion_requested_at as string) ?? null,
+        discussion_note: (row.discussion_note as string) ?? null,
+      });
+    }
+  }
+
+  return { viewsAvailable, discussionAvailable, byId };
+}

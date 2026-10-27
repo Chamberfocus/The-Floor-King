@@ -38,6 +38,10 @@ import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import { describeMessageSend, type MessageSendResult } from "@/lib/message-send";
 import { APPROVE_OPTION_REQUIRED_MESSAGE } from "@/lib/estimate-approve-ui";
 import {
+  DECLINE_REASON_REQUIRED_MESSAGE,
+  declineReason,
+} from "@/lib/estimate-client-response";
+import {
   moveToAutoActionStage,
   advanceFromAutoAction,
   advanceToLostStage,
@@ -541,7 +545,17 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
   if (status === "approved") {
     patch.accepted_option_id = str(formData.get("accepted_option_id")) || null;
   }
-  if (status === "declined" || status === "changes_requested") {
+  if (status === "declined") {
+    const reason = declineReason(str(formData.get("customer_response_note")));
+    if (!reason) {
+      redirect(
+        `/estimates/${id}?approval_error=${encodeURIComponent(
+          DECLINE_REASON_REQUIRED_MESSAGE,
+        )}`,
+      );
+    }
+    patch.customer_response_note = reason;
+  } else if (status === "changes_requested") {
     patch.customer_response_note =
       str(formData.get("customer_response_note")) || null;
   }
@@ -575,7 +589,7 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
           "Thank you for the opportunity!",
           `<p>Hi ${cust.full_name?.split(" ")[0] ?? "there"},</p>
            <p>Thank you so much for the opportunity to earn your business — we truly appreciate it and would be delighted to bring your floors to life.</p>
-           <p>Your estimate${est?.title ? ` &ldquo;${est.title}&rdquo;` : ""} is ready to review. Tap below to view it and approve, decline, or request changes — whatever works best for you.</p>
+           <p>Your estimate${est?.title ? ` &ldquo;${est.title}&rdquo;` : ""} is ready to review. Tap below to view it and approve, decline, or ask to discuss it — whatever works best for you.</p>
            <p>We can't wait to work with you!</p>`,
           { label: "View & approve your estimate", url: `${siteUrl()}/portal/estimates/${id}` },
           { preheader: "Thank you for the opportunity — your estimate is ready to review." },

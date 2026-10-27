@@ -17,6 +17,7 @@ import {
   hasActiveDepositOnFile,
   shouldCreateEstimateFollowup,
 } from "@/lib/ops-followup";
+import { estimateViewLabel } from "@/lib/estimate-client-response";
 import { isTaskOverdue } from "@/lib/office-task";
 
 export interface RecordLink {
@@ -101,6 +102,7 @@ export interface CustomerActionEstimate {
   sentAt?: string | null;
   approvedAt?: string | null;
   approvalStale?: boolean;
+  discussionRequestedAt?: string | null;
 }
 
 export interface CustomerActionJob {
@@ -200,6 +202,16 @@ export function buildCustomerActionCenter(input: {
   if (changes.length) {
     situation.push(changes.length === 1 ? "Changes requested" : `${changes.length} changes requested`);
   }
+  const discussing = estimates.filter(
+    (row) =>
+      !!row.discussionRequestedAt &&
+      (row.status === "sent" || row.status === "changes_requested"),
+  );
+  if (discussing.length) {
+    situation.push(
+      discussing.length === 1 ? "Wants to discuss" : `${discussing.length} want to discuss`,
+    );
+  }
   if (depositNeeded) situation.push("Deposit not collected");
   if (bookable.length === 1) situation.push(`${jobLabel(bookable[0].title)} is not booked`);
   else if (bookable.length > 1) situation.push(`${bookable.length} installs are not booked`);
@@ -267,6 +279,17 @@ export function buildCustomerActionCenter(input: {
       primary = link;
       also = also ?? "The customer asked for changes. Update the estimate and send it again.";
     } else if (!secondary.some((row) => row.href === link.href)) {
+      secondary.push(link);
+    }
+  }
+
+  const discussOnly = discussing.find((row) => row.status !== "changes_requested") ?? null;
+  if (discussOnly) {
+    const link = { label: "Call about estimate", href: `/estimates/${discussOnly.id}` };
+    if (!primary) {
+      primary = link;
+      also = also ?? "The customer wants to discuss this estimate.";
+    } else if (!secondary.some((row) => row.href === link.href && row.label === link.label)) {
       secondary.push(link);
     }
   }
@@ -361,6 +384,11 @@ export function buildEstimateActionCenter(input: {
   sentAt?: string | null;
   approvedAt?: string | null;
   viewedAt?: string | null;
+  viewCount?: number | null;
+  openedAt?: string | null;
+  discussionRequestedAt?: string | null;
+  discussionNote?: string | null;
+  responseNote?: string | null;
   approvalStale?: boolean;
   hasOptions?: boolean;
   hasEmail?: boolean;
@@ -390,6 +418,17 @@ export function buildEstimateActionCenter(input: {
     [
       input.sentAt ? { at: input.sentAt, text: `Sent ${shortDate(input.sentAt)}` } : null,
       input.viewedAt ? { at: input.viewedAt, text: `Viewed ${shortDate(input.viewedAt)}` } : null,
+      input.openedAt &&
+      input.openedAt !== input.viewedAt &&
+      (input.viewCount ?? 0) > 0
+        ? { at: input.openedAt, text: estimateViewLabel(input.viewCount ?? 0) }
+        : null,
+      input.discussionRequestedAt
+        ? {
+            at: input.discussionRequestedAt,
+            text: `Asked to discuss ${shortDate(input.discussionRequestedAt)}`,
+          }
+        : null,
       input.approvedAt ? { at: input.approvedAt, text: `Approved ${shortDate(input.approvedAt)}` } : null,
     ].filter((row): row is { at: string; text: string } => !!row && !!row.text),
   );
@@ -435,6 +474,7 @@ export function buildEstimateActionCenter(input: {
   }
 
   if (input.status === "declined") {
+    const why = input.responseNote?.trim();
     return {
       situation: ["Declined"],
       attention: null,
@@ -443,14 +483,19 @@ export function buildEstimateActionCenter(input: {
       primary: null,
       secondary: customerHref ? [{ label: "Open customer", href: customerHref }] : [],
       history,
-      quiet: "The customer declined this estimate.",
+      quiet: why
+        ? `The customer declined this estimate: ${why}`
+        : "The customer declined this estimate.",
     };
   }
 
   if (input.status === "changes_requested") {
+    const discuss = !!input.discussionRequestedAt;
     return {
-      situation: ["Changes requested"],
-      attention: "The customer asked for changes.",
+      situation: ["Changes requested", ...(discuss ? ["Wants to discuss"] : [])],
+      attention: discuss
+        ? "The customer asked for changes and wants to discuss the estimate."
+        : "The customer asked for changes.",
       blocker: null,
       also: null,
       primary: { label: "Review estimate", href: "#estimate-next" },
@@ -461,11 +506,28 @@ export function buildEstimateActionCenter(input: {
   }
 
   if (input.status === "sent") {
+    const opened =
+      typeof input.viewCount === "number" ? estimateViewLabel(input.viewCount) : null;
+    if (input.discussionRequestedAt) {
+      const said = input.discussionNote?.trim();
+      return {
+        situation: ["Wants to discuss", ...(opened ? [opened] : [])],
+        attention: "The customer wants to discuss this estimate.",
+        blocker: null,
+        also: said ? `They said: ${said}` : null,
+        primary: customerHref
+          ? { label: "Call the customer", href: customerHref }
+          : { label: "Review estimate", href: "#estimate-next" },
+        secondary: [],
+        history,
+        quiet: null,
+      };
+    }
     const age = daysSince(input.sentAt, input.now);
     const due = age != null && age >= DEFAULT_ESTIMATE_FOLLOWUP_DAYS;
     const when = shortDate(input.sentAt);
     return {
-      situation: [when ? `Sent ${when}` : "Sent to customer"],
+      situation: [when ? `Sent ${when}` : "Sent to customer", ...(opened ? [opened] : [])],
       attention: due ? "Follow up with the customer." : null,
       blocker: null,
       also: null,

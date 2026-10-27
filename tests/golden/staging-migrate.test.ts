@@ -46,14 +46,15 @@ describe("staging migration gate", () => {
     const result = run(["dry-run"]);
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("Database contacted: no");
-    expect(result.stdout).toContain("Migration files: 497");
+    expect(result.stdout).toContain("Migration files: 498");
     expect(result.stdout).toContain("First file: 0001_init.sql");
-    expect(result.stdout).toContain("Last file: 0501_lead_acceptance.sql");
+    expect(result.stdout).toContain("Last file: 0502_estimate_client_discussion.sql");
     expect(result.stdout).toContain("Filename order backwards: 0");
     expect(result.stdout).toContain(`Required project ref: ${STAGING_REF}`);
     expect(result.stdout).toContain(`Blocked project ref: ${PRODUCTION_REF}`);
     expect(result.stdout).toContain("001 0001_init.sql");
     expect(result.stdout).toContain("497 0501_lead_acceptance.sql");
+    expect(result.stdout).toContain("498 0502_estimate_client_discussion.sql");
     expect(result.stdout).toContain("Apply is not authorized by this command.");
     expect(result.stdout).not.toContain("Applying ");
   });
@@ -339,7 +340,7 @@ describe("staging execution safety", () => {
 
   it("accepts the real migration set and the rollback-only prove script", () => {
     const loaded = loadMigrationPlan();
-    expect(loaded.files).toHaveLength(497);
+    expect(loaded.files).toHaveLength(498);
     expect(loaded.backwards).toEqual([]);
     expect(loaded.plan.some((row) => row.execution === "unsafe-transaction")).toBe(false);
     expect(loaded.plan.filter((row) => row.enumAdd).every((row) => row.execution === "autocommit")).toBe(

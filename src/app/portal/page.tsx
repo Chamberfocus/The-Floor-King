@@ -210,7 +210,9 @@ export default async function PortalHome() {
                 const total = opt
                   ? optionTotals(opt.line_items ?? [], e.tax_rate).total
                   : 0;
-                const needsResponse = e.status === "sent";
+                const needsResponse =
+                  e.status === "sent" || e.status === "changes_requested";
+                const discussing = !!e.discussion_requested_at;
                 return (
                   <li
                     key={e.id}
@@ -223,9 +225,13 @@ export default async function PortalHome() {
                       <div className="truncate font-medium">
                         {e.title || "Estimate"}
                       </div>
-                      {needsResponse ? (
+                      {discussing ? (
+                        <div className="text-xs font-medium text-sky-700">
+                          You asked to discuss this
+                        </div>
+                      ) : needsResponse ? (
                         <div className="text-xs font-medium text-blue-600">
-                          Action needed — review &amp; respond
+                          Action needed — approve, decline, or discuss
                         </div>
                       ) : null}
                     </Link>
