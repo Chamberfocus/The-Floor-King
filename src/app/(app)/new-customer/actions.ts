@@ -348,5 +348,5 @@ export async function createCustomerSafe(
       .eq("id", data.id);
   }
 
-  redirect("/home");
+  redirect(`/customers/${data.id}?new=1`);
 }
