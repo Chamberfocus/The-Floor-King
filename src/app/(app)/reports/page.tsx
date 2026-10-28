@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Contact, Wallet, Package, Activity, Trophy, Truck } from "lucide-react";
+import { Contact, Wallet, Package, Activity, Trophy, Truck, Receipt } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
@@ -31,6 +31,18 @@ export default async function ReportsPage() {
       icon: Truck,
       title: "Purchasing spend",
       desc: "What you spend by vendor (who you paid) and by manufacturer (whose product you move).",
+    },
+    {
+      href: "/reports/sales-tax",
+      icon: Receipt,
+      title: "Sales tax",
+      desc: "Tax charged on invoices. Claims are listed apart from sales.",
+    },
+    {
+      href: "/reports/statements",
+      icon: Wallet,
+      title: "Statements",
+      desc: "Each customer with an open invoice, and what is still owed.",
     },
     // Profit / expenses / P&L are owner & admin only.
     ...(profile.role === "admin"

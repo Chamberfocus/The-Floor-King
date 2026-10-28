@@ -448,11 +448,14 @@ export default async function InvoicePage({
             </ul>
           ) : null}
 
-          {/* Record a payment */}
+          {/* Record a payment. The card is run in the processor; this line is what updates the invoice. */}
+          <p className="border-t pt-4 text-sm text-muted-foreground">
+            Run the card in the processor, then save the amount here. It updates the balance on this invoice.
+          </p>
           <form
             action={recordPayment}
             data-tour="record-payment"
-            className="grid gap-2 border-t pt-4 sm:grid-cols-5"
+            className="grid gap-2 pt-2 sm:grid-cols-5"
           >
             <input type="hidden" name="invoice_id" value={invoice.id} />
             <PaymentIdempotencyField />

@@ -1907,7 +1907,14 @@ export default async function CustomerPage({
           <TabSection tab="invoices" overview={false}>
           <Card id="invoices" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-base">Invoices</CardTitle>
+              <div className="flex items-center gap-3">
+                <CardTitle className="text-base">Invoices</CardTitle>
+                {profile.role === "admin" || profile.role === "office" || profile.role === "sales_manager" ? (
+                  <Link href={`/reports/statements#${customer.id}`} className="text-sm font-medium text-primary hover:underline">
+                    Statement
+                  </Link>
+                ) : null}
+              </div>
               <form action={createInvoice} data-tour="create-invoice" className="flex flex-wrap items-center gap-2">
                 <OperationIdempotencyField />
                 <input type="hidden" name="customer_id" value={customer.id} />

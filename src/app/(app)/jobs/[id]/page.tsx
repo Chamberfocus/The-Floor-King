@@ -77,6 +77,7 @@ import {
   submitJobToWarehouse,
   confirmRequestedInstall,
 } from "../actions";
+import { setJobClaim } from "../claim-actions";
 import { assignRollToJob } from "@/app/(app)/inventory/actions";
 import { listJobExtras, listStageableRolls, listTicketRolls } from "@/lib/data/job-ticket";
 import { canBookInstall } from "@/lib/install-hold";
@@ -822,6 +823,18 @@ export default async function JobPage({
               {installWindowLabel ? `arrives ${installWindowLabel} · ` : ""}
               {assignedName ? `by ${assignedName}` : "no installer"}
             </div>
+            {job.is_claim ? (
+              <p className="mt-1 text-sm font-medium">Claim. Left out of sales. The balance still shows.</p>
+            ) : null}
+            {profile.role === "admin" || profile.role === "office" || profile.role === "sales_manager" ? (
+              <form action={setJobClaim} className="mt-2">
+                <input type="hidden" name="job_id" value={job.id} />
+                <input type="hidden" name="is_claim" value={job.is_claim ? "0" : "1"} />
+                <button type="submit" className="text-sm font-medium text-primary hover:underline">
+                  {job.is_claim ? "Put this job back in sales" : "Mark as a mill or installer claim"}
+                </button>
+              </form>
+            ) : null}
             {/* Scheduling lives in one place — the "Schedule install" button in
                 the header above (in-place, no jump off the job). */}
           </div>
