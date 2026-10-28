@@ -559,20 +559,84 @@ export interface JobSatisfaction {
   signature: string | null;
   signed_name: string | null;
   signed_at: string;
+  /** pay_now | contact_store. Null until the sign-off database update is applied, and on older rows. */
+  payment_choice?: "pay_now" | "contact_store" | null;
+}
+
+const SATISFACTION_COLUMNS =
+  "id, job_id, rating, comments, signature, signed_name, signed_at, payment_choice";
+const SATISFACTION_COLUMNS_LEGACY =
+  "id, job_id, rating, comments, signature, signed_name, signed_at";
+
+function missingPaymentChoiceColumn(
+  error: { code?: string; message?: string } | null,
+): boolean {
+  if (!error) return false;
+  return (
+    error.code === "42703" ||
+    error.code === "PGRST204" ||
+    /payment_choice/i.test(error.message ?? "")
+  );
+}
+
+function asSatisfaction(row: JobSatisfaction): JobSatisfaction {
+  const choice = row.payment_choice;
+  return {
+    ...row,
+    payment_choice: choice === "pay_now" || choice === "contact_store" ? choice : null,
+  };
+}
+
+async function readSatisfaction(
+  query: (columns: string) => PromiseLike<{
+    data: unknown;
+    error: { code?: string; message?: string } | null;
+  }>,
+): Promise<JobSatisfaction[]> {
+  let result = await query(SATISFACTION_COLUMNS);
+  if (missingPaymentChoiceColumn(result.error)) {
+    result = await query(SATISFACTION_COLUMNS_LEGACY);
+  }
+  if (result.error) {
+    console.error("[job satisfaction]", result.error.code);
+    return [];
+  }
+  const rows = Array.isArray(result.data)
+    ? result.data
+    : result.data
+      ? [result.data]
+      : [];
+  return (rows as JobSatisfaction[]).map(asSatisfaction);
 }
 
 /** The latest customer satisfaction sign-off for a job (or null). */
 export async function getJobSatisfaction(jobId: string): Promise<JobSatisfaction | null> {
   if (!jobId) return null;
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("job_satisfaction")
-    .select("id, job_id, rating, comments, signature, signed_name, signed_at")
-    .eq("job_id", jobId)
-    .order("signed_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  return (data as JobSatisfaction | null) ?? null;
+  const rows = await readSatisfaction((columns) =>
+    supabase
+      .from("job_satisfaction")
+      .select(columns)
+      .eq("job_id", jobId)
+      .order("signed_at", { ascending: false })
+      .limit(1),
+  );
+  return rows[0] ?? null;
+}
+
+/** Every sign-off on these jobs, newest first. Installer home uses the service role. */
+export async function listJobSatisfactionForInstaller(
+  db: ReturnType<typeof createAdminClient>,
+  jobIds: string[],
+): Promise<JobSatisfaction[]> {
+  if (!jobIds.length) return [];
+  return readSatisfaction((columns) =>
+    db
+      .from("job_satisfaction")
+      .select(columns)
+      .in("job_id", jobIds)
+      .order("signed_at", { ascending: false }),
+  );
 }
 
 export async function listAssignableUsers(): Promise<AssignableUser[]> {

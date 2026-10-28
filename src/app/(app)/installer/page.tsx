@@ -36,6 +36,8 @@ import {
   customerSignOffRecorded,
   installationStatusFact,
 } from "@/lib/install-closeout";
+import { loadSignoffPriceAlerts } from "@/lib/data/signoff-sheet";
+import { signoffPriceAlert, type SignoffPriceAlert } from "@/lib/signoff-sheet";
 
 export const metadata: Metadata = { title: "My work" };
 export const dynamic = "force-dynamic";
@@ -70,14 +72,27 @@ export default async function InstallerHomePage() {
   const home = await getInstallerHome(profile.id, settings.installer_collects_balance);
   const flowStages = await listWorkflowStages();
   const myAvailability = await listMyAvailability(profile.id);
-  const active = home.jobs.filter((j) => j.job.status !== "completed");
+  const signedOff = (row: (typeof home.jobs)[number]) =>
+    customerSignOffRecorded({
+      signature: row.satisfaction?.signature,
+      signedName: row.satisfaction?.signed_name,
+    });
+  // A finished job stays on the phone until the customer signs. Signed
+  // completed jobs stay off this list.
+  const awaitingSignoff = home.jobs.filter(
+    (row) => row.job.status === "completed" && !signedOff(row),
+  );
+  const openJobs = home.jobs.filter((row) => row.job.status !== "completed");
+  const visible = [...awaitingSignoff, ...openJobs];
+  const priceAlerts = await loadSignoffPriceAlerts(visible.map((row) => row.job.id));
+  const noPriceAlert: SignoffPriceAlert = signoffPriceAlert({ invoices: [], extras: [] });
   const extrasByJob = new Map<string, Awaited<ReturnType<typeof listJobExtras>>>();
   await Promise.all(
-    active.map(async ({ job }) => {
+    visible.map(async ({ job }) => {
       extrasByJob.set(job.id, await listJobExtras(job.id));
     }),
   );
-  const doneCount = home.jobs.length - active.length;
+  const doneCount = home.jobs.length - visible.length;
 
   // My install calendar — only the installs assigned to me (RLS enforces this).
   const since = (() => {
@@ -153,7 +168,7 @@ export default async function InstallerHomePage() {
   return (
     <div className="mx-auto max-w-3xl space-y-5 pb-16">
       <JobStepPopup
-        jobs={active.map(({ job }) => ({
+        jobs={visible.map(({ job }) => ({
           ...getJobProgress(job),
           title: job.customer_name || job.title,
         }))}
@@ -237,15 +252,31 @@ export default async function InstallerHomePage() {
       {/* My jobs */}
       <div data-tour="my-work">
         <h2 className="mb-2 text-lg font-bold">My jobs</h2>
-        {active.length === 0 ? (
+        {visible.length === 0 ? (
           <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
             No active jobs assigned to you right now.
           </div>
         ) : (
           <div className="space-y-3">
-            {active.map(({ job, balance, hasInvoice, collectsBalance, satisfaction, photos, scope, customerStageId }) => {
+            {visible.map(({ job, balance, hasInvoice, collectsBalance, satisfaction, photos, scope, customerStageId }) => {
               const site = [job.site_street, job.site_city, job.site_state].filter(Boolean).join(", ");
               const canCollect = collectsBalance && hasInvoice && balance > 0;
+              const signed = customerSignOffRecorded({
+                signature: satisfaction?.signature,
+                signedName: satisfaction?.signed_name,
+              });
+              const sheetOpen = job.status === "completed" || job.status === "in_progress";
+              const priceAlert = priceAlerts.get(job.id) ?? noPriceAlert;
+              const sheet = (
+                <SatisfactionForm
+                  jobId={job.id}
+                  existing={satisfaction}
+                  customerName={job.customer_name || job.title || "the customer"}
+                  balance={balance}
+                  alert={priceAlert}
+                  canCollect={canCollect}
+                />
+              );
               return (
                 <Card key={job.id} className="overflow-hidden">
                   <CardHeader className="pb-2">
@@ -330,35 +361,42 @@ export default async function InstallerHomePage() {
                         title={job.customer_name || job.title || "this job"}
                       />
                     ) : null}
-                    {/* The INSTALLATION work order — what to do, room by room. */}
-                    <details className="group" open>
+                    {job.status === "completed" ? sheet : null}
+                    {/* The INSTALLATION work order — what to do, room by room.
+                        Prices stay off. The sign-off sheet is the one place a
+                        change-order price difference is shown, because the
+                        customer is signing the finished job. */}
+                    <details className="group" open={job.status !== "completed"}>
                       <summary className="flex cursor-pointer items-center gap-2 rounded-lg bg-primary/10 px-3 py-2.5 text-sm font-semibold text-primary hover:bg-primary/15">
                         <ClipboardList className="size-4" />
                         Installation work order
                         <span className="ml-auto text-xs font-normal text-muted-foreground">tap to collapse</span>
                       </summary>
                       <div className="pt-3">
-                        {/* Installers never see estimate/job prices. */}
                         <JobScopeView scope={scope} showPrices={false} />
                       </div>
                     </details>
 
-                    {canCollect ? (
+                    {job.status === "in_progress" ? sheet : null}
+
+                    {canCollect && satisfaction?.payment_choice !== "contact_store" ? (
                       <div className="[&>*]:mb-0">
                         <InstallerCollect jobId={job.id} hasInvoice={hasInvoice} balance={balance} />
                       </div>
                     ) : null}
 
+                    {sheetOpen ? null : (
                     <details className="group">
                       <summary className="flex cursor-pointer items-center gap-2 rounded-lg bg-muted/50 px-3 py-2.5 text-sm font-medium hover:bg-muted">
-                        <ClipboardCheck className={cn("size-4", satisfaction ? "text-emerald-600" : "text-primary")} />
+                        <ClipboardCheck className={cn("size-4", signed ? "text-emerald-600" : "text-primary")} />
                         Customer sign-off
-                        {satisfaction ? <span className="ml-auto text-xs font-normal text-emerald-600">Signed ✓</span> : <span className="ml-auto text-xs font-normal text-muted-foreground">Not signed</span>}
+                        {signed ? <span className="ml-auto text-xs font-normal text-emerald-600">Signed ✓</span> : <span className="ml-auto text-xs font-normal text-muted-foreground">Not signed</span>}
                       </summary>
                       <div className="pt-3">
-                        <SatisfactionForm jobId={job.id} existing={satisfaction} />
+                        {sheet}
                       </div>
                     </details>
+                    )}
 
                     <details className="group">
                       <summary className="flex cursor-pointer items-center gap-2 rounded-lg bg-muted/50 px-3 py-2.5 text-sm font-medium hover:bg-muted">
