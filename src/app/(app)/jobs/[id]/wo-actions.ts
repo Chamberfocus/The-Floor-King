@@ -9,10 +9,20 @@ import {
   safeDisplayFileName,
   safeStorageFileName,
 } from "@/lib/upload-name";
+import { getJobOpenBalance } from "@/lib/data/invoices";
+import { loadSignoffPriceAlert } from "@/lib/data/signoff-sheet";
+import { deliverJobSignoffNotice } from "@/lib/signoff-notify";
+import {
+  parsePaymentChoice,
+  signoffNeedsPaymentChoice,
+  signoffPriceAlert,
+  type SignoffPaymentChoice,
+} from "@/lib/signoff-sheet";
 
 export interface WOState {
   error: string | null;
   ok?: boolean;
+  paymentChoice?: SignoffPaymentChoice | null;
 }
 
 function str(v: FormDataEntryValue | null): string {
@@ -142,26 +152,73 @@ export async function saveJobSatisfaction(_prev: WOState, formData: FormData): P
   if (!jobId) return { error: "Missing job." };
   const signature = str(formData.get("signature"));
   const signedName = str(formData.get("signed_name"));
+  if (!signedName) return { error: "Enter the customer's name." };
   if (!signature) return { error: "Please have the customer sign before saving." };
 
   const w = await jobWriter(jobId);
   if ("error" in w) return { error: w.error ?? null };
   const { db, userId } = w;
 
+  let balance = 0;
+  let alert = signoffPriceAlert({ invoices: [], extras: [] });
+  try {
+    const owed = await getJobOpenBalance(jobId);
+    balance = owed.balance;
+    alert = await loadSignoffPriceAlert(jobId);
+  } catch {
+    console.error("[saveJobSatisfaction balance]");
+    return { error: "The balance could not be checked. Try again." };
+  }
+
+  const choice = parsePaymentChoice(str(formData.get("payment_choice")));
+  if (
+    signoffNeedsPaymentChoice({
+      balance,
+      uninvoicedExtraTotal: alert.uninvoicedExtraTotal,
+    }) &&
+    !choice
+  ) {
+    return { error: "Choose pay the balance now, or contact the store to pay." };
+  }
+
   const ratingRaw = parseInt(str(formData.get("rating")), 10);
   const rating = Number.isFinite(ratingRaw) && ratingRaw >= 1 && ratingRaw <= 5 ? ratingRaw : null;
-  const { error } = await db.from("job_satisfaction").insert({
+  const row = {
     job_id: jobId,
     rating,
     comments: str(formData.get("comments")) || null,
     signature,
     signed_name: signedName || null,
     created_by: userId,
-  });
+    payment_choice: choice,
+  };
+  let { error } = await db.from("job_satisfaction").insert(row);
+  const missingChoiceColumn =
+    !!error &&
+    (error.code === "42703" ||
+      error.code === "PGRST204" ||
+      /payment_choice/i.test(error.message ?? ""));
+  if (missingChoiceColumn && choice) {
+    return {
+      error:
+        "This sign-off needs a one-time database update before the payment choice can be saved. The signature was not saved.",
+    };
+  }
+  if (missingChoiceColumn) {
+    const { payment_choice: _omit, ...legacy } = row;
+    ({ error } = await db.from("job_satisfaction").insert(legacy));
+  }
   if (error) {
     console.error("[saveJobSatisfaction]", error.code);
     return { error: employeeFileSaveError("signature") };
   }
+  await deliverJobSignoffNotice({
+    jobId,
+    paymentChoice: choice,
+    balance,
+    alert,
+  });
   revalidatePath(`/jobs/${jobId}`);
-  return { error: null, ok: true };
+  revalidatePath("/installer");
+  return { error: null, ok: true, paymentChoice: choice };
 }

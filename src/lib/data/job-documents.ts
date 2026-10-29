@@ -8,6 +8,7 @@ import { buildJobScope } from "@/lib/job-scope";
 import { optionTotals } from "@/lib/estimate-calc";
 import { poTotal } from "@/lib/po-calc";
 import { formatMoney } from "@/lib/format";
+import { paymentChoiceLabel } from "@/lib/signoff-sheet";
 import type { JobDetail } from "./jobs";
 
 export type DocTone = "neutral" | "good" | "warn" | "info";
@@ -224,7 +225,15 @@ export async function listJobDocuments(
     key: "completion",
     type: "completion",
     title: "Completion / satisfaction",
-    subtitle: satisfaction?.rating ? `${satisfaction.rating}★` : null,
+    subtitle:
+      [
+        satisfaction?.rating ? `${satisfaction.rating}★` : null,
+        satisfaction?.payment_choice
+          ? paymentChoiceLabel(satisfaction.payment_choice)
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ") || null,
     date: satisfaction?.signed_at ?? null,
     createdBy: satisfaction?.signed_name ?? null,
     status: satisfaction || (job.status === "completed") ? "Signed ✓" : "Pending",

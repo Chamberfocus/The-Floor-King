@@ -59,6 +59,8 @@ import {
 } from "@/lib/order-warehouse-gates";
 import { getMeasurementDocuments, getJobPhotos } from "@/lib/data/documents";
 import { getJobSatisfaction } from "@/lib/data/jobs";
+import { loadSignoffPriceAlert } from "@/lib/data/signoff-sheet";
+import { paymentChoiceLabel, signoffPriceAlertCopy } from "@/lib/signoff-sheet";
 import { setJobShowPrices, setJobCollectsBalance } from "./wo-actions";
 import { JobMeasurementUpload } from "./measurement-upload";
 import { requireProfile } from "@/lib/auth";
@@ -341,12 +343,18 @@ export default async function JobPage({
     );
   };
   const canInstallerTools = isStaff || isAssignedToMe;
+  const canSeeSignoff =
+    canInstallerTools ||
+    profile.role === "salesman" ||
+    profile.role === "sales_manager";
   const canDirectFieldActions = isStaff || isDirectAssignee;
   const jobPhotos = canInstallerTools ? await getJobPhotos(id) : [];
   // The running note log — separate from jobs.notes, which is the structured
   // scope the questionnaire writes.
   const jobNotes = await listJobNotes(id);
-  const satisfaction = canInstallerTools ? await getJobSatisfaction(id) : null;
+  const satisfaction = canSeeSignoff ? await getJobSatisfaction(id) : null;
+  const signoffAlert = canSeeSignoff ? await loadSignoffPriceAlert(id) : null;
+  const signoffAlertCopy = signoffAlert ? signoffPriceAlertCopy(signoffAlert, formatMoney) : null;
   const balanceInfo =
     collectsBalance && canInstallerTools ? await getJobOpenBalance(id) : null;
   // Balance for the printed installation work order (shown when the installer
@@ -389,7 +397,7 @@ export default async function JobPage({
   const tabsToShow: JobTab[] = [
     ...(jobDocsFull ? (["documents"] as JobTab[]) : []),
     "work_order",
-    ...(canInstallerTools ? (["completion"] as JobTab[]) : []),
+    ...(canSeeSignoff ? (["completion"] as JobTab[]) : []),
     ...(canManageMaterials ? (["warehouse"] as JobTab[]) : []),
     ...(isStaff ? (["money", "manage"] as JobTab[]) : []),
   ];
@@ -1210,7 +1218,7 @@ export default async function JobPage({
       <JobTabPanel tab="completion">
       {/* Job completion — read-only. The crew captures the sign-off, photos and
           any on-site payment on their My Work page; this is the office's view. */}
-      {canInstallerTools ? (
+      {canSeeSignoff ? (
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-base">Job completion</CardTitle>
@@ -1230,8 +1238,20 @@ export default async function JobPage({
                   </span>
                 )}
               </div>
+              {signoffAlertCopy ? (
+                <div
+                  role="alert"
+                  className="mb-2 rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100"
+                >
+                  <p className="font-semibold">{signoffAlertCopy.title}</p>
+                  <p className="mt-1">{signoffAlertCopy.detail}</p>
+                </div>
+              ) : null}
               {satisfaction ? (
                 <div className="space-y-1.5">
+                  {satisfaction.payment_choice ? (
+                    <p className="font-medium">{paymentChoiceLabel(satisfaction.payment_choice)}</p>
+                  ) : null}
                   {satisfaction.rating ? (
                     <div className="flex items-center gap-0.5">
                       {[1, 2, 3, 4, 5].map((n) => (
