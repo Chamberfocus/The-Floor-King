@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import { lineColorFromCatalog } from "@/lib/catalog-identity";
 import { productLabel } from "@/lib/product-label";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -288,7 +289,7 @@ export function PoBuilder({
       }),
       manufacturer: p.manufacturer ?? "",
       style: p.style ?? "",
-      color: p.color ?? "",
+      color: lineColorFromCatalog(p.color, p.notes),
       item_no: (vRow?.vendor_sku || p.sku) ?? "",
       category: p.category ?? "",
       unit,

@@ -87,11 +87,18 @@ export function materialSellUnresolved(line: {
   material_rate?: number | string | null;
   material_cost?: number | string | null;
   labor_rate?: number | string | null;
+  /** A per-unit installed price is a real sell. */
+  installed_rate?: number | string | null;
+  /** A flat amount is a real sell. */
+  flat_amount?: number | string | null;
 }): boolean {
   if (line.category === "labor") return false;
   const sell = num(line.material_rate);
   const cost = num(line.material_cost);
   const labor = num(line.labor_rate);
+  const installed = num(line.installed_rate);
+  const flat = num(line.flat_amount);
+  if (installed > 0 || flat > 0) return false;
   if (labor > 0 && sell <= 0 && cost <= 0) return false;
   return !(sell > 0) && !(cost > 0);
 }

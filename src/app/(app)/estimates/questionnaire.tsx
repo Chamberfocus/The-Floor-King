@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { billedQtyToSqft, catalogRateToBillingUnit, isAreaUnit, lineDisplayUnit, lineSkipsAreaCartonMath, normalizeUnit, pickedProductUnit, unitIsSqyd, unitLabel } from "@/lib/units";
+import { lineColorFromCatalog } from "@/lib/catalog-identity";
 import { productLabel } from "@/lib/product-label";
 import { catalogRateInLineUnit, catalogUnitCost, PRICE_NEEDED } from "@/lib/catalog-pricing";
 import {
@@ -411,7 +412,7 @@ function toProductAns(p: Product): ProductAns {
     sellPrice: "",
     manufacturer: p.manufacturer,
     style: p.style,
-    color: p.color,
+    color: lineColorFromCatalog(p.color, p.notes),
     supplierName: supplier,
     source: "order",
     vendor: supplier ?? "",

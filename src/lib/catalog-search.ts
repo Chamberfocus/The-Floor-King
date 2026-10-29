@@ -5,6 +5,7 @@
  * product). It does not invent compatibility between a carpet and a pad.
  * Ranking runs on the rows already fetched — not a fuzzy scan of the catalog.
  */
+import { colorNumberFromText } from "@/lib/catalog-identity";
 
 export const HARD_SURFACE_CATEGORIES = ["lvp", "hardwood", "laminate", "tile", "vinyl"] as const;
 
@@ -12,8 +13,9 @@ export interface PickerCatalogScope {
   /** Null means the whole catalog (Search all products). */
   categories: string[] | null;
   /**
-   * Empty-box text filter on real columns (name / sku / search_text).
-   * OR'd, not a compatibility rule. Cleared when the salesperson types.
+   * Empty-box text filter on real columns (name / sku / style / color /
+   * notes / search_text). OR'd, not a compatibility rule. Cleared when the
+   * salesperson types.
    */
   browseTokens: string[] | null;
   label: string | null;
@@ -142,6 +144,12 @@ export function scoreCatalogProduct(p: RankableProduct, query: string): number {
   const name = (p.name ?? "").toLowerCase();
   const sku = (p.sku ?? "").toLowerCase();
   const mfr = (p.manufacturer ?? "").toLowerCase();
+  const style = (p.style ?? "").toLowerCase();
+  const color = (p.color ?? "").toLowerCase();
+  const notes = (p.notes ?? "").toLowerCase();
+  const colorNum = (
+    colorNumberFromText(p.notes) ?? colorNumberFromText(p.color) ?? ""
+  ).toLowerCase();
   const joined = tokens.join(" ");
   const skuNorm = squash(sku);
   const queryNorm = squash(query);
@@ -150,6 +158,14 @@ export function scoreCatalogProduct(p: RankableProduct, query: string): number {
   if (sku && (sku === joined || (queryNorm.length > 0 && skuNorm === queryNorm))) s += 10000;
   else if (sku && (sku.startsWith(joined) || (queryNorm.length > 0 && skuNorm.startsWith(queryNorm)))) s += 2500;
   else if (sku && tokens.every((t) => tokenIn(t, sku))) s += 1800;
+
+  // A color number is how the mill identifies the colorway. An exact fragment
+  // of it outranks a product that merely contains those digits in another field.
+  if (colorNum && tokens.every((t) => t.length >= 2) && (colorNum === joined || squash(colorNum) === queryNorm)) {
+    s += 9000;
+  } else if (colorNum && tokens.every((t) => t.length >= 2 && tokenIn(t, colorNum))) {
+    s += 2600;
+  }
 
   if (name && name === joined) s += 8000;
   else if (name && name.startsWith(joined)) s += 5000;
@@ -161,7 +177,10 @@ export function scoreCatalogProduct(p: RankableProduct, query: string): number {
   }
   if (name.startsWith(tokens[0]) || words(name)[0]?.startsWith(tokens[0])) s += 800;
 
-  const other = [p.style, p.color, p.supplier, p.fiber, p.species, p.notes, p.category, p.search_text]
+  if (style && tokens.every((t) => t.length >= 2 && tokenIn(t, style))) s += 2000;
+  if (color && tokens.every((t) => t.length >= 2 && tokenIn(t, color))) s += 2200;
+
+  const other = [p.supplier, p.fiber, p.species, p.category, p.search_text]
     .filter(Boolean)
     .join(" ");
 
@@ -170,6 +189,9 @@ export function scoreCatalogProduct(p: RankableProduct, query: string): number {
     if (inName(t)) s += 200;
     else if (inMfr(t)) s += 120;
     else if (tokenIn(t, sku)) s += 160;
+    else if (t.length >= 2 && tokenIn(t, color)) s += 280;
+    else if (t.length >= 2 && tokenIn(t, style)) s += 240;
+    else if (t.length >= 2 && tokenIn(t, notes)) s += 200;
     else if (tokenIn(t, other)) s += 40;
     else all = false;
   }

@@ -391,6 +391,11 @@ describe("catalog context and search ranking", () => {
     });
     expect(rpcCalls).toEqual([]);
     expect(filters.some((f) => f === "eq:category:carpet")).toBe(true);
+    const or = filters.find((f) => f.startsWith("or:")) ?? "";
+    expect(or).toContain("style.ilike");
+    expect(or).toContain("color.ilike");
+    expect(or).toContain("notes.ilike");
+    expect(or).toContain("sku.ilike");
     expect(rows.map((r) => r.id)).toEqual(["saga"]);
     expect(rows.some((r) => r.category === "lvp")).toBe(false);
   });
