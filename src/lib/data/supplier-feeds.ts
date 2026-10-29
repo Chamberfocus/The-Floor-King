@@ -9,6 +9,8 @@ import {
 } from "@/lib/fcb2b";
 import { fetchNewCatalogs, type SftpTarget } from "@/lib/sftp-832";
 import type { ImportLine } from "@/lib/price-import";
+import { factsTableMissing, saveSupplierItemFacts } from "@/lib/data/supplier-facts";
+import { factsFromCatalogRow, specUrlFromBody, stockFromBody } from "@/lib/supplier-facts";
 
 export { isSafeToApply, costSwing } from "@/lib/price-import";
 export type { ImportLine } from "@/lib/price-import";
@@ -58,6 +60,12 @@ export const DEFAULT_PRICE_SERVICE = "/priceinquiry";
 
 /** How many items one REST refresh will ask for before it stops. */
 export const REST_ITEM_CAP = 750;
+
+/** Live stock is one item at a time. Keep a run shorter than a full price walk. */
+export const STOCK_ITEM_CAP = 100;
+
+const INVENTORY_SERVICE = "/inventoryinquiry";
+const DOCUMENT_SERVICE = "/documentservice";
 
 export async function getSupplierFeed(
   db: DB,
@@ -318,6 +326,27 @@ export async function stagePriceImport(
     }
   }
 
+  // Roll size and catalog specs ride along with the price file. Stock does not.
+  // A missing facts table must not fail the draft the office still has to review.
+  try {
+    const factSave = await saveSupplierItemFacts(
+      db,
+      input.supplierId,
+      rows.map((row) => factsFromCatalogRow(row)),
+    );
+    if (factSave.error) {
+      warnings.push(
+        factsTableMissing(factSave.error)
+          ? "Roll size and specs were not saved — the supplier facts table is not in the database yet."
+          : `Roll size and specs were not saved: ${factSave.error}`,
+      );
+    }
+  } catch (err) {
+    warnings.push(
+      `Roll size and specs were not saved: ${err instanceof Error ? err.message : "unknown error"}`,
+    );
+  }
+
   return { importId, matched, unmatched, changed, error: null, warnings };
 }
 
@@ -445,6 +474,169 @@ export async function fetchPricesOverRest(
     effectiveDate: null,
     warnings,
     error: rows.length ? null : "Every request came back without a price.",
+  };
+}
+
+export interface StockRefreshResult {
+  asked: number;
+  withStock: number;
+  withSpec: number;
+  saved: number;
+  warnings: string[];
+  error: string | null;
+}
+
+/**
+ * Ask a live fcB2B connection how much it has, and for a spec-sheet link.
+ * Prices are not touched. Warehouse on_hand is not touched.
+ */
+export async function refreshSupplierStock(
+  db: DB,
+  feed: SupplierFeed,
+  supplierName: string,
+): Promise<StockRefreshResult> {
+  const warnings: string[] = [];
+  const empty = (error: string | null): StockRefreshResult => ({
+    asked: 0,
+    withStock: 0,
+    withSpec: 0,
+    saved: 0,
+    warnings,
+    error,
+  });
+
+  if (feed.kind !== "fcb2b_rest") {
+    return empty(
+      "Live stock needs their inventory web service. A price file carries size and specs, not today's quantity.",
+    );
+  }
+  if (!feed.endpoint_url) return empty("No endpoint URL is configured.");
+  if (feed.credential_key && !process.env[feed.credential_key]) {
+    return empty(
+      `The credential ${feed.credential_key} isn't set in this environment. Add it in Vercel → Settings → Environment Variables and redeploy.`,
+    );
+  }
+
+  const skus: string[] = [];
+  const seen = new Set<string>();
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db
+      .from("products")
+      .select("sku")
+      .eq("supplier_id", feed.supplier_id)
+      .not("sku", "is", null)
+      .order("id")
+      .range(from, from + 999);
+    if (error) return empty(error.message);
+    for (const row of (data ?? []) as { sku: string | null }[]) {
+      const sku = (row.sku ?? "").trim();
+      if (!sku || seen.has(sku)) continue;
+      seen.add(sku);
+      skus.push(sku);
+    }
+    if (!data || data.length < 1000) break;
+  }
+
+  if (!skus.length) {
+    return empty(
+      `No products are attributed to ${supplierName} with a SKU, so there is nothing to ask them about yet.`,
+    );
+  }
+
+  const capped = skus.slice(0, STOCK_ITEM_CAP);
+  if (skus.length > capped.length) {
+    warnings.push(
+      `Asked for the first ${capped.length} of ${skus.length} items — the rest were not checked in this run.`,
+    );
+  }
+
+  const facts: {
+    supplierSku: string;
+    availableQty: number | null;
+    availableUom: string | null;
+    rollWidthFt: null;
+    rollLengthFt: null;
+    description: null;
+    specUrl: string | null;
+    details: Record<string, unknown>;
+  }[] = [];
+  let failures = 0;
+  let firstError: string | null = null;
+  const CONCURRENCY = 5;
+
+  for (let i = 0; i < capped.length; i += CONCURRENCY) {
+    const batch = capped.slice(i, i + CONCURRENCY);
+    const answers = await Promise.all(
+      batch.map(async (sku) => {
+        const [stockRes, docRes] = await Promise.all([
+          fcb2bRequest(feed, INVENTORY_SERVICE, sku, 8_000),
+          fcb2bRequest(feed, DOCUMENT_SERVICE, sku, 8_000),
+        ]);
+        return { sku, stockRes, docRes };
+      }),
+    );
+
+    for (const { sku, stockRes, docRes } of answers) {
+      if (!stockRes.ok && !docRes.ok) {
+        failures++;
+        if (!firstError) firstError = stockRes.error ?? docRes.error ?? `HTTP ${stockRes.status}`;
+        continue;
+      }
+      const stock = stockRes.ok ? stockFromBody(stockRes.body) : { qty: null, uom: null };
+      const specUrl = docRes.ok ? specUrlFromBody(docRes.body) : null;
+      facts.push({
+        supplierSku: sku,
+        availableQty: stock.qty,
+        availableUom: stock.uom,
+        rollWidthFt: null,
+        rollLengthFt: null,
+        description: null,
+        specUrl,
+        details: {},
+      });
+    }
+
+    if (i === 0 && facts.length === 0 && failures === batch.length) {
+      return {
+        asked: batch.length,
+        withStock: 0,
+        withSpec: 0,
+        saved: 0,
+        warnings,
+        error: `${supplierName} rejected the first ${batch.length} stock requests: ${firstError ?? "no usable answer"}. Nothing else was sent.`,
+      };
+    }
+  }
+
+  if (failures) {
+    warnings.push(
+      `${failures} item${failures === 1 ? "" : "s"} came back without stock or a spec${firstError ? ` (first problem: ${firstError})` : ""}.`,
+    );
+  }
+
+  const saved = await saveSupplierItemFacts(db, feed.supplier_id, facts);
+  if (saved.error) {
+    return {
+      asked: capped.length,
+      withStock: facts.filter((f) => f.availableQty != null).length,
+      withSpec: facts.filter((f) => f.specUrl).length,
+      saved: saved.saved,
+      warnings,
+      error: factsTableMissing(saved.error)
+        ? "The supplier facts table is not in the database yet, so the answers were not stored."
+        : saved.error,
+    };
+  }
+
+  return {
+    asked: capped.length,
+    withStock: facts.filter((f) => f.availableQty != null).length,
+    withSpec: facts.filter((f) => f.specUrl).length,
+    saved: saved.saved,
+    warnings,
+    error: facts.length
+      ? null
+      : "Every request came back without stock or a spec.",
   };
 }
 

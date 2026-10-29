@@ -682,6 +682,17 @@ export interface Product {
   wear_layer_mil?: number | null;
   thickness_mm?: number | null;
   face_weight_oz?: number | null;
+  /**
+   * Latest mill or distributor report. Not warehouse on_hand, and not a cost.
+   * Attached at read time from supplier_item_facts.
+   */
+  mill_available?: number | null;
+  mill_uom?: string | null;
+  mill_spec_url?: string | null;
+  mill_width_ft?: number | null;
+  mill_length_ft?: number | null;
+  mill_description?: string | null;
+  mill_checked_at?: string | null;
   last_movement_at: string | null;
   created_at: string;
   updated_at: string;

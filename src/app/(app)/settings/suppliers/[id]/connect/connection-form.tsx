@@ -12,6 +12,7 @@ import type { FeedKind, FeedTransport, SupplierFeed } from "@/lib/data/supplier-
 import {
   fetchPricesNow,
   pullFromSftp,
+  refreshSupplierStockNow,
   saveFeedConnection,
   testFeedConnection,
   testSftpConnection,
@@ -28,12 +29,12 @@ const KINDS: { value: string; label: string; hint: string }[] = [
   {
     value: "fcb2b_rest",
     label: "fcB2B web services (live)",
-    hint: "They gave you an endpoint URL and a ClientIdentifier. Prices can be pulled on demand and on a schedule.",
+    hint: "They gave you an https endpoint and a ClientIdentifier. Prices, stock, and spec links can be asked for on demand. Prices still wait for review, and stock never changes our warehouse count.",
   },
   {
     value: "fcb2b_832",
     label: "fcB2B 832 price catalog (file)",
-    hint: "They send the price list as an 832 document. Upload it below whenever a new one arrives.",
+    hint: "They send the price list as an 832 document. That file saves roll size and catalog specs. It does not include today's quantity.",
   },
   {
     value: "file",
@@ -375,6 +376,19 @@ export function ConnectionForm({
               >
                 <RefreshCw className="size-4" /> Pull prices now
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy || linkedWithSku === 0}
+                onClick={() => run(() => refreshSupplierStockNow(supplierId), "Stock and specs checked")}
+              >
+                <RefreshCw className="size-4" /> Ask for stock and specs
+              </Button>
+              <p className="basis-full text-xs text-muted-foreground">
+                A price file carries size and specs, not today&apos;s quantity. Live stock needs the
+                inventory web service. Pulling prices stages a draft. Asking for stock does not
+                change our warehouse count or a catalog cost.
+              </p>
               {linkedWithSku === 0 ? (
                 <p className="self-center text-xs text-muted-foreground">
                   Attribute some products to {supplierName} first — a pull asks about the items we
@@ -413,7 +427,9 @@ export function ConnectionForm({
               />
               <p className="text-xs text-muted-foreground">
                 An 832 document from {supplierName}. Nothing changes when you upload — it is read,
-                matched to our catalog, and held for you to review.
+                matched to our catalog, and held for you to review. Roll size and the specs printed
+                in the file are saved beside the product. Today&apos;s mill quantity is not in a
+                price file.
               </p>
               <div className="flex justify-end">
                 <Button type="submit" disabled={uploading}>

@@ -19,6 +19,7 @@ import { getProduct, listMovements } from "@/lib/data/inventory";
 import { listRolls } from "@/lib/data/stock-rolls";
 import { STOCK_MOVEMENT_LABELS } from "@/lib/types";
 import { formatMoney, formatDate } from "@/lib/format";
+import { millFactLabel, safeSpecUrl } from "@/lib/supplier-facts";
 import { rollReceiveUnit } from "@/lib/units";
 import { cn } from "@/lib/utils";
 import {
@@ -61,6 +62,13 @@ export default async function InventoryItemPage({
   const reserved = Number(product.reserved) || 0;
   const available = Math.max(0, product.on_hand - reserved);
   const showCost = profile.role === "admin" || profile.role === "office";
+  const mill = millFactLabel({
+    availableQty: product.mill_available,
+    availableUom: product.mill_uom,
+    rollWidthFt: product.mill_width_ft,
+    rollLengthFt: product.mill_length_ft,
+  });
+  const specUrl = safeSpecUrl(product.mill_spec_url);
   const avgCost = product.avg_unit_cost != null ? Number(product.avg_unit_cost) : null;
   const inventoryValue =
     avgCost != null
@@ -144,6 +152,23 @@ export default async function InventoryItemPage({
           </CardContent>
         </Card>
       </div>
+
+      {mill || specUrl ? (
+        <p className="mt-3 text-sm text-muted-foreground">
+          Mill availability, separate from the warehouse count
+          {product.mill_checked_at ? ` (checked ${formatDate(product.mill_checked_at)})` : ""}
+          {mill ? `: ${mill}` : ""}
+          {specUrl ? (
+            <>
+              {" "}
+              ·{" "}
+              <a href={specUrl} target="_blank" rel="noreferrer" className="text-primary underline">
+                Spec sheet
+              </a>
+            </>
+          ) : null}
+        </p>
+      ) : null}
 
       {/* Actions — discrete items count in whole units; rolled goods are per-roll. */}
       {!rolled ? (

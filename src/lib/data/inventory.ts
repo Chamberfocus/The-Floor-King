@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { attachMillFacts } from "@/lib/data/supplier-facts";
 import type { Product, StockMovement } from "@/lib/types";
 
 /** Stock untouched for this many days is flagged "aged". */
@@ -152,7 +153,8 @@ export async function getProduct(id: string): Promise<Product | null> {
     (product as Product & { inventory_carrying_value?: number }).inventory_carrying_value =
       v.inventory_carrying_value;
   }
-  return product;
+  const [withMill] = await attachMillFacts(supabase, [product]);
+  return withMill;
 }
 
 export async function listMovements(productId: string): Promise<StockMovement[]> {

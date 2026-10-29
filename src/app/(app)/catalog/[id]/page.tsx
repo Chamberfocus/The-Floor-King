@@ -3,6 +3,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { formatDate } from "@/lib/format";
+import { millFactLabel, safeSpecUrl } from "@/lib/supplier-facts";
 import { Button } from "@/components/ui/button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { PageHeader } from "@/components/page-header";
@@ -34,6 +36,14 @@ export default async function EditProductPage({
   // All vendors (incl. inactive) so an existing product's vendor still shows.
   const vendors = (await listSuppliers()).map((s) => ({ id: s.id, name: s.name, kind: s.kind }));
   const [biz, org] = await Promise.all([getBusinessSettings(), getOrgSettings()]);
+  const mill = millFactLabel({
+    availableQty: product.mill_available,
+    availableUom: product.mill_uom,
+    rollWidthFt: product.mill_width_ft,
+    rollLengthFt: product.mill_length_ft,
+  });
+  const specUrl = safeSpecUrl(product.mill_spec_url);
+  const showMill = Boolean(mill || specUrl || product.mill_description);
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -44,6 +54,29 @@ export default async function EditProductPage({
         <ArrowLeft className="size-4" /> Back to catalog
       </Link>
       <PageHeader title="Edit product" />
+      {showMill ? (
+        <Card className="mb-4">
+          <CardContent className="pt-6 text-sm">
+            <div className="font-medium">From the mill</div>
+            <p className="mt-1 text-muted-foreground">
+              What the manufacturer last reported. This is not our warehouse count, and it does not
+              change the price.
+              {product.mill_checked_at ? ` Checked ${formatDate(product.mill_checked_at)}.` : ""}
+            </p>
+            {mill ? <p className="mt-2">{mill}</p> : null}
+            {product.mill_description ? (
+              <p className="mt-1 line-clamp-3 text-muted-foreground">{product.mill_description}</p>
+            ) : null}
+            {specUrl ? (
+              <p className="mt-2">
+                <a href={specUrl} target="_blank" rel="noreferrer" className="text-primary underline">
+                  Spec sheet
+                </a>
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
       <Card>
         <CardContent className="pt-6">
           <ProductForm
