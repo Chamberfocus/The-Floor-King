@@ -38,8 +38,14 @@ ${company} is setting up automatic price and order handling with ${supplier}${
   }, and we'd like to connect using the fcB2B standard.
 
 WHAT WE'RE ASKING FOR FIRST
-Your 832 Product Price Catalog, delivered on whatever schedule you publish.
-That alone keeps our costs current and is the highest-value piece for us.
+1. Your 832 Product Price Catalog, on the schedule you publish, so our costs
+   stay current. We review price changes before they go into the catalog.
+2. Current availability for the SKUs we buy (inventory inquiry or stock check).
+3. Specification sheets for those same SKUs (document service), when you
+   publish them.
+
+The price catalog is enough to start. Availability and spec sheets need the
+web services.
 
 IF YOU ALSO SUPPORT THEM, WE'D LIKE
   850  Purchase Order              — our orders sent electronically

@@ -72,7 +72,7 @@ export default async function SupplierConnectPage({
       </Link>
       <PageHeader
         title={`Connect ${supplier.name}`}
-        description="Everything needed to set up an automatic price feed — and the brief to send them."
+        description="Set up how we receive prices, stock, and specifications — and the brief to send them."
       />
 
       {/* The prerequisite, stated before anything else. */}
@@ -113,6 +113,14 @@ export default async function SupplierConnectPage({
           </p>
         </div>
       </div>
+
+      <p className="mb-6 text-sm text-muted-foreground">
+        Each mill needs its own connection: an https endpoint, a ClientIdentifier, and a password
+        stored in the environment. A price catalog saves roll size and the specifications printed
+        on it, and stages costs for review. It does not include today&apos;s quantity, and it never
+        changes our warehouse count. Live stock and spec-sheet links are asked only when this
+        supplier has a web-service connection.
+      </p>
 
       <ConnectionForm
         supplierId={id}
@@ -198,10 +206,11 @@ export default async function SupplierConnectPage({
               </div>
             ))}
             <p className="border-t pt-3 text-xs text-muted-foreground">
-              Only the <span className="font-mono">832</span> is needed for price
-              updates. The rest are worth asking about while you have their
-              attention — 855 and 856 are what remove guesswork about whether an
-              order was accepted and what actually shipped.
+              The <span className="font-mono">832</span> is what updates prices, and
+              those still wait for review before a cost changes. Live stock totals
+              and spec sheets come from the inventory and document web services, not
+              from the price file. 855 and 856 are what remove guesswork about
+              whether an order was accepted and what actually shipped.
             </p>
           </CardContent>
         </Card>

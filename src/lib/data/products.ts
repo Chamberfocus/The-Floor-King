@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { catalogUnitCost, hydrateCatalogPricing } from "@/lib/catalog-pricing";
 import { rankCatalogProducts } from "@/lib/catalog-search";
+import { attachMillFacts } from "@/lib/data/supplier-facts";
 import type { Product, ProductVendor, SupplierKind } from "@/lib/types";
 
 /**
@@ -149,8 +150,9 @@ export async function enrichCatalogProducts(
   products: Product[],
 ): Promise<Product[]> {
   const withVendors = await attachProductVendors(db as Awaited<ReturnType<typeof createClient>>, products);
+  const withFacts = await attachMillFacts(db, withVendors);
   const ctx = await catalogPricingContext(db);
-  return hydrateCatalogPricing(withVendors, ctx);
+  return hydrateCatalogPricing(withFacts, ctx);
 }
 
 /**

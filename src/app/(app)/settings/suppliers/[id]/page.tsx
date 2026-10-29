@@ -58,7 +58,7 @@ export default async function VendorPage({ params }: { params: Promise<{ id: str
           href={`/settings/suppliers/${vendor.id}/connect`}
           className={buttonVariants({ variant: "outline", size: "sm" })}
         >
-          <Plug className="size-4" /> Connect price feed
+          <Plug className="size-4" /> Connect prices, stock, and specs
         </Link>
       </div>
 

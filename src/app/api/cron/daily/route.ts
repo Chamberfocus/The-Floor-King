@@ -13,6 +13,7 @@ import {
   feedsDue,
   fetchPricesOverRest,
   recordFeedRun,
+  refreshSupplierStock,
   stagePriceImport,
 } from "@/lib/data/supplier-feeds";
 
@@ -503,6 +504,8 @@ export async function GET(request: NextRequest) {
   // Pull each live fcB2B connection that is due, and stage what comes back as a
   // DRAFT. The cron never changes a cost — a supplier raising prices overnight
   // has to cross a person's desk, because every estimate margin depends on it.
+  // Live stock, when the connection is a web service, is stored beside the
+  // catalog. It never writes products.on_hand.
   let priceImports = 0;
   try {
     const feedDb = admin as unknown as Parameters<typeof feedsDue>[0];
@@ -559,26 +562,33 @@ export async function GET(request: NextRequest) {
 
       const fetched = await fetchPricesOverRest(feedDb, feed, feed.supplier_name);
       await recordFeedRun(feedDb, feed.id, fetched.error);
-      if (fetched.error || !fetched.rows.length) continue;
+      if (!fetched.error && fetched.rows.length) {
+        const staged = await stagePriceImport(feedDb, {
+          supplierId: feed.supplier_id,
+          kind: "fcb2b_rest",
+          sourceName: `${fetched.sourceName} — scheduled`,
+          effectiveDate: fetched.effectiveDate,
+          rows: fetched.rows,
+          warnings: fetched.warnings,
+        });
+        if (staged.importId) {
+          priceImports += 1;
+          await announce(
+            feed.supplier_id,
+            feed.supplier_name,
+            staged.importId,
+            staged.changed,
+            staged.warnings,
+            "scheduled price inquiry",
+          );
+        }
+      }
 
-      const staged = await stagePriceImport(feedDb, {
-        supplierId: feed.supplier_id,
-        kind: "fcb2b_rest",
-        sourceName: `${fetched.sourceName} — scheduled`,
-        effectiveDate: fetched.effectiveDate,
-        rows: fetched.rows,
-        warnings: fetched.warnings,
-      });
-      if (!staged.importId) continue;
-      priceImports += 1;
-      await announce(
-        feed.supplier_id,
-        feed.supplier_name,
-        staged.importId,
-        staged.changed,
-        staged.warnings,
-        "scheduled price inquiry",
-      );
+      // Stock is a different service from price. A price failure must not skip it.
+      if (feed.kind === "fcb2b_rest") {
+        const stock = await refreshSupplierStock(feedDb, feed, feed.supplier_name);
+        if (stock.error) await recordFeedRun(feedDb, feed.id, stock.error);
+      }
     }
   } catch {
     /* supplier_feeds may not exist yet (migrations 0140/0145 not run) */

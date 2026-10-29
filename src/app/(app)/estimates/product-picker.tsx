@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { catalogPickerDetail } from "@/lib/catalog-identity";
 import { productLabel } from "@/lib/product-label";
+import { millFactLabel } from "@/lib/supplier-facts";
 import { toast } from "sonner";
 import { Check, ChevronDown, Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -777,6 +778,20 @@ export function ProductPicker({
                                   : "Out of stock — order"}
                               </span>
                             ) : null}
+                            {(() => {
+                              const mill = millFactLabel({
+                                availableQty: p.mill_available,
+                                availableUom: p.mill_uom,
+                                rollWidthFt: p.mill_width_ft,
+                                rollLengthFt: p.mill_length_ft,
+                              });
+                              if (!mill) return null;
+                              return (
+                                <span className="inline-block rounded bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-800">
+                                  {mill}
+                                </span>
+                              );
+                            })()}
                           </span>
                         </span>
                         <span className="shrink-0 text-right">

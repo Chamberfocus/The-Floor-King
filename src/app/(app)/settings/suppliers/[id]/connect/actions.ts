@@ -11,6 +11,7 @@ import {
   getSupplierFeed,
   readCatalogFile,
   recordFeedRun,
+  refreshSupplierStock,
   sftpTargetFor,
   stagePriceImport,
   type FeedKind,
@@ -50,6 +51,8 @@ async function supplierName(
 function refresh(supplierId: string) {
   revalidatePath(`/settings/suppliers/${supplierId}/connect`);
   revalidatePath(`/settings/suppliers/${supplierId}`);
+  revalidatePath("/catalog", "layout");
+  revalidatePath("/inventory", "layout");
 }
 
 /** Save (or create) how we connect to this supplier. */
@@ -186,6 +189,33 @@ export async function fetchPricesNow(supplierId: string): Promise<FeedState> {
     ok: true,
     importId: staged.importId ?? undefined,
     warnings: staged.warnings,
+  };
+}
+
+/** Ask their inventory and document services. Does not stage or change a price. */
+export async function refreshSupplierStockNow(supplierId: string): Promise<FeedState> {
+  await assertRole(["admin", "office"]);
+  const supabase = await createClient();
+  const feed = await getSupplierFeed(supabase, supplierId);
+  if (!feed) return initialFail("Save the connection first.");
+  if (feed.kind !== "fcb2b_rest") {
+    return initialFail(
+      "Live stock needs their inventory web service. A price file carries size and specs, not today's quantity.",
+    );
+  }
+
+  const name = await supplierName(supabase, supplierId);
+  const stock = await refreshSupplierStock(supabase, feed, name);
+  await recordFeedRun(supabase, feed.id, stock.error);
+  refresh(supplierId);
+  if (stock.error) return { error: stock.error, warnings: stock.warnings };
+  const qty = `${stock.withStock} reported a quantity`;
+  const specs = `${stock.withSpec} included a spec link`;
+  return {
+    error: null,
+    ok: true,
+    warnings: stock.warnings,
+    note: `Asked ${name} about ${stock.asked} item${stock.asked === 1 ? "" : "s"}. ${qty}, ${specs}. Saved ${stock.saved}. Warehouse counts and catalog costs were not changed.`,
   };
 }
 
