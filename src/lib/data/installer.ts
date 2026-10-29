@@ -10,7 +10,7 @@ import {
   installerSeesJob,
   dedupeJobsById,
 } from "@/lib/installer-assignment";
-import type { JobSatisfaction } from "./jobs";
+import { listJobSatisfactionForInstaller, type JobSatisfaction } from "./jobs";
 import type { Job, CustomerDocument, EstimateLineItem } from "@/lib/types";
 
 export interface InstallerJob {
@@ -147,12 +147,7 @@ export async function getInstallerHome(
   const ratings: InstallerHome["ratings"] = { avg: 0, count: 0, recent: [] };
   const satByJob = new Map<string, JobSatisfaction>();
   if (jobIds.length) {
-    const { data: sat } = await admin
-      .from("job_satisfaction")
-      .select("id, job_id, rating, comments, signature, signed_name, signed_at")
-      .in("job_id", jobIds)
-      .order("signed_at", { ascending: false });
-    const rows = (sat ?? []) as JobSatisfaction[];
+    const rows = await listJobSatisfactionForInstaller(admin, jobIds);
     for (const s of rows) if (!satByJob.has(s.job_id)) satByJob.set(s.job_id, s);
     const rated = rows.filter((s) => s.rating);
     ratings.count = rated.length;
