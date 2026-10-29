@@ -1083,6 +1083,8 @@ export interface Job {
   open_for_claim: boolean;
   /** requested = date held, customer not told it is locked. confirmed = told. */
   install_hold?: "requested" | "confirmed" | null;
+  /** Mill or installer claim. Stays on the balance. Left out of sales totals. */
+  is_claim?: boolean;
   // Job-board target (migration 0088): when you want it done + expected days.
   board_wanted_start?: string | null;
   board_wanted_end?: string | null;

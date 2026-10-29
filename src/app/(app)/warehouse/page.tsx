@@ -525,6 +525,17 @@ export default async function WarehousePage({
         title="Warehouse"
         description="What's on order, what's landed, and what to prep for upcoming jobs."
       />
+      <div className="mb-4 flex flex-wrap gap-4 text-sm print:hidden">
+        <Link href="/warehouse/morning" className="font-medium text-primary hover:underline">
+          Tomorrow&apos;s sheet
+        </Link>
+        <Link href="/warehouse/scan" className="font-medium text-primary hover:underline">
+          Scan a roll
+        </Link>
+        <Link href="/warehouse/tags" className="font-medium text-primary hover:underline">
+          Print roll tags
+        </Link>
+      </div>
 
       <WorkQueueBar
         action="/warehouse"
