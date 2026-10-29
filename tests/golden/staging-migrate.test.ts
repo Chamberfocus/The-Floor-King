@@ -1,7 +1,7 @@
 /**
  * Staging migration gate. These tests never open a database connection.
  */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import {
@@ -23,6 +23,13 @@ import {
 } from "../../scripts/staging-migrate.mjs";
 
 const PRODUCTION_REF = "ayqcaloqsklvskkudvbs";
+
+/** The dry-run must list every migration file on disk, in order. */
+function migrationFiles(): string[] {
+  return readdirSync("supabase/migrations")
+    .filter((name) => name.endsWith(".sql"))
+    .sort();
+}
 const STAGING_URL = `postgresql://postgres:not-a-secret@db.${STAGING_REF}.supabase.co:5432/postgres`;
 
 function run(args: string[], env: Record<string, string> = {}) {
@@ -45,15 +52,17 @@ describe("staging migration gate", () => {
   it("dry-run lists the historical files and does not connect", () => {
     const result = run(["dry-run"]);
     expect(result.status).toBe(0);
+    const files = migrationFiles();
+    const last = files[files.length - 1];
     expect(result.stdout).toContain("Database contacted: no");
-    expect(result.stdout).toContain("Migration files: 498");
+    expect(result.stdout).toContain(`Migration files: ${files.length}`);
     expect(result.stdout).toContain("First file: 0001_init.sql");
-    expect(result.stdout).toContain("Last file: 0505_signoff_payment_choice.sql");
+    expect(result.stdout).toContain(`Last file: ${last}`);
     expect(result.stdout).toContain("Filename order backwards: 0");
     expect(result.stdout).toContain(`Required project ref: ${STAGING_REF}`);
     expect(result.stdout).toContain(`Blocked project ref: ${PRODUCTION_REF}`);
     expect(result.stdout).toContain("001 0001_init.sql");
-    expect(result.stdout).toContain("498 0505_signoff_payment_choice.sql");
+    expect(result.stdout).toContain(`${String(files.length).padStart(3, "0")} ${last}`);
     expect(result.stdout).toContain("Apply is not authorized by this command.");
     expect(result.stdout).not.toContain("Applying ");
   });
@@ -339,7 +348,7 @@ describe("staging execution safety", () => {
 
   it("accepts the real migration set and the rollback-only prove script", () => {
     const loaded = loadMigrationPlan();
-    expect(loaded.files).toHaveLength(498);
+    expect(loaded.files).toHaveLength(migrationFiles().length);
     expect(loaded.backwards).toEqual([]);
     expect(loaded.plan.some((row) => row.execution === "unsafe-transaction")).toBe(false);
     expect(loaded.plan.filter((row) => row.enumAdd).every((row) => row.execution === "autocommit")).toBe(

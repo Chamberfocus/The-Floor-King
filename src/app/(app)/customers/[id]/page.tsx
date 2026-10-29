@@ -38,6 +38,8 @@ import {
   getPortalUser,
 } from "@/lib/data/customers";
 import { listEstimateScheduleFacts, listEstimatesForCustomer } from "@/lib/data/estimates";
+import { listEstimateClientSignals } from "@/lib/data/estimate-delivery";
+import { estimateViewLabel } from "@/lib/estimate-client-response";
 import { customerSeesCustomerMoney } from "@/lib/customer-record-access";
 import { listJobsForCustomer, listSchedulingJobsForCustomer, getJobSatisfaction } from "@/lib/data/jobs";
 import { listOrdersForCustomer } from "@/lib/data/orders";
@@ -255,6 +257,7 @@ export default async function CustomerPage({
   const estimates = seesMoney
     ? await listEstimatesForCustomer(id)
     : await listEstimateScheduleFacts(id);
+  const estimateSignals = await listEstimateClientSignals(estimates.map((e) => e.id));
   const jobs = seesMoney
     ? await listJobsForCustomer(id)
     : await listSchedulingJobsForCustomer(id);
@@ -419,6 +422,10 @@ export default async function CustomerPage({
       sentAt: estimate.sent_at,
       approvedAt: estimate.approved_at,
       approvalStale: estimate.approval_stale,
+      discussionRequestedAt:
+        estimateSignals.byId.get(estimate.id)?.discussion_requested_at ??
+        estimate.discussion_requested_at ??
+        null,
     })),
     jobs: jobs.map((job) => ({
       id: job.id,
@@ -702,12 +709,21 @@ export default async function CustomerPage({
     const opt =
       (e.accepted_option_id && opts.find((o) => o.id === e.accepted_option_id)) || opts[0];
     const lines = opt?.line_items ?? [];
+    const signal = estimateSignals.byId.get(e.id);
+    const discussionAt =
+      signal?.discussion_requested_at ?? e.discussion_requested_at ?? null;
     return {
       id: e.id,
       title: e.title || "Estimate",
       status: e.status,
       total: seesMoney && opt ? optionTotals(lines, e.tax_rate).total : null,
       optionName: opts.length > 1 ? (opt?.name ?? null) : null,
+      openedLabel:
+        e.sent_at && estimateSignals.viewsAvailable
+          ? estimateViewLabel(signal?.view_count ?? 0)
+          : null,
+      wantsDiscussion: !!discussionAt && e.status !== "approved" && e.status !== "declined",
+      discussionNote: signal?.discussion_note ?? e.discussion_note ?? null,
       siteLabel: showSites
         ? (addrLabel.get(
             (e as { service_address_id?: string | null }).service_address_id ?? "",

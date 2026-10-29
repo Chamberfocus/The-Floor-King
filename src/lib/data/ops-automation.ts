@@ -329,6 +329,62 @@ export async function onEstimateChangesRequestedOps(args: {
   });
 }
 
+/** Customer wants to talk about the quote. Same follow-up task, due now. */
+export async function onEstimateDiscussionRequestedOps(args: {
+  estimateId: string;
+  customerId: string | null;
+  assignedTo: string | null;
+  actorId: string | null;
+  title: string | null;
+  note?: string | null;
+  db?: FollowUpDb | null;
+}): Promise<void> {
+  if (!args.customerId) return;
+  const dueAt = followUpDueAt(new Date(), 0);
+  const said = args.note?.trim();
+  const taskTitle = `Customer wants to discuss estimate${args.title ? `: ${args.title}` : ""}`;
+  const description = said
+    ? `Call them about the estimate. They said: ${said}`
+    : "The customer wants to discuss this estimate. Call them.";
+  await ensureAutomatedOfficeTaskSafe({
+    title: taskTitle,
+    sourceKind: ESTIMATE_FOLLOWUP_KIND,
+    entityId: args.estimateId,
+    assignedTo: args.assignedTo ?? args.actorId,
+    createdBy: args.actorId,
+    customerId: args.customerId,
+    estimateId: args.estimateId,
+    dueAt,
+    description,
+    priority: "high",
+  });
+  await pullOpenTaskDueForward({
+    sourceKind: ESTIMATE_FOLLOWUP_KIND,
+    entityId: args.estimateId,
+    dueAt,
+    priority: "high",
+  });
+  const admin = tryAdmin();
+  if (admin) {
+    const key = automationSourceKey(ESTIMATE_FOLLOWUP_KIND, args.estimateId);
+    await admin
+      .from("office_tasks")
+      .update({
+        title: taskTitle,
+        description,
+        priority: "high",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("source_key", key)
+      .in("status", ["open", "in_progress"]);
+  }
+  await pinCustomerFollowUp({
+    customerId: args.customerId,
+    dueAt,
+    db: args.db,
+  });
+}
+
 export async function onEstimateResolvedOps(args: {
   estimateId: string;
   status: string;

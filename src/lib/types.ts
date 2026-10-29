@@ -880,6 +880,10 @@ export interface Estimate {
   notes: string | null;
   job_description: string | null;
   customer_response_note: string | null;
+  /** Set when the customer clicks that they want to discuss this estimate. */
+  discussion_requested_at?: string | null;
+  /** Optional note left with a discussion request. */
+  discussion_note?: string | null;
   valid_until: string | null;
   sent_at: string | null;
   thankyou_sent_at: string | null;

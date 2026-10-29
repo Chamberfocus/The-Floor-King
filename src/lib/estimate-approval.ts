@@ -484,10 +484,20 @@ export function approvalCompletedSuccessfully(result: {
   return !!result.snapshotId && !result.error;
 }
 
-/** Portal JWT may PATCH only these estimate columns (0179 trigger). */
+/** Portal JWT may PATCH only these estimate columns (0179 trigger, kept by 0502). */
 export const PORTAL_ESTIMATE_MUTABLE_FIELDS = [
   "status",
   "customer_response_note",
+  "updated_at",
+] as const;
+
+/**
+ * Columns a discussion RPC may change. Not a direct customer PATCH —
+ * portal_request_estimate_discussion sets the GUC first (0502).
+ */
+export const PORTAL_DISCUSSION_MUTABLE_FIELDS = [
+  "discussion_requested_at",
+  "discussion_note",
   "updated_at",
 ] as const;
 
@@ -497,6 +507,13 @@ export const PORTAL_ESTIMATE_MUTABLE_FIELDS = [
  */
 export const PORTAL_APPROVAL_MUTATION_GUC =
   "app.allow_portal_approval_mutation";
+
+/**
+ * Transaction-local GUC set only inside portal_request_estimate_discussion.
+ * Never grant a setter to authenticated.
+ */
+export const PORTAL_DISCUSSION_MUTATION_GUC =
+  "app.allow_portal_discussion_mutation";
 
 export function portalMayMutateEstimateField(field: string): boolean {
   return (PORTAL_ESTIMATE_MUTABLE_FIELDS as readonly string[]).includes(field);
@@ -522,17 +539,47 @@ export type PortalDirectUpdateEval = {
   jwtIsServiceRole: boolean;
   actorRole: string;
   trustedApprovalMutation: boolean;
+  /** Set only by portal_request_estimate_discussion (0502). */
+  trustedDiscussionMutation?: boolean;
   old: Record<string, unknown>;
   next: Record<string, unknown>;
 };
 
+function portalColumnDrift(
+  oldRow: Record<string, unknown>,
+  nextRow: Record<string, unknown>,
+  allowed: readonly string[],
+): boolean {
+  const skip = new Set<string>(allowed);
+  const keys = new Set([...Object.keys(oldRow), ...Object.keys(nextRow)]);
+  for (const k of keys) {
+    if (skip.has(k)) continue;
+    if (oldRow[k] !== nextRow[k]) return true;
+  }
+  return false;
+}
+
 /**
- * Behavioral mirror of estimates_protect_portal_columns (0179).
+ * Behavioral mirror of estimates_protect_portal_columns (0179, tightened in 0502).
  * Used so tests prove allow/deny without regex-only SQL matching.
  */
 export function evaluatePortalDirectEstimateUpdate(
   args: PortalDirectUpdateEval,
 ): { ok: true } | { ok: false; code: string } {
+  if (args.trustedDiscussionMutation) {
+    if (args.next.customer_id !== args.old.customer_id) {
+      return { ok: false, code: "PORTAL_ESTIMATE_FORBIDDEN" };
+    }
+    if (String(args.next.status ?? "") !== String(args.old.status ?? "")) {
+      return { ok: false, code: "PORTAL_ESTIMATE_FORBIDDEN" };
+    }
+    if (
+      portalColumnDrift(args.old, args.next, PORTAL_DISCUSSION_MUTABLE_FIELDS)
+    ) {
+      return { ok: false, code: "PORTAL_ESTIMATE_FORBIDDEN" };
+    }
+    return { ok: true };
+  }
   if (args.jwtIsServiceRole) return { ok: true };
   if (args.trustedApprovalMutation) return { ok: true };
   if (args.actorRole !== "customer") return { ok: true };
@@ -549,16 +596,15 @@ export function evaluatePortalDirectEstimateUpdate(
     }
   }
 
-  const skip = new Set<string>(PORTAL_ESTIMATE_MUTABLE_FIELDS);
-  const keys = new Set([
-    ...Object.keys(args.old),
-    ...Object.keys(args.next),
-  ]);
-  for (const k of keys) {
-    if (skip.has(k)) continue;
-    if (args.old[k] !== args.next[k]) {
-      return { ok: false, code: "PORTAL_ESTIMATE_FORBIDDEN" };
-    }
+  if (
+    newStatus === "declined" &&
+    !String(args.next.customer_response_note ?? "").trim()
+  ) {
+    return { ok: false, code: "DECLINE_REASON_REQUIRED" };
+  }
+
+  if (portalColumnDrift(args.old, args.next, PORTAL_ESTIMATE_MUTABLE_FIELDS)) {
+    return { ok: false, code: "PORTAL_ESTIMATE_FORBIDDEN" };
   }
   return { ok: true };
 }

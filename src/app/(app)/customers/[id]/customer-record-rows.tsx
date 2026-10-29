@@ -81,6 +81,10 @@ export interface EstimateRowData {
   lines: { id: string; label: string; amount: number | null }[];
   /** Which property, on accounts that have more than one. */
   siteLabel?: string | null;
+  /** "Not opened" / "Opened 3 times" once the estimate has been sent. */
+  openedLabel?: string | null;
+  wantsDiscussion?: boolean;
+  discussionNote?: string | null;
 }
 
 export function EstimateRow({
@@ -113,6 +117,14 @@ export function EstimateRow({
       openLabel="Open full estimate"
       right={
         <>
+          {e.wantsDiscussion ? (
+            <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-800 dark:bg-sky-950 dark:text-sky-200">
+              Wants to discuss
+            </span>
+          ) : null}
+          {e.openedLabel ? (
+            <span className="text-xs text-muted-foreground">{e.openedLabel}</span>
+          ) : null}
           <EstimateStatusBadge status={e.status} />
           {e.total != null ? (
             <span className="font-semibold tabular-nums">{formatMoney(e.total)}</span>
@@ -127,6 +139,12 @@ export function EstimateRow({
         />
       }
     >
+      {e.wantsDiscussion ? (
+        <p className="mb-2 text-sm">
+          <span className="font-medium">Wants to discuss.</span>
+          {e.discussionNote ? ` ${e.discussionNote}` : " No note — call them."}
+        </p>
+      ) : null}
       {e.optionName ? (
         <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           {e.optionName}

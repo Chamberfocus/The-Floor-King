@@ -14,6 +14,8 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { EstimateStatusBadge } from "@/components/estimate-status-badge";
 import { listEstimatesQueue, type EstimateListRow } from "@/lib/data/estimates";
+import { listEstimateClientSignals } from "@/lib/data/estimate-delivery";
+import { estimateViewLabel } from "@/lib/estimate-client-response";
 import { WorkQueueBar, WorkQueuePager } from "@/components/work-queue-bar";
 import { requireProfile } from "@/lib/auth";
 import { redirect } from "next/navigation";
@@ -71,6 +73,9 @@ export default async function EstimatesPage({
     listError = queueFailureMessage(error);
   }
   const estimates = queue.rows;
+  const signals = listError
+    ? null
+    : await listEstimateClientSignals(estimates.map((e) => e.id));
   const estimateHref = (next: { view?: string; who?: string; page?: number }) => {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
@@ -160,6 +165,14 @@ export default async function EstimatesPage({
               </div>
               <div className="mt-1.5 flex flex-wrap items-baseline gap-x-3 text-xs text-muted-foreground">
                 <span className="font-medium text-foreground">{formatMoney(headlineTotal(e))}</span>
+                {signals?.viewsAvailable && e.sent_at ? (
+                  <span>{estimateViewLabel(signals.byId.get(e.id)?.view_count ?? 0)}</span>
+                ) : null}
+                {signals?.byId.get(e.id)?.discussion_requested_at &&
+                e.status !== "approved" &&
+                e.status !== "declined" ? (
+                  <span className="font-medium text-sky-700">Wants to discuss</span>
+                ) : null}
                 <span className="ml-auto">{formatDate(e.created_at)}</span>
               </div>
             </div>
@@ -173,6 +186,7 @@ export default async function EstimatesPage({
                 <TableHead>Estimate</TableHead>
                 <TableHead>Customer</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Opened</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead className="text-right">Created</TableHead>
                 <TableHead className="w-10"></TableHead>
@@ -200,6 +214,18 @@ export default async function EstimatesPage({
                   </TableCell>
                   <TableCell>
                     <EstimateStatusBadge status={e.status} />
+                    {signals?.byId.get(e.id)?.discussion_requested_at &&
+                    e.status !== "approved" &&
+                    e.status !== "declined" ? (
+                      <span className="mt-1 block text-xs font-medium text-sky-700">
+                        Wants to discuss
+                      </span>
+                    ) : null}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {signals?.viewsAvailable && e.sent_at
+                      ? estimateViewLabel(signals.byId.get(e.id)?.view_count ?? 0)
+                      : "—"}
                   </TableCell>
                   <TableCell className="text-right font-medium">
                     {formatMoney(headlineTotal(e))}
