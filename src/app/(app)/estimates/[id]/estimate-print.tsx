@@ -7,11 +7,11 @@ import { Printer, Save, ListChecks, Receipt } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { EstimateOptionCards } from "@/components/estimate-option-cards";
-import { customerFacingJobNotes, customerFacingLineNote, customerLineLabel } from "@/lib/customer-scope";
+import { customerFacingJobNotes, customerFacingLineNote, customerLineLabel, parseProjectDetails, projectDetailsShown } from "@/lib/customer-scope";
+import { customerBillForEstimate, type JobBillRates } from "@/lib/job-bill";
 import { optionTotalsWithDiscount, lineTotal } from "@/lib/estimate-calc";
 import { docRef } from "@/lib/format";
 import { formatMoney, formatDate } from "@/lib/format";
-import { PRODUCT_CATEGORY_LABELS } from "@/lib/types";
 import type { Customer, Estimate, OrgSettings } from "@/lib/types";
 import { saveEstimateNotes, setEstimatePresentation, setEstimateProjectDetails } from "../actions";
 
@@ -64,17 +64,28 @@ export function EstimateCustomerControls({
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  const [detailsOn, setDetailsOn] = useState(projectDetailsShown(showProjectDetails));
+  useEffect(() => {
+    setDetailsOn(projectDetailsShown(showProjectDetails));
+  }, [showProjectDetails]);
   const itemized = presentation !== "summary";
   const setPres = (v: string) =>
     start(async () => {
       await setEstimatePresentation(estimateId, v === "summary" ? "summary" : "detailed");
       router.refresh();
     });
-  const setPD = (v: string) =>
+  const setPD = (v: string) => {
+    const next = v === "on";
+    setDetailsOn(next);
     start(async () => {
-      await setEstimateProjectDetails(estimateId, v === "on");
+      const saved = await setEstimateProjectDetails(estimateId, next);
+      if (!saved.ok) {
+        setDetailsOn(!next);
+        toast.error(saved.error || "Couldn't update project details.");
+      }
       router.refresh();
     });
+  };
   return (
     <div className="flex flex-col gap-3 rounded-lg border bg-muted/30 p-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-8">
       <div className="flex flex-wrap items-center gap-2">
@@ -99,7 +110,7 @@ export function EstimateCustomerControls({
           <ListChecks className="size-4 text-muted-foreground" /> Project details
         </span>
         <Seg
-          value={showProjectDetails ? "on" : "off"}
+          value={detailsOn ? "on" : "off"}
           disabled={pending}
           onChange={setPD}
           options={[
@@ -179,6 +190,7 @@ export function EstimatePrintDoc({
   preparedBy,
   siteAddress = null,
   preview = false,
+  billRates = null,
 }: {
   org: OrgSettings;
   customer: Customer | null;
@@ -194,6 +206,8 @@ export function EstimatePrintDoc({
   } | null;
   /** On-screen document preview: show the doc as a white sheet (not print-only). */
   preview?: boolean;
+  /** Gas, the car allowance, and the sales fee buried into the customer prices. */
+  billRates?: JobBillRates | null;
 }) {
   const options = estimate.options ?? [];
   // Multiple options with no choice made yet → present them side by side so the
@@ -203,73 +217,43 @@ export function EstimatePrintDoc({
   const chosen =
     options.find((o) => o.id === estimate.accepted_option_id) ?? options[0] ?? null;
   const lines = chosen?.line_items ?? [];
-  const totals = optionTotalsWithDiscount(
+  const flooring = optionTotalsWithDiscount(
     lines,
     estimate.tax_rate,
     estimate.discount_kind,
     estimate.discount_value,
   );
-  // "Itemized" prices each line; otherwise one lump sum. Firewall-safe either way
-  // (no sq ft / quantities / unit costs / margins / carpet cuts).
+  const lineSells = lines.map((l) => lineTotal(l));
+  const bill = billRates
+    ? customerBillForEstimate({
+        lineSells,
+        discount: flooring.discount,
+        taxRate: estimate.tax_rate,
+        rates: billRates,
+        estimate,
+      })
+    : null;
+  const totals = bill
+    ? {
+        subtotal: bill.flooringSubtotal + bill.added,
+        discount: bill.discount,
+        tax: bill.tax,
+        total: bill.total,
+      }
+    : flooring;
+  // "Itemized" prices each line; lump sum lists the same scope with no prices.
+  // Firewall-safe either way (no sq ft / quantities / unit costs / margins).
   const itemized = estimate.presentation !== "summary";
+  const showDetails = projectDetailsShown(estimate.show_project_details);
+  const projectDetails = showDetails
+    ? parseProjectDetails(estimate.job_description).details
+    : [];
   const number = docRef("EST", estimate.id);
 
   // Body content (customer-facing): the AREAS being done and the customer-facing
   // job_description. Never internal estimate.notes (cost/margin commentary).
   const areas = [...new Set(lines.map((l) => (l.room ?? "").trim()).filter(Boolean))];
   const description = customerFacingJobNotes(estimate.job_description);
-  /**
-   * The headline on a lump-sum quote.
-   *
-   * It used to be whichever PRODUCT cost most, run through customerLineLabel —
-   * so a quote went out headed "Perfect 10 TBD", a placeholder product name
-   * sitting where the description of the work should be. On a summary quote
-   * that line is the first thing the customer reads.
-   *
-   * Describe the WORK instead, from the material categories actually on the
-   * option: "Luxury vinyl plank & carpet — materials and installation". No
-   * single product can hijack it, and a mixed job stops being described by one
-   * of its parts.
-   */
-  const primaryLabel = (() => {
-    // Only the floor itself names the job. Underlayment, trim and sundries are
-    // companions — they ride along with whatever is being laid, and a quote
-    // headed "Underlayment" describes nothing.
-    const FLOOR = new Set([
-      "carpet",
-      "lvp",
-      "hardwood",
-      "laminate",
-      "tile",
-      "vinyl",
-    ]);
-    const named = [
-      ...new Set(
-        lines
-          .filter(
-            (l) => l.category && FLOOR.has(l.category) && lineTotal(l) > 0,
-          )
-          .map((l) => PRODUCT_CATEGORY_LABELS[l.category!])
-          .filter(Boolean),
-      ),
-    ].slice(0, 3);
-    if (named.length) {
-      const list =
-        named.length === 1
-          ? named[0]
-          : `${named.slice(0, -1).join(", ")} & ${named[named.length - 1]}`;
-      return `${list} — materials and installation`;
-    }
-    // No recognised floor category — a tile job written as one lump, say. Fall
-    // back to the priciest line's own label, which is usually written for the
-    // customer already, then to the estimate title.
-    const primary = lines
-      .filter((l) => l.category !== "labor" && lineTotal(l) > 0)
-      .sort((a, b) => lineTotal(b) - lineTotal(a))[0];
-    return primary
-      ? customerLineLabel(primary)
-      : estimate.title || "Flooring — materials and installation";
-  })();
   const taxLabel =
     Number(estimate.tax_rate) > 0 ? `Tax (${estimate.tax_rate}%)` : "Tax (Non-taxable 0%)";
   const custAddr = customer
@@ -308,7 +292,12 @@ export function EstimatePrintDoc({
       ? org.website
       : `http://www.${org.website.replace(/^www\./, "")}`
     : "";
-  const pricedLines = itemized ? lines.filter((l) => lineTotal(l) > 0) : [];
+  const displayLines = lines
+    .map((l, i) => ({
+      line: l,
+      amount: bill ? bill.lineAmounts[i] ?? 0 : lineTotal(l),
+    }))
+    .filter((row) => row.amount > 0 || (row.line.description ?? "").trim() || (row.line.room ?? "").trim());
 
   return (
     <div
@@ -382,7 +371,7 @@ export function EstimatePrintDoc({
           {description ? (
             <p className="mb-4 whitespace-pre-wrap text-[15px] leading-relaxed">{description}</p>
           ) : null}
-          <EstimateOptionCards estimate={estimate} printMode />
+          <EstimateOptionCards estimate={estimate} printMode billRates={billRates} />
           <p className="mt-4 text-[13px] leading-relaxed text-gray-600">
             Each option is a single, all-inclusive price — materials, professional installation, and site
             preparation as described. Applicable tax included. Approve the option you&apos;d like online, or let
@@ -410,57 +399,57 @@ export function EstimatePrintDoc({
           <table className="mt-4 w-full border-collapse">
             <thead>
               <tr className="bg-[#8a9099] text-[13px] font-semibold text-white">
-                <th className="px-3 py-1.5 text-left">Materials</th>
-                <th className="px-3 py-1.5 text-right">qty</th>
-                <th className="px-3 py-1.5 text-right">unit price</th>
-                <th className="px-3 py-1.5 text-right">amount</th>
+                <th className="px-3 py-1.5 text-left">{itemized ? "Materials" : "Scope"}</th>
+                {itemized ? (
+                  <>
+                    <th className="px-3 py-1.5 text-right">qty</th>
+                    <th className="px-3 py-1.5 text-right">unit price</th>
+                    <th className="px-3 py-1.5 text-right">amount</th>
+                  </>
+                ) : null}
               </tr>
             </thead>
             <tbody>
-              {itemized ? (
-                pricedLines.map((l, i) => {
-                  const amt = lineTotal(l);
-                  const note = customerFacingLineNote(l.note);
-                  return (
-                    <tr key={i} className="border-b border-gray-200 align-top">
-                      <td className="px-3 py-2.5">
-                        <div className="font-semibold">{customerLineLabel(l)}</div>
-                        {l.room ? <div className="mt-0.5 text-[13px] text-gray-500">{l.room}</div> : null}
-                        {note ? (
-                          <div className="mt-1 text-[13px] leading-snug text-gray-600">{note}</div>
-                        ) : null}
-                      </td>
-                      <td className="px-3 py-2.5 text-right text-[13px] tabular-nums text-gray-600">1.0</td>
-                      <td className="px-3 py-2.5 text-right text-[13px] tabular-nums text-gray-600">{formatMoney(amt)}</td>
-                      <td className="px-3 py-2.5 text-right text-[13px] tabular-nums text-gray-700">{formatMoney(amt)}</td>
-                    </tr>
-                  );
-                })
-              ) : (
-                <tr className="border-b border-gray-200 align-top">
-                  <td className="px-3 py-2.5">
-                    <div className="font-semibold">{primaryLabel}</div>
-                    {areas.length ? (
-                      <div className="mt-1.5 text-[14px]">
-                        <span className="font-semibold">Areas:</span> {areas.join(", ")}
-                      </div>
+              {displayLines.map((row, i) => {
+                const l = row.line;
+                const note = customerFacingLineNote(l.note);
+                return (
+                  <tr key={i} className="border-b border-gray-200 align-top">
+                    <td className="px-3 py-2.5" colSpan={itemized ? 1 : 4}>
+                      <div className="font-semibold">{customerLineLabel(l)}</div>
+                      {l.room ? <div className="mt-0.5 text-[13px] text-gray-500">{l.room}</div> : null}
+                      {note ? (
+                        <div className="mt-1 text-[13px] leading-snug text-gray-600">{note}</div>
+                      ) : null}
+                    </td>
+                    {itemized ? (
+                      <>
+                        <td className="px-3 py-2.5 text-right text-[13px] tabular-nums text-gray-600">1.0</td>
+                        <td className="px-3 py-2.5 text-right text-[13px] tabular-nums text-gray-600">{formatMoney(row.amount)}</td>
+                        <td className="px-3 py-2.5 text-right text-[13px] tabular-nums text-gray-700">{formatMoney(row.amount)}</td>
+                      </>
                     ) : null}
-                    {description ? (
-                      <div className="mt-2 whitespace-pre-wrap text-[13.5px] leading-relaxed text-gray-700">
-                        {description}
-                      </div>
-                    ) : null}
-                  </td>
-                  <td className="px-3 py-2.5 text-right text-[13px] tabular-nums text-gray-600">1.0</td>
-                  <td className="px-3 py-2.5 text-right text-[13px] tabular-nums text-gray-600">{formatMoney(totals.subtotal)}</td>
-                  <td className="px-3 py-2.5 text-right text-[13px] tabular-nums text-gray-700">{formatMoney(totals.subtotal)}</td>
-                </tr>
-              )}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           <div className="mt-2 text-right text-[13px] text-gray-700">
             Materials subtotal: {formatMoney(totals.subtotal)}
           </div>
+
+          {projectDetails.length ? (
+            <div className="mt-4 break-inside-avoid border-t pt-3">
+              <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#b51a00]">
+                Project details
+              </div>
+              <ul className="mt-2 grid grid-cols-1 gap-x-8 gap-y-1 text-[13.5px] sm:grid-cols-2">
+                {projectDetails.map((d, i) => (
+                  <li key={i}>{d}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
 
           {/* Itemized still surfaces areas + description below the priced lines. */}
           {itemized && (areas.length > 0 || description) ? (

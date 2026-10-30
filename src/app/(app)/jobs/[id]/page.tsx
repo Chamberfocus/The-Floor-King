@@ -1732,22 +1732,9 @@ export default async function JobPage({
                     </td>
                   </tr>
                   <tr>
-                    <td className="px-3 py-2">
-                      Overhead
-                      <span className="ml-1 text-xs text-muted-foreground">
-                        gas, car allowance, commission
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {formatMoney(costAnalysis.estOverhead)}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {formatMoney(costAnalysis.actualOverhead)}
-                    </td>
-                    <td className="px-3 py-2 text-right text-muted-foreground">
-                      {formatMoney(
-                        costAnalysis.actualOverhead - costAnalysis.estOverhead,
-                      )}
+                    <td className="px-3 py-2" colSpan={4}>
+                      Gas, car allowance, and commission are on the customer bill.
+                      The salesperson&apos;s share of the gas is not taken out of this cost or the margin.
                     </td>
                   </tr>
                   <tr className="font-medium">

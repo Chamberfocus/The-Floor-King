@@ -7,9 +7,14 @@ import { poTotal, isCommittedPoStatus } from "@/lib/po-calc";
 import { listJobs } from "@/lib/data/jobs";
 import { getProfileNames } from "@/lib/data/customers";
 import { installerLaborActualByJob } from "@/lib/data/job-labor";
-import { optionTotals, optionCostTotals, marginPct, discountAmount } from "@/lib/estimate-calc";
+import { optionTotals, optionCostTotals, marginPct, discountAmount, lineTotal } from "@/lib/estimate-calc";
 import { allInProfit } from "@/lib/job-profit";
 import { resolveCommission } from "@/lib/estimate-commission";
+import {
+  customerBillForLines,
+  jobBillRatesFromSettings,
+  marginRevenueForInvoice,
+} from "@/lib/job-bill";
 import { getOrgSettings } from "@/lib/data/org";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { freightMultiplier } from "@/lib/freight";
@@ -169,10 +174,9 @@ export async function getPeriodSummary(
     billedPoIds,
   );
 
-  // Per-job internal overheads for the period (hidden from customers):
-  //  • commission = % of what was collected this period
-  //  • fuel + car = a flat amount for each distinct job that collected money in
-  //    the period (invoice → job).
+  // Gas, car allowance, and commission were added to the customer bills.
+  // They are reported here and are not taken out of net. Of the gas, the
+  // salesperson's share (job_fuel_fee) is not a cost.
   const biz = await getBusinessSettings();
   const invoiceJob = new Map(
     invoices.map((i) => [i.id, (i.job_id as string | null) ?? null] as const),
@@ -195,12 +199,12 @@ export async function getPeriodSummary(
     const jid = invoiceJob.get(p.invoice_id);
     if (jid) jobsCollected.add(jid);
   }
-  // Commission is on the pre-tax sale, matching the per-job report.
-  const commissionCost = ((Number(biz.job_commission_pct) || 0) / 100) * collectedPreTax;
-  const vehicleCost =
-    ((Number(biz.job_fuel_fee) || 0) + (Number(biz.job_car_allowance) || 0)) *
+  // On the bills already. Not subtracted below.
+  const commissionOnBills = ((Number(biz.job_commission_pct) || 0) / 100) * collectedPreTax;
+  const vehicleOnBills =
+    ((Number(biz.job_fuel_charge) || 0) + (Number(biz.job_car_allowance) || 0)) *
     jobsCollected.size;
-  const jobOverhead = commissionCost + vehicleCost;
+  const jobOverhead = commissionOnBills + vehicleOnBills;
 
   return {
     collected,
@@ -212,7 +216,8 @@ export async function getPeriodSummary(
     revenue: collectedPreTax,
     jobOverhead,
     // Net PROFIT on pre-tax income (tax excluded — it's not ours).
-    net: collectedPreTax - expenses - poSpend - subLabor - jobOverhead,
+    // Gas, car, and commission are in the collected total. They are not costs.
+    net: collectedPreTax - expenses - poSpend - subLabor,
   };
 }
 
@@ -278,9 +283,10 @@ export interface JobProfit {
   profit: number;
   margin: number; // gross margin % of revenue
   completedAt: string | null; // when the job was marked complete (for by-job profit)
-  // Estimated (quoted) side — all-in, same overhead basis as actual.
+  // Estimated (quoted) side — material and labor. Gas, car, and commission
+  // are on the bill and are not in estCost.
   estimateId: string | null;
-  estCost: number; // freighted mat+labor + gas + car + commission
+  estCost: number;
   estProfit: number; // quotedRevenue − estCost
   estMargin: number;
   salesmanId: string | null; // who authored the estimate
@@ -525,8 +531,8 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
       j.actual_other_cost != null
         ? Number(j.actual_other_cost)
         : (expByJob.get(j.id) ?? 0);
-    // Per-job internal overheads — only once the job is real (has revenue), so
-    // dead/quoted jobs aren't charged fuel/commission. Each tracked separately.
+    // Gas, car, and commission are on the customer bill. Tracked so the
+    // owner can see them. They are not part of cost and do not lower margin.
     const hasRevenue = revenue > 0;
     const fuelCost = hasRevenue ? jobFuel : 0;
     const carCost = hasRevenue ? jobCar : 0;
@@ -538,21 +544,10 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
       overridePct: commOv?.overridePct,
       overrideAmount: commOv?.overrideAmount,
     }).commission;
-    const cost = materialCost + laborCost + otherCost + fuelCost + carCost + commissionCost;
+    const cost = materialCost + laborCost + otherCost;
     const profit = revenue - cost;
-    // Estimated side is ALL-IN: freighted direct cost + same gas/car/commission
-    // as actual. Otherwise the scorecard shows an optimistic "estimated" margin
-    // while actual deducts overhead — even when direct costs match.
     const estDirect = j.option_id ? (estCostByOption.get(j.option_id) ?? 0) : 0;
-    const estHasRev = quotedRevenue > 0;
-    const estFuel = estHasRev ? jobFuel : 0;
-    const estCar = estHasRev ? jobCar : 0;
-    const estCommission = resolveCommission(quotedRevenue, {
-      defaultPct: jobCommPct,
-      overridePct: commOv?.overridePct,
-      overrideAmount: commOv?.overrideAmount,
-    }).commission;
-    const estCost = estDirect + estFuel + estCar + estCommission;
+    const estCost = estDirect;
     const estProfit = quotedRevenue - estCost;
     const salesmanId = j.estimate_id
       ? (authorByEstimate.get(j.estimate_id) ?? null)
@@ -676,8 +671,7 @@ export interface JobCostAnalysis {
   actualCost: number;
   actualProfit: number;
   actualMargin: number;
-  /** Fuel + car allowance + commission. Charged on the ESTIMATED side too, so
-   *  the two columns compare like with like. */
+  /** Kept for older screens. Gas, car, and commission are on the bill, not here. */
   estOverhead: number;
   actualOverhead: number;
   costVariance: number; // actual − estimated (positive = over budget)
@@ -719,14 +713,10 @@ export async function getJobCostAnalysis(
 
   const rawSub = optionTotals(commercialLines, 0).subtotal;
   let estRevenue = rawSub;
-  let jobCommissionOverridePct: number | null = null;
-  let jobCommissionOverrideAmount: number | null = null;
   if (job.estimate_id) {
     const { data: est } = await supabase
       .from("estimates")
-      .select(
-        "discount_kind, discount_value, commission_override_pct, commission_override_amount",
-      )
+      .select("discount_kind, discount_value")
       .eq("id", job.estimate_id)
       .maybeSingle();
     if (est) {
@@ -737,12 +727,6 @@ export async function getJobCostAnalysis(
           (est.discount_kind as string | null) ?? null,
           (est.discount_value as number | null) ?? null,
         );
-      jobCommissionOverridePct =
-        (est as { commission_override_pct?: number | null }).commission_override_pct ??
-        null;
-      jobCommissionOverrideAmount =
-        (est as { commission_override_amount?: number | null })
-          .commission_override_amount ?? null;
     }
   }
   const directCost = estimatedDirectCostFromScope(
@@ -863,30 +847,10 @@ export async function getJobCostAnalysis(
     );
   const actualRevenue = billed > 0 ? billed : estRevenue;
 
-  // The SAME per-job overheads getJobProfitability charges — fuel, car
-  // allowance and commission. This function left them out, so the job page and
-  // the Pulse/dashboard reported two different margins for one job: on a
-  // $25,000 job with $15,300 of direct cost, 38.80% here against 34.66% there.
-  // Same job, four margin points apart, depending which screen you opened.
-  const bizJ = await getBusinessSettings();
-  const overheadOn = (revenue: number) => {
-    if (!(revenue > 0)) return 0;
-    const comm = resolveCommission(revenue, {
-      defaultPct: bizJ.job_commission_pct,
-      overridePct: jobCommissionOverridePct,
-      overrideAmount: jobCommissionOverrideAmount,
-    });
-    return (
-      (Number(bizJ.job_fuel_fee) || 0) +
-      (Number(bizJ.job_car_allowance) || 0) +
-      comm.commission
-    );
-  };
-  const estOverhead = overheadOn(estRevenue);
-  const actualOverhead = overheadOn(actualRevenue);
-
-  const estCostAllIn = estCost + estOverhead;
-  const actualCost = actualMaterial + actualLabor + actualExpense + actualOverhead;
+  // Gas, car allowance, and commission are on the bill, not in this cost.
+  // Both screens use material + labor + expenses so the margin matches.
+  const estCostAllIn = estCost;
+  const actualCost = actualMaterial + actualLabor + actualExpense;
   const actualProfit = actualRevenue - actualCost;
 
   return {
@@ -904,8 +868,8 @@ export async function getJobCostAnalysis(
     actualCost,
     actualProfit,
     actualMargin: marginPct(actualRevenue, actualCost),
-    estOverhead,
-    actualOverhead,
+    estOverhead: 0,
+    actualOverhead: 0,
     costVariance: actualCost - estCostAllIn,
     marginDelta:
       marginPct(actualRevenue, actualCost) - marginPct(estRevenue, estCostAllIn),
@@ -914,7 +878,10 @@ export async function getJobCostAnalysis(
 }
 
 export interface InvoiceProfit {
-  revenue: number; // pre-tax, after discount — what this invoice bills
+  /** Flooring sale used for margin. Gas, car, and commission are not in this. */
+  revenue: number;
+  /** Invoice subtotal, which may already include those charges. */
+  customerPreTax: number;
   fuelCharge: number; // the fuel amount included in the price (hidden memo)
   materialCost: number; // our cost (freight-adjusted)
   laborCost: number;
@@ -922,39 +889,41 @@ export interface InvoiceProfit {
   salesGas: number; // gas comp paid to the salesperson
   fleetUpkeep: number; // vehicle fleet upkeep
   commissionPct: number;
-  commission: number; // % of revenue
-  totalCost: number; // cost + gas + fleet + commission
+  commission: number; // % of the flooring sale, added to the bill
+  totalCost: number; // material + labor. Gas, car, and commission are not in this.
   profit: number;
   margin: number;
 }
 
 /**
- * The OWNER-only ESTIMATED profit on one invoice: invoice revenue (pre-tax)
- * versus estimate-basis material/labor cost + gas/car/commission — the same
- * all-in structure as jobProfit / the estimate builder.
+ * The OWNER-only ESTIMATED profit on one invoice.
+ *
+ * Margin uses the flooring sale: material and labor only. Gas, the car
+ * allowance, and commission are on the customer bill. When this invoice
+ * already buried them in the line prices, they are taken back out of the
+ * margin base so the percent matches the estimate. They are not costs.
  *
  * This is NOT realized job profitability (no PO / bill / expense actuals).
- * Actuals live on job costing and financial reporting.
  */
 export async function getInvoiceProfit(invoice: {
   estimate_id?: string | null;
   items?: { quantity: number | null; rate: number | null }[] | null;
 }): Promise<InvoiceProfit> {
   const supabase = await createClient();
-  // Revenue = pre-tax invoice subtotal (the discount rides as a negative line).
-  const revenue = invoiceTotals(invoice.items ?? [], 0, 0).subtotal;
+  const customerPreTax = invoiceTotals(invoice.items ?? [], 0, 0).subtotal;
 
-  // Our cost = the estimate's costed material + labor (matches the estimate's
-  // own internal profit block). Material carries the freight markup once.
   let materialBare = 0;
   let labor = 0;
+  let lineSells: number[] = [];
+  let discountKind: string | null = null;
+  let discountValue: number | null = null;
   let invoiceCommissionOverridePct: number | null = null;
   let invoiceCommissionOverrideAmount: number | null = null;
   if (invoice.estimate_id) {
     const { data: est } = await supabase
       .from("estimates")
       .select(
-        "accepted_option_id, commission_override_pct, commission_override_amount",
+        "accepted_option_id, commission_override_pct, commission_override_amount, discount_kind, discount_value",
       )
       .eq("id", invoice.estimate_id)
       .maybeSingle();
@@ -964,6 +933,8 @@ export async function getInvoiceProfit(invoice: {
     invoiceCommissionOverrideAmount =
       (est as { commission_override_amount?: number | null } | null)
         ?.commission_override_amount ?? null;
+    discountKind = (est?.discount_kind as string | null) ?? null;
+    discountValue = (est?.discount_value as number | null) ?? null;
     let optionId = (est?.accepted_option_id as string | null) ?? null;
     if (!optionId) {
       const { data: opt } = await supabase
@@ -980,13 +951,29 @@ export async function getInvoiceProfit(invoice: {
         .from("estimate_line_items")
         .select("*")
         .eq("option_id", optionId);
-      const ct = optionCostTotals((lines ?? []) as unknown as CalcLine[]);
+      const calc = (lines ?? []) as unknown as CalcLine[];
+      const ct = optionCostTotals(calc);
       materialBare = ct.material;
       labor = ct.labor;
+      lineSells = calc.map((l) => lineTotal(l));
     }
   }
   const org = await getOrgSettings();
   const biz = await getBusinessSettings();
+  const rates = jobBillRatesFromSettings(biz);
+  let revenue = customerPreTax;
+  if (lineSells.length) {
+    const sub = lineSells.reduce((s, n) => s + n, 0);
+    const disc = discountAmount(sub, discountKind, discountValue);
+    const bill = customerBillForLines({
+      lineSells,
+      discount: disc,
+      rates,
+      commissionOverridePct: invoiceCommissionOverridePct,
+      commissionOverrideAmount: invoiceCommissionOverrideAmount,
+    });
+    revenue = marginRevenueForInvoice(customerPreTax, bill.flooringRevenue, bill.preTax);
+  }
   const p = allInProfit({
     revenue,
     materialBare,
@@ -998,21 +985,20 @@ export async function getInvoiceProfit(invoice: {
     commissionOverridePct: invoiceCommissionOverridePct,
     commissionOverrideAmount: invoiceCommissionOverrideAmount,
   });
-  const hasRev = revenue > 0;
-  // Fuel charge is part of the price the customer already pays (a memo, not an
-  // addition) — so profit isn't overstated.
-  const fuelCharge = hasRev ? Number(biz.job_fuel_charge) || 0 : 0;
+  const hasRev = p.revenue > 0;
+  const fuelCharge = hasRev ? rates.fuelCharge : 0;
   return {
     revenue: p.revenue,
+    customerPreTax,
     fuelCharge,
     materialCost: p.material,
     laborCost: p.labor,
     cost: p.cost,
-    salesGas: p.fuelFee,
-    fleetUpkeep: p.carAllowance,
+    salesGas: hasRev ? Math.min(rates.salespersonGas, fuelCharge) : 0,
+    fleetUpkeep: hasRev ? rates.carAllowance : 0,
     commissionPct: p.commissionPct,
     commission: p.commission,
-    totalCost: p.cost + p.fuelFee + p.carAllowance + p.commission,
+    totalCost: p.cost,
     profit: p.profit,
     margin: p.margin,
   };

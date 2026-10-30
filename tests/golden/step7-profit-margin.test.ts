@@ -77,20 +77,21 @@ describe("Step 7 — canonical all-in profit", () => {
     expectClose(viaParts.material, viaJob.material);
   });
 
-  it("3: freight > 0 — omitting freight overstates margin (regression)", () => {
+  it("3: freight > 0 — omitting freight overstates margin; gas, car, and commission do not lower it", () => {
     const allIn = jobProfit([FIXTURE], OPTS);
-    const ct = optionCostTotals([FIXTURE]);
-    // Old builder option-card bug: bare cost + fees, no freight.
-    const revenue = allIn.revenue;
-    const bareCost = ct.material + ct.labor;
-    const optimistic =
-      revenue -
-      bareCost -
-      OPTS.fuelFee -
-      OPTS.carAllowance -
-      (OPTS.commissionPct / 100) * revenue;
-    const optimisticMargin = (optimistic / revenue) * 100;
-    expect(optimisticMargin).toBeGreaterThan(allIn.margin);
+    const noFreight = jobProfit([FIXTURE], { ...OPTS, freightMarkupPct: 0 });
+    expect(noFreight.margin).toBeGreaterThan(allIn.margin);
+    const noFees = jobProfit([FIXTURE], {
+      ...OPTS,
+      fuelFee: 0,
+      carAllowance: 0,
+      commissionPct: 0,
+    });
+    expectClose(allIn.margin, noFees.margin);
+    expectClose(allIn.profit, noFees.profit);
+    expect(allIn.fuelFee).toBe(OPTS.fuelFee);
+    expect(allIn.carAllowance).toBe(OPTS.carAllowance);
+    expect(allIn.commission).toBeGreaterThan(0);
   });
 
   it("4: freight = 0 — all-in matches bare-cost + fees", () => {
@@ -175,7 +176,7 @@ describe("Step 7 — canonical all-in profit", () => {
     expectClose(p.margin, 40);
   });
 
-  it("10–12: equal direct + equal overhead → equal estimated vs actual margins", () => {
+  it("10–12: gas, car, and commission are recorded and do not lower margin", () => {
     const revenue = 10_000;
     const materialBare = 4_000;
     const labor = 2_000;
@@ -191,17 +192,16 @@ describe("Step 7 — canonical all-in profit", () => {
       labor,
       ...fees,
     });
-    // Actual with same direct landed cost + same overhead.
     const actualDirect =
       materialBare * freightMultiplier(fees.freightMarkupPct) + labor;
-    const actualOverhead =
-      fees.fuelFee +
-      fees.carAllowance +
-      (fees.commissionPct / 100) * revenue;
-    const actualCost = actualDirect + actualOverhead;
-    const actualMargin = marginPct(revenue, actualCost);
-    expectClose(estimated.margin, actualMargin);
-    expectClose(estimated.profit, revenue - actualCost);
+    expectClose(estimated.margin, marginPct(revenue, actualDirect));
+    expectClose(estimated.profit, revenue - actualDirect);
+    expect(estimated.fuelFee).toBe(50);
+    expect(estimated.carAllowance).toBe(25);
+    expectClose(estimated.commission, revenue * 0.03);
+    expect(estimated.profit).toBeGreaterThan(
+      revenue - actualDirect - 50 - 25 - revenue * 0.03,
+    );
   });
 
   it("13: discount reduces revenue consistently", () => {

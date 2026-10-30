@@ -122,6 +122,8 @@ import {
   amountUnitLabelForQuestion,
   resolveQuestionVisibility,
   hideUnkeyedLabelDuplicates,
+  simplifyCarpetQuestionnaire,
+  jobIsExclusiveCarpetOnly,
   questionPurpose,
   reviewToJobNotes,
   buildSalespersonReview,
@@ -835,7 +837,19 @@ export function Questionnaire({
     // Cash & carry: hide every pure-labor question (materials only).
     if (cashCarry) for (const q of questions) if (isPureLaborQuestion(q)) vis[q.id] = false;
     // One label, one question. The keyed copy is what later steps read.
-    return hideUnkeyedLabelDuplicates(questions, vis);
+    const deduped = hideUnkeyedLabelDuplicates(questions, vis);
+    const valByKey: Record<string, string[]> = {};
+    for (const q of questions) {
+      if (!deduped[q.id] || !q.key) continue;
+      valByKey[q.key] = answerVal(q);
+    }
+    // Carpet jobs skip hard-surface leftovers (radiant heat, 6-mil vapor,
+    // plank stairs, transitions) and a second copy of the same question.
+    return simplifyCarpetQuestionnaire(
+      questions,
+      deduped,
+      jobIsExclusiveCarpetOnly(installContextFromValByKey(valByKey)),
+    );
   }, [questions, answers, overrides, cashCarry]);
   const visibleQuestions = useMemo(
     () => sortEstimateQuestions(questions.filter((q) => visible[q.id])),
@@ -3398,6 +3412,11 @@ export function Questionnaire({
           <CardContent className="space-y-4 p-4 sm:p-6">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-wide text-primary">{phaseName(q)}</div>
+              {jobIsExclusiveCarpetOnly(flooringCtx) ? (
+                <p className="text-xs text-muted-foreground">
+                  Carpet job — rooms, carpet, pad, stairs, and the site. Hard-surface questions stay off.
+                </p>
+              ) : null}
               <h2 className="text-lg font-semibold sm:text-xl">
                 {q.required ? <span className="text-amber-600">★ </span> : null}
                 {q.label}

@@ -1,7 +1,8 @@
 /**
  * Helpers to present an approval snapshot on the customer portal / staff views.
  */
-import { buildCustomerScope, customerFacingLineNote, customerLineLabel, parseProjectDetails } from "@/lib/customer-scope";
+import { buildCustomerScope, customerFacingLineNote, customerLineLabel, parseProjectDetails, projectDetailsShown } from "@/lib/customer-scope";
+import { customerBillForLines, type JobBillRates } from "@/lib/job-bill";
 import type { ApprovalSnapshotPayload } from "@/lib/estimate-approval";
 import type { EstimateLineItem } from "@/lib/types";
 
@@ -44,17 +45,38 @@ export function snapshotLinesAsEstimateLines(
   }));
 }
 
-export function snapshotItemGroups(payload: ApprovalSnapshotPayload) {
+export function snapshotItemGroups(
+  payload: ApprovalSnapshotPayload,
+  billRates?: JobBillRates | null,
+  estimate?: {
+    commission_override_pct?: number | string | null;
+    commission_override_amount?: number | string | null;
+  } | null,
+) {
   const itemized = payload.presentation !== "summary";
   const lines = snapshotLinesAsEstimateLines(payload);
   const itemGroups: {
     room: string;
     items: { label: string; note: string; amount: number }[];
   }[] = [];
+  const flooringSells = payload.option.lines.map((l) => Number(l.line_total) || 0);
+  const bill = billRates
+    ? customerBillForLines({
+        lineSells: flooringSells,
+        discount: payload.discount_amount,
+        taxRate: payload.tax_rate,
+        rates: billRates,
+        commissionOverridePct: estimate?.commission_override_pct,
+        commissionOverrideAmount: estimate?.commission_override_amount,
+      })
+    : null;
+  const buriedById = new Map(
+    payload.option.lines.map((l, i) => [l.id, bill ? bill.lineAmounts[i] ?? 0 : Number(l.line_total) || 0]),
+  );
   if (itemized) {
     const at = new Map<string, number>();
     for (const l of lines) {
-      const amount = payload.option.lines.find((x) => x.id === l.id)?.line_total ?? 0;
+      const amount = buriedById.get(l.id) ?? 0;
       if (!(amount > 0)) continue;
       const room = (l.room ?? "").trim() || "Project";
       if (!at.has(room)) {
@@ -69,21 +91,27 @@ export function snapshotItemGroups(payload: ApprovalSnapshotPayload) {
     }
   }
   const scope = buildCustomerScope(lines, payload.job_description);
-  const projectDetails =
-    payload.show_project_details === false
-      ? []
-      : parseProjectDetails(payload.job_description).details;
+  const projectDetails = projectDetailsShown(payload.show_project_details)
+    ? parseProjectDetails(payload.job_description).details
+    : [];
   return {
     itemized,
     itemGroups,
     scope,
     projectDetails,
-    totals: {
-      subtotal: payload.subtotal,
-      discount: payload.discount_amount,
-      tax: payload.tax_amount,
-      total: payload.total,
-    },
+    totals: bill
+      ? {
+          subtotal: bill.flooringSubtotal + bill.added,
+          discount: bill.discount,
+          tax: bill.tax,
+          total: bill.total,
+        }
+      : {
+          subtotal: payload.subtotal,
+          discount: payload.discount_amount,
+          tax: payload.tax_amount,
+          total: payload.total,
+        },
     optionName: payload.option.name,
   };
 }

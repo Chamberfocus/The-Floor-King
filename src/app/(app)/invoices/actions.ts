@@ -21,6 +21,8 @@ import {
   INVOICE_REQUIRES_APPROVAL_SNAPSHOT_MESSAGE,
 } from "@/lib/estimate-approval";
 import { buildInvoiceItemsFromApprovalSnapshot } from "@/lib/invoice-from-approval";
+import { getBusinessSettings } from "@/lib/data/business-settings";
+import { jobBillRatesFromSettings } from "@/lib/job-bill";
 import {
   invoiceCommercialEditBlocked,
   invoiceCoverageTotal,
@@ -780,6 +782,12 @@ async function createEstimateDerivedInvoice(args: {
       `Approved change order (v${snap.version})`,
     );
   } else {
+    const billSettings = await getBusinessSettings();
+    const { data: commissionRow } = await supabase
+      .from("estimates")
+      .select("commission_override_pct, commission_override_amount")
+      .eq("id", estimateId)
+      .maybeSingle();
     items = buildInvoiceItemsFromApprovalSnapshot({
       invoiceId: invoice.id,
       payload: snap.payload,
@@ -787,6 +795,9 @@ async function createEstimateDerivedInvoice(args: {
         plan.action === "full" && selectedLineIds?.length
           ? selectedLineIds
           : null,
+      billRates: jobBillRatesFromSettings(billSettings),
+      commissionOverridePct: commissionRow?.commission_override_pct ?? null,
+      commissionOverrideAmount: commissionRow?.commission_override_amount ?? null,
     }).items;
   }
 

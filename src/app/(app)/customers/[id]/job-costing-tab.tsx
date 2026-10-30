@@ -289,8 +289,9 @@ export function JobCostingTab({
           <DialogHeader>
             <DialogTitle>Cost vs profit — {activeTitle}</DialogTitle>
             <DialogDescription>
-              The real math on this job: revenue minus every cost, including fuel,
-              vehicle, and commission. Internal only — never shown to the customer.
+              Revenue minus material, labor, and expenses. Gas, the car allowance,
+              and commission are on the customer bill — they are not taken out of
+              this cost or the margin. Internal only.
             </DialogDescription>
           </DialogHeader>
           {activeProfit ? <ProfitBreakdown p={activeProfit} /> : null}
@@ -300,8 +301,18 @@ export function JobCostingTab({
   );
 }
 
-/** A single cost line in the waterfall (shown as a subtraction). */
-function CostLine({ label, value, hint }: { label: string; value: number; hint?: string }) {
+/** A single line in the waterfall. Costs subtract. Bill items are shown as amounts. */
+function CostLine({
+  label,
+  value,
+  hint,
+  deduct = true,
+}: {
+  label: string;
+  value: number;
+  hint?: string;
+  deduct?: boolean;
+}) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-1.5 text-sm">
       <span className="text-muted-foreground">
@@ -309,7 +320,7 @@ function CostLine({ label, value, hint }: { label: string; value: number; hint?:
         {hint ? <span className="ml-1 text-xs text-muted-foreground/70">{hint}</span> : null}
       </span>
       <span className="tabular-nums">
-        {value > 0 ? "−" : ""}
+        {deduct && value > 0 ? "−" : ""}
         {formatMoney(Math.abs(value))}
       </span>
     </div>
@@ -340,14 +351,14 @@ function ProfitBreakdown({ p }: { p: JobProfitLite }) {
         {p.otherCost !== 0 ? <CostLine label="Other expenses" value={p.otherCost} /> : null}
       </div>
 
-      {/* Internal overheads — the lines the owner asked to see */}
+      {/* On the bill — not deducted from cost or margin */}
       <div className="border-b pb-2">
         <div className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Internal (hidden from customer)
+          On the customer bill — not a cost
         </div>
-        <CostLine label="Salesperson gas" value={p.fuelCost} />
-        <CostLine label="Car allowance" value={p.carCost} />
-        <CostLine label="Commission" value={p.commissionCost} hint="% of revenue" />
+        <CostLine label="Salesperson's share of the gas" value={p.fuelCost} hint="not deducted" deduct={false} />
+        <CostLine label="Car allowance" value={p.carCost} hint="on the bill" deduct={false} />
+        <CostLine label="Commission" value={p.commissionCost} hint="on the bill" deduct={false} />
       </div>
 
       {/* Totals */}

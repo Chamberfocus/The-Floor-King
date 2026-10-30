@@ -72,6 +72,78 @@ export function hideUnkeyedLabelDuplicates<
   return next;
 }
 
+/**
+ * Two questions with the same label are the same question. Keep the first
+ * keyed one (that is what later steps read). Hide the rest.
+ */
+export function hideDuplicateQuestionLabels<
+  T extends { id: string; key?: string | null; label?: string | null },
+>(questions: T[], visible: Record<string, boolean>): Record<string, boolean> {
+  const next: Record<string, boolean> = { ...visible };
+  const groups = new Map<string, T[]>();
+  for (const q of questions) {
+    if (!next[q.id]) continue;
+    const label = (q.label ?? "").trim().toLowerCase();
+    if (!label) continue;
+    const list = groups.get(label) ?? [];
+    list.push(q);
+    groups.set(label, list);
+  }
+  for (const list of groups.values()) {
+    if (list.length < 2) continue;
+    const keep = list.find((q) => (q.key ?? "").trim()) ?? list[0];
+    for (const q of list) {
+      if (q.id !== keep.id) next[q.id] = false;
+    }
+  }
+  return next;
+}
+
+/**
+ * Hard-surface questions that still leak onto a carpet-only walk (radiant
+ * heat has no family gate; 6-mil vapor opens on any concrete slab). Carpet
+ * keeps pad, tack, stairs, metals, substrate, and glue/tile moisture.
+ */
+const CARPET_QUESTIONNAIRE_EXTRA_HIDE = new Set([
+  "radiant_heat",
+  "vapor_barrier",
+  "hs_direction",
+  "hs_transitions",
+  "hs_base_trim",
+  "hs_plank_stairs",
+  "install_method",
+  "surface_type",
+  "hardwood_finish",
+  "hardwood_fasteners",
+  "laminate_expansion",
+  "attached_pad",
+  "hs_underlayment",
+  "vinyl_layout",
+  "vinyl_skim",
+  "construction_grade",
+  "tile_application",
+  "tile_body",
+  "tile_format",
+  "tile_layout",
+  "tile_setting",
+]);
+
+export function simplifyCarpetQuestionnaire<
+  T extends { id: string; key?: string | null; label?: string | null },
+>(
+  questions: T[],
+  visible: Record<string, boolean>,
+  exclusiveCarpet: boolean,
+): Record<string, boolean> {
+  const next = hideDuplicateQuestionLabels(questions, visible);
+  if (!exclusiveCarpet) return next;
+  for (const q of questions) {
+    const key = (q.key ?? "").trim();
+    if (key && CARPET_QUESTIONNAIRE_EXTRA_HIDE.has(key)) next[q.id] = false;
+  }
+  return next;
+}
+
 /** Keys a `show_if` clause reads — used so dependents never sort before their gates. */
 export function showIfReferencedKeys(clause: ShowIfClause | null | undefined): string[] {
   if (!clause) return [];

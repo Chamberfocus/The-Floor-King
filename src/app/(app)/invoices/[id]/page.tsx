@@ -166,13 +166,19 @@ export default async function InvoicePage({
           </CardHeader>
           <CardContent>
             <div className="ml-auto max-w-xs space-y-1 text-sm">
+              {Math.abs(invProfit.customerPreTax - invProfit.revenue) > 0.009 ? (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Customer bill (pre-tax)</span>
+                  <span className="tabular-nums">{formatMoney(invProfit.customerPreTax)}</span>
+                </div>
+              ) : null}
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Revenue (pre-tax)</span>
+                <span className="text-muted-foreground">Flooring sale (margin)</span>
                 <span className="tabular-nums">{formatMoney(invProfit.revenue)}</span>
               </div>
               {invProfit.fuelCharge > 0 ? (
                 <div className="flex justify-between pl-3 text-xs text-muted-foreground/80">
-                  <span>↳ incl. {formatMoney(invProfit.fuelCharge)} fuel charge</span>
+                  <span>↳ {formatMoney(invProfit.fuelCharge)} gas is in the bill, not in the cost</span>
                 </div>
               ) : null}
               <div className="flex justify-between text-muted-foreground">
@@ -189,20 +195,20 @@ export default async function InvoicePage({
               ) : null}
               {invProfit.salesGas > 0 ? (
                 <div className="flex justify-between text-muted-foreground">
-                  <span>Salesperson gas</span>
-                  <span className="tabular-nums">−{formatMoney(invProfit.salesGas)}</span>
+                  <span>Salesperson&apos;s share of the gas</span>
+                  <span className="tabular-nums">{formatMoney(invProfit.salesGas)}</span>
                 </div>
               ) : null}
               {invProfit.fleetUpkeep > 0 ? (
                 <div className="flex justify-between text-muted-foreground">
-                  <span>Car allowance</span>
-                  <span className="tabular-nums">−{formatMoney(invProfit.fleetUpkeep)}</span>
+                  <span>Car allowance on the bill</span>
+                  <span className="tabular-nums">{formatMoney(invProfit.fleetUpkeep)}</span>
                 </div>
               ) : null}
               {invProfit.commission > 0 ? (
                 <div className="flex justify-between text-muted-foreground">
-                  <span>Commission ({invProfit.commissionPct}%)</span>
-                  <span className="tabular-nums">−{formatMoney(invProfit.commission)}</span>
+                  <span>Commission on the bill ({invProfit.commissionPct}%)</span>
+                  <span className="tabular-nums">{formatMoney(invProfit.commission)}</span>
                 </div>
               ) : null}
               <div className="mt-1 flex justify-between border-t pt-1 font-semibold">

@@ -529,6 +529,14 @@ export function scopeIsEmpty(s: CustomerScope): boolean {
  * separated out (`flags`) so they can be shown on the staff copy but never the
  * customer's. Presentation only — never emits a quantity or price.
  */
+/** Customer copy shows project details unless the estimate explicitly turned them off. */
+export function projectDetailsShown(value: unknown): boolean {
+  if (value === false || value === "false" || value === 0 || value === "0" || value === "off") {
+    return false;
+  }
+  return true;
+}
+
 export function parseProjectDetails(
   text: string | null | undefined,
 ): { details: string[]; flags: string[] } {

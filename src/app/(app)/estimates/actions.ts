@@ -1475,12 +1475,29 @@ export async function setEstimatePresentation(
 }
 
 /** Independently toggle whether the captured questionnaire answers (the Project
- *  details list) appear on the customer copy. */
-export async function setEstimateProjectDetails(id: string, show: boolean): Promise<void> {
-  if (!id) return;
+ *  details list) appear on the customer copy. Only an explicit true turns it on. */
+export async function setEstimateProjectDetails(
+  id: string,
+  show: boolean,
+): Promise<{ ok: boolean; show: boolean; error?: string }> {
+  if (!id) return { ok: false, show: false, error: "Missing estimate." };
+  const next = show === true;
   const supabase = await createClient();
-  await supabase.from("estimates").update({ show_project_details: !!show }).eq("id", id);
+  const { data, error } = await supabase
+    .from("estimates")
+    .update({ show_project_details: next })
+    .eq("id", id)
+    .select("show_project_details")
+    .maybeSingle();
   revalidatePath(`/estimates/${id}`);
+  if (error || !data) {
+    return { ok: false, show: !next, error: "Couldn't update project details." };
+  }
+  const saved = data.show_project_details === true;
+  if (saved !== next) {
+    return { ok: false, show: saved, error: "Project details did not switch." };
+  }
+  return { ok: true, show: saved };
 }
 
 /**

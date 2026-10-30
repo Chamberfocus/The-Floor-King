@@ -22,8 +22,12 @@ import {
  * margins depending which screen you were on — and the one you saw WHILE
  * PRICING was the optimistic one, which is the worst possible place to be wrong.
  *
- * Every deduction below is real money that leaves before the profit is yours,
- * so every one belongs in the margin an estimator is looking at.
+ * Freight on material is a real cost and belongs in the margin.
+ *
+ * Gas, the car allowance, and commission are not. They are added to the
+ * customer bill (see job-bill.ts). The salesperson's share of the gas is
+ * recorded here and is not subtracted. Margin is flooring revenue minus
+ * material and labor.
  */
 export interface ProfitInputs {
   /** Freight & fees markup on material cost, as a percent (org settings). */
@@ -57,7 +61,7 @@ export interface ProfitResult {
   /** True when this estimate's commission is a manual override, not org default. */
   commissionOverridden: boolean;
   commissionKind: CommissionOverrideKind;
-  /** revenue − cost − gas − car − commission. */
+  /** revenue − material − labor. Gas, car, and commission are not deducted. */
   profit: number;
   /** profit ÷ revenue, as a percent. Zero revenue ⇒ 0. */
   margin: number;
@@ -96,7 +100,9 @@ export function allInProfit(
     overrideAmount: args.commissionOverrideAmount,
   });
 
-  const profit = revenue - cost - fuelFee - carAllowance - resolved.commission;
+  // Gas, car allowance, and commission are on the customer bill. They are
+  // not costs, and the salesperson's share of the gas is not deducted.
+  const profit = revenue - cost;
   const subtotal = args.subtotal ?? revenue;
   const discount = args.discount ?? 0;
 
@@ -152,10 +158,9 @@ export function jobProfit(
 /**
  * A single line's margin, on the same cost basis as the job (freight included).
  *
- * Job-level deductions — gas, car allowance, commission — are deliberately NOT
- * spread across lines: any split would be invented. So a line can read 40% while
- * the job reads 34%, and both are right. `marginShortfall` below explains the
- * difference rather than leaving it to look like a contradiction.
+ * Gas, car allowance, and commission are on the bill, not on the line, so a
+ * line margin and the job margin use the same cost: material (with freight)
+ * and labor. `marginShortfall` names lines priced under the target.
  */
 export function lineMargin(
   line: CalcLine,

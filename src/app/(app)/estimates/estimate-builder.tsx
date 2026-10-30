@@ -30,11 +30,9 @@ import {
   type SaveEstimateInput,
 } from "@/lib/estimate-calc";
 import { jobProfit, marginShortfall } from "@/lib/job-profit";
+import { customerBillForLines, flooringPriceForCustomerPreTax } from "@/lib/job-bill";
 import { recoverAreaSqftFromQuantity } from "@/lib/questionnaire-emit";
-import {
-  isPresentCommissionOverride,
-  resolveCommission,
-} from "@/lib/estimate-commission";
+import { isPresentCommissionOverride } from "@/lib/estimate-commission";
 import { ratesFromTargetMargin, landedMaterialForTarget } from "@/lib/estimate-pricing";
 import { parseCutsFromText, carpetLineIsModularCoverage, carpetInstallSystemsForBoxedRate, padRollCount } from "@/lib/job-scope";
 import {
@@ -503,6 +501,7 @@ export function EstimateBuilder({
   customer = null,
   org,
   fuelFee = 0,
+  fuelCharge = 0,
   carAllowance = 0,
   commissionPct = 0,
   autoPrint = false,
@@ -521,10 +520,13 @@ export function EstimateBuilder({
    *  copy so a landlord's five identical-looking estimates can be told apart. */
   siteAddress?: string;
   org?: OrgSettings;
-  /** Flat per-job fuel + car allowance + commission % of sale — internal, folded
-   *  into the owner's true profit, NEVER shown to the customer. */
+  /** Salesperson's share of the gas. On the bill, not a cost. */
   fuelFee?: number;
+  /** Gas added to the customer bill (`job_fuel_charge`). */
+  fuelCharge?: number;
+  /** Car allowance added to the customer bill. */
   carAllowance?: number;
+  /** Commission percent added to the customer bill. */
   commissionPct?: number;
   autoPrint?: boolean;
   /** Unsaved in-progress edits (auto-saved as you type), restored on return. */
@@ -1357,35 +1359,37 @@ export function EstimateBuilder({
       );
       return;
     }
-    // Judge the target against the SAME cost the rest of the app uses: freight
-    // on material, plus fuel, car allowance and commission. The old guard
-    // compared against raw line cost alone, so a price that cleared material
-    // and labor but not the overheads sailed straight through — $14,500
-    // against $14,000 of line cost passed as "3% margin" while actually losing
-    // $967.50 once freight, gas, car and commission were counted.
-    //
-    // Commission scales with revenue, so the all-in cost is a function of the
-    // TARGET, not of the current prices.
+    // The number typed is what the customer pays before tax. Gas, the car
+    // allowance, and commission sit on top of the flooring price and are not
+    // part of the cost, so the lines scale to the flooring price underneath.
     const ct = optionCostTotals(opt.lines.map(toCalc));
     const freightMult = 1 + num(org?.freight_markup_pct ?? 0) / 100;
     const lineCostAllIn = ct.material * freightMult + ct.labor;
-    const costAtTarget = (revenue: number) => {
-      const comm = resolveCommission(revenue, {
-        defaultPct: commissionPct,
+    const flooringTarget = flooringPriceForCustomerPreTax(
+      target,
+      {
+        fuelCharge,
+        salespersonGas: fuelFee,
+        carAllowance,
+        commissionPct,
+      },
+      {
         overridePct: commissionOverridePct,
         overrideAmount: commissionOverrideAmount,
-      });
-      return lineCostAllIn + fuelFee + carAllowance + comm.commission;
-    };
-    const trueCostAtTarget = costAtTarget(target);
-    if (target < trueCostAtTarget) {
+      },
+    );
+    if (!(flooringTarget > 0)) {
+      toast.error("That total does not cover the gas, vehicle allowance, and commission on the bill.");
+      return;
+    }
+    if (flooringTarget < lineCostAllIn) {
       toast.error(
-        `That total is below your all-in cost (${formatMoney(trueCostAtTarget)} once freight, gas, car allowance and commission are counted). It would be a loss.`,
+        `The flooring price inside that total (${formatMoney(flooringTarget)}) is below material and labor (${formatMoney(lineCostAllIn)}). It would be a loss.`,
         { duration: 8000 },
       );
       return;
     }
-    const k = target / currentSub;
+    const k = flooringTarget / currentSub;
     // 6 decimals keeps rate fields sane while the subtotal lands on target. The
     // DB stores rates at 6dp too (migration 0133), so the solved price survives
     // the save — without that, rates truncated to cents and the total drifted
@@ -1440,7 +1444,8 @@ export function EstimateBuilder({
     // The real margin at this price — all-in, not just line cost. Reporting
     // "44%" when the honest number was 36.7% overstated by $1,835 on the very
     // screen where the price gets decided.
-    const trueMargin = target > 0 ? (1 - trueCostAtTarget / target) * 100 : 0;
+    const trueMargin =
+      flooringTarget > 0 ? ((flooringTarget - lineCostAllIn) / flooringTarget) * 100 : 0;
     setOverallMargin(round2s(Math.max(trueMargin, 0)));
     setTargetPrice("");
     toast.success(
@@ -2299,7 +2304,15 @@ export function EstimateBuilder({
           {jobDescription ? (
             <p className="whitespace-pre-wrap text-sm leading-relaxed">{jobDescription}</p>
           ) : null}
-          <EstimateOptionCards estimate={previewEstimate} />
+          <EstimateOptionCards
+            estimate={previewEstimate}
+            billRates={{
+              fuelCharge,
+              salespersonGas: fuelFee,
+              carAllowance,
+              commissionPct,
+            }}
+          />
         </div>
       ) : null}
 
@@ -2396,17 +2409,12 @@ export function EstimateBuilder({
                 </span>
               </div>
               <div className="mt-0.5 text-xs text-muted-foreground">
-                {formatMoney(grandProfit.revenue)} revenue −{" "}
-                {formatMoney(grandProfit.cost)} cost
+                {formatMoney(grandProfit.revenue)} flooring −{" "}
+                {formatMoney(grandProfit.cost)} material and labor
                 {grandProfit.discount > 0
                   ? ` (after ${formatMoney(grandProfit.discount)} discount)`
                   : ""}
-                {grandProfit.commission > 0
-                  ? ` − ${formatMoney(grandProfit.commission)} commission`
-                  : ""}
-                {grandProfit.fuelFee + grandProfit.carAllowance > 0
-                  ? ` − ${formatMoney(grandProfit.fuelFee + grandProfit.carAllowance)} gas & vehicle`
-                  : ""}{" "}
+                . Gas, vehicle, and commission are on the bill and are not in this margin.{" "}
                 = {formatMoney(grandProfit.profit)} profit
               </div>
 
@@ -2449,9 +2457,9 @@ export function EstimateBuilder({
             <div className="min-w-0">
               <div className="text-sm font-semibold">Price it to a total</div>
               <div className="text-xs text-muted-foreground">
-                Sold at a set price? Enter the pre-tax total — the lines scale to
-                land on it exactly, and the margin shows your real margin at that
-                price. (A line with no price stays $0 — give it one first.)
+                The number the customer pays before tax. Gas, the car allowance,
+                and commission are inside it and are not taken out of the margin.
+                (A line with no price stays $0 — give it one first.)
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -4292,13 +4300,13 @@ export function EstimateBuilder({
                       ) : null}
                       {fuel > 0 ? (
                         <div className="flex justify-between text-muted-foreground">
-                          <span>Salesperson gas</span>
+                          <span>Salesperson&apos;s share of the gas — not a cost</span>
                           <span className="tabular-nums">{formatMoney(fuel)}</span>
                         </div>
                       ) : null}
                       {car > 0 ? (
                         <div className="flex justify-between text-muted-foreground">
-                          <span>Car allowance</span>
+                          <span>Car allowance on the bill</span>
                           <span className="tabular-nums">{formatMoney(car)}</span>
                         </div>
                       ) : null}
@@ -4498,6 +4506,14 @@ export function EstimateBuilder({
         discountKind={discountKind}
         discountValue={discountValue}
         options={options}
+        billRates={{
+          fuelCharge,
+          salespersonGas: fuelFee,
+          carAllowance,
+          commissionPct,
+        }}
+        commissionOverridePct={commissionOverridePct}
+        commissionOverrideAmount={commissionOverrideAmount}
       />
     ) : null}
     </>
@@ -4517,6 +4533,9 @@ function EstimatePrintDoc({
   discountKind,
   discountValue,
   options,
+  billRates,
+  commissionOverridePct,
+  commissionOverrideAmount,
 }: {
   org: OrgSettings;
   customer: Customer | null;
@@ -4529,6 +4548,14 @@ function EstimatePrintDoc({
   discountKind: "amount" | "percent";
   discountValue: string;
   options: OptionState[];
+  billRates: {
+    fuelCharge: number;
+    salespersonGas: number;
+    carAllowance: number;
+    commissionPct: number;
+  };
+  commissionOverridePct: string;
+  commissionOverrideAmount: string;
 }) {
   const detailed = presentation === "detailed";
   const calc = (l: LineState) => ({
@@ -4584,64 +4611,75 @@ function EstimatePrintDoc({
       ) : null}
 
       {options.map((o, oi) => {
-        const totals = optionTotalsWithDiscount(
+        const flooring = optionTotalsWithDiscount(
           o.lines.map(calc),
           taxRate,
           discountKind,
           discountValue,
         );
+        const priced = o.lines.map((l) => ({ line: l, sell: lineTotal(calc(l)) }));
+        const bill = customerBillForLines({
+          lineSells: priced.map((row) => row.sell),
+          discount: flooring.discount,
+          taxRate,
+          rates: billRates,
+          commissionOverridePct,
+          commissionOverrideAmount,
+        });
         return (
           <div key={oi} className="mb-5">
             {options.length > 1 ? (
               <div className="mb-1 text-sm font-semibold">{o.name}</div>
             ) : null}
-            {detailed ? (
-              <table className="w-full border-collapse text-sm">
-                <thead>
-                  <tr className="border-b text-left text-xs text-gray-500">
-                    <th className="py-1 pr-2 font-medium">Description</th>
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs text-gray-500">
+                  <th className="py-1 pr-2 font-medium">{detailed ? "Description" : "Scope"}</th>
+                  {detailed ? (
                     <th className="py-1 pl-2 text-right font-medium">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {o.lines
-                    .filter((l) => l.description.trim() || lineTotal(calc(l)) > 0)
-                    .map((l, li) => (
-                      <tr key={li} className="border-b align-top">
-                        <td className="py-1 pr-2">
-                          {l.room ? `${l.room} — ` : ""}
-                          {l.description}
-                        </td>
+                  ) : null}
+                </tr>
+              </thead>
+              <tbody>
+                {priced
+                  .filter((row) => row.line.description.trim() || row.sell > 0)
+                  .map((row, li) => (
+                    <tr key={li} className="border-b align-top">
+                      <td className="py-1 pr-2">
+                        {row.line.room ? `${row.line.room} — ` : ""}
+                        {row.line.description}
+                      </td>
+                      {detailed ? (
                         <td className="py-1 pl-2 text-right tabular-nums">
-                          {formatMoney(lineTotal(calc(l)))}
+                          {formatMoney(bill.lineAmounts[priced.indexOf(row)] ?? row.sell)}
                         </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            ) : null}
+                      ) : null}
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
             <div className="ml-auto mt-2 w-64 text-sm">
               {detailed ? (
                 <>
                   <div className="flex justify-between">
                     <span className="text-gray-600">Subtotal</span>
-                    <span>{formatMoney(totals.subtotal)}</span>
+                    <span>{formatMoney(bill.flooringSubtotal + bill.added)}</span>
                   </div>
-                  {totals.discount > 0 ? (
+                  {bill.discount > 0 ? (
                     <div className="flex justify-between">
                       <span className="text-gray-600">Discount</span>
-                      <span>−{formatMoney(totals.discount)}</span>
+                      <span>−{formatMoney(bill.discount)}</span>
                     </div>
                   ) : null}
                   <div className="flex justify-between">
                     <span className="text-gray-600">Tax</span>
-                    <span>{formatMoney(totals.tax)}</span>
+                    <span>{formatMoney(bill.tax)}</span>
                   </div>
                 </>
               ) : null}
               <div className="flex justify-between border-t pt-1 text-base font-bold">
                 <span>{options.length > 1 ? `${o.name} total` : "Total"}</span>
-                <span>{formatMoney(totals.total)}</span>
+                <span>{formatMoney(bill.total)}</span>
               </div>
             </div>
           </div>

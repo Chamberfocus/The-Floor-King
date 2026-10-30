@@ -60,14 +60,14 @@ export default async function FinancialsPage({
     { label: "Billed", value: summary.billed, hint: "Invoiced in period" },
     { label: "Expenses", value: summary.expenses, hint: "Recorded spend" },
     {
-      label: "Fuel / car / comm.",
+      label: "On the bills",
       value: summary.jobOverhead,
-      hint: "Fuel + car allowance + commission on this period's jobs",
+      hint: "Gas, car allowance, and commission already in the customer totals. Not taken out of net. The salesperson's share of the gas is not a cost.",
     },
     {
       label: "Net cash",
       value: summary.net,
-      hint: "Collected − expenses − POs − crew pay − fuel/car/commission",
+      hint: "Collected − expenses − POs − crew pay",
     },
   ];
 
@@ -235,7 +235,7 @@ export default async function FinancialsPage({
                       </div>
                       {j.fuelCost > 0 ? (
                         <div>
-                          <div className="text-xs text-muted-foreground">Fuel</div>
+                          <div className="text-xs text-muted-foreground">Sales gas</div>
                           <div className="font-medium">{formatMoney(j.fuelCost)}</div>
                         </div>
                       ) : null}
@@ -287,9 +287,9 @@ export default async function FinancialsPage({
                       <TableHead className="text-right">Material</TableHead>
                       <TableHead className="text-right">Crew pay</TableHead>
                       <TableHead className="text-right">Other</TableHead>
-                      <TableHead className="text-right">Fuel</TableHead>
-                      <TableHead className="text-right">Car</TableHead>
-                      <TableHead className="text-right">Comm.</TableHead>
+                      <TableHead className="text-right">Sales gas</TableHead>
+                      <TableHead className="text-right">Car on bill</TableHead>
+                      <TableHead className="text-right">Comm. on bill</TableHead>
                       <TableHead className="text-right">Profit</TableHead>
                       <TableHead className="text-right">Margin</TableHead>
                     </TableRow>

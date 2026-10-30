@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Star } from "lucide-react";
-import { optionTotalsWithDiscount } from "@/lib/estimate-calc";
+import { optionTotalsWithDiscount, lineTotal } from "@/lib/estimate-calc";
+import { customerBillForEstimate, type JobBillRates } from "@/lib/job-bill";
 import { buildCustomerScope } from "@/lib/customer-scope";
 import { CustomerScopeView } from "@/components/customer-scope-view";
 import { formatMoney } from "@/lib/format";
@@ -21,14 +22,17 @@ export function EstimateOptionCards({
   estimate,
   printMode = false,
   renderAction,
+  billRates = null,
 }: {
   estimate: Estimate;
   /** Print-safe styling (black text, no theme colors). */
   printMode?: boolean;
   renderAction?: (option: EstimateOption) => ReactNode;
+  /** Gas, the car allowance, and the sales fee buried in each option's total. */
+  billRates?: JobBillRates | null;
 }) {
   const options = estimate.options ?? [];
-  const variant = estimate.presentation === "summary" ? "condensed" : "full";
+  const variant = "full";
   const cols = Math.min(options.length, 3);
   const gridCols =
     cols >= 3 ? "md:grid-cols-2 lg:grid-cols-3" : cols === 2 ? "md:grid-cols-2" : "";
@@ -37,12 +41,21 @@ export function EstimateOptionCards({
     <div className={cn("grid gap-4", gridCols)}>
       {options.map((o) => {
         const lines = o.line_items ?? [];
-        const totals = optionTotalsWithDiscount(
+        const flooring = optionTotalsWithDiscount(
           lines,
           estimate.tax_rate,
           estimate.discount_kind,
           estimate.discount_value,
         );
+        const totals = billRates
+          ? customerBillForEstimate({
+              lineSells: lines.map((l) => lineTotal(l)),
+              discount: flooring.discount,
+              taxRate: estimate.tax_rate,
+              rates: billRates,
+              estimate,
+            })
+          : flooring;
         const scope = buildCustomerScope(lines, estimate.job_description);
         const recommended = o.id === estimate.recommended_option_id;
         return (

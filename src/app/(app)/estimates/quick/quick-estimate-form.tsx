@@ -92,6 +92,10 @@ export function QuickEstimateForm({
             rate: l.rate,
             cost: p?.cost ?? 0,
             productId: l.productId,
+            category: p?.category ?? null,
+            manufacturer: p?.manufacturer ?? null,
+            style: p?.style ?? null,
+            color: p?.color ?? null,
           };
         }),
         taxRate,

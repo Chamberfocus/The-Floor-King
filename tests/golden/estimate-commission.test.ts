@@ -131,7 +131,8 @@ describe("jobProfit — override does not change customer price", () => {
     expectClose(auto.subtotal, manual.subtotal);
     expectClose(auto.revenue, manual.revenue);
     expect(auto.commission).not.toBe(manual.commission);
-    expect(manual.profit).toBeLessThan(auto.profit);
+    expectClose(manual.profit, auto.profit);
+    expectClose(manual.margin, auto.margin);
     expect(manual.commissionOverridden).toBe(true);
     expect(auto.commissionOverridden).toBe(false);
   });

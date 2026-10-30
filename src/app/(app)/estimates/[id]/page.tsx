@@ -64,7 +64,8 @@ import { billedQtyToSqft, lineDisplayUnit, normalizeUnit } from "@/lib/units";
 import { padRollCount } from "@/lib/job-scope";
 import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
 import { jobProfit } from "@/lib/job-profit";
-import { parseProjectDetails } from "@/lib/customer-scope";
+import { customerBillForLines, jobBillRatesFromSettings } from "@/lib/job-bill";
+import { parseProjectDetails, projectDetailsShown } from "@/lib/customer-scope";
 import { formatMoney, formatDate, formatDateTime } from "@/lib/format";
 import { estimateViewLabel } from "@/lib/estimate-client-response";
 import { cn } from "@/lib/utils";
@@ -233,9 +234,11 @@ export default async function EstimatePage({
         }
       : null,
   });
-  const biz = profile.role === "admin" ? await getBusinessSettings() : null;
+  const biz = await getBusinessSettings();
+  const billRates = jobBillRatesFromSettings(biz);
+  const showProfit = profile.role === "admin";
   const profitFor = (o: EstimateOption) => {
-    if (!biz) return null;
+    if (!showProfit) return null;
     const p = jobProfit(o.line_items ?? [], {
       discountKind: estimate.discount_kind,
       discountValue: estimate.discount_value,
@@ -273,6 +276,7 @@ export default async function EstimatePage({
         siteAddress={siteAddress}
         preparedBy={preparedBy}
         preview={preview}
+        billRates={billRates}
       />
       <div className={`mx-auto max-w-4xl print:hidden${preview ? " hidden" : ""}`}>
       <div className="mb-4 flex items-center justify-between gap-3">
@@ -612,6 +616,7 @@ export default async function EstimatePage({
 
       {(() => {
         const { details, flags } = parseProjectDetails(estimate.job_description);
+        const detailsOn = projectDetailsShown(estimate.show_project_details);
         if (!details.length && !flags.length) return null;
         return (
           <Card className="mb-6 print:hidden">
@@ -619,7 +624,7 @@ export default async function EstimatePage({
               <CardTitle className="text-base">Project details</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {details.length ? (
+              {detailsOn && details.length ? (
                 <ul className="grid grid-cols-1 gap-x-8 gap-y-1 text-sm sm:grid-cols-2">
                   {details.map((d, i) => (
                     <li key={i} className="flex gap-2">
@@ -642,9 +647,9 @@ export default async function EstimatePage({
                 </div>
               ) : null}
               <p className="text-xs text-muted-foreground">
-                {estimate.show_project_details
-                  ? "The details list above appears on the customer copy — toggle it above. Internal flags stay internal."
-                  : "The details list above is hidden from the customer copy — toggle it above to include it. Internal flags stay internal."}
+                {detailsOn
+                  ? "The details list above appears on the customer copy. Turn it off above to hide it. Internal flags stay internal."
+                  : "Project details are off. They are hidden on the customer copy. Turn them on above to include them. Internal flags stay internal."}
               </p>
             </CardContent>
           </Card>
@@ -751,24 +756,44 @@ export default async function EstimatePage({
                   </div>
 
                   <div className="ml-auto mt-3 w-full max-w-xs space-y-1 border-t pt-3 text-sm">
-                    <div className="flex justify-between text-muted-foreground">
-                      <span>Subtotal</span>
-                      <span>{formatMoney(totals.subtotal)}</span>
-                    </div>
-                    {totals.discount > 0 ? (
-                      <div className="flex justify-between text-emerald-700 dark:text-emerald-400">
-                        <span>Discount</span>
-                        <span>−{formatMoney(totals.discount)}</span>
-                      </div>
-                    ) : null}
-                    <div className="flex justify-between text-muted-foreground">
-                      <span>Tax ({estimate.tax_rate}%)</span>
-                      <span>{formatMoney(totals.tax)}</span>
-                    </div>
-                    <div className="flex justify-between text-base font-semibold">
-                      <span>Total</span>
-                      <span>{formatMoney(totals.total)}</span>
-                    </div>
+                    {(() => {
+                      const bill = customerBillForLines({
+                        lineSells: (option.line_items ?? []).map((l) => lineTotal(l)),
+                        discount: totals.discount,
+                        taxRate: estimate.tax_rate,
+                        rates: billRates,
+                        commissionOverridePct: estimate.commission_override_pct,
+                        commissionOverrideAmount: estimate.commission_override_amount,
+                      });
+                      return (
+                        <>
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Flooring</span>
+                            <span>{formatMoney(bill.flooringSubtotal)}</span>
+                          </div>
+                          {bill.added > 0 ? (
+                            <div className="flex justify-between text-muted-foreground">
+                              <span>Gas, vehicle, commission — buried in the customer prices</span>
+                              <span>{formatMoney(bill.added)}</span>
+                            </div>
+                          ) : null}
+                          {bill.discount > 0 ? (
+                            <div className="flex justify-between text-emerald-700 dark:text-emerald-400">
+                              <span>Discount</span>
+                              <span>−{formatMoney(bill.discount)}</span>
+                            </div>
+                          ) : null}
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Tax ({estimate.tax_rate}%)</span>
+                            <span>{formatMoney(bill.tax)}</span>
+                          </div>
+                          <div className="flex justify-between text-base font-semibold">
+                            <span>Customer total</span>
+                            <span>{formatMoney(bill.total)}</span>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
 
                   {/* Owner-only profit — fuel charge (in the price) + our cost,
@@ -787,7 +812,7 @@ export default async function EstimatePage({
                         </div>
                         {p.fuelCharge > 0 ? (
                           <div className="flex justify-between pl-3 text-xs text-muted-foreground/80">
-                            <span>↳ incl. {formatMoney(p.fuelCharge)} fuel charge</span>
+                            <span>↳ {formatMoney(p.fuelCharge)} gas is on the bill, not in this margin</span>
                           </div>
                         ) : null}
                         <div className="flex justify-between text-muted-foreground">
@@ -804,23 +829,23 @@ export default async function EstimatePage({
                         ) : null}
                         {p.salesGas > 0 ? (
                           <div className="flex justify-between text-muted-foreground">
-                            <span>Salesperson gas</span>
-                            <span className="tabular-nums">−{formatMoney(p.salesGas)}</span>
+                            <span>Salesperson&apos;s share of the gas</span>
+                            <span className="tabular-nums">{formatMoney(p.salesGas)}</span>
                           </div>
                         ) : null}
                         {p.carAllowance > 0 ? (
                           <div className="flex justify-between text-muted-foreground">
-                            <span>Car allowance</span>
-                            <span className="tabular-nums">−{formatMoney(p.carAllowance)}</span>
+                            <span>Car allowance on the bill</span>
+                            <span className="tabular-nums">{formatMoney(p.carAllowance)}</span>
                           </div>
                         ) : null}
                         {p.commission > 0 || p.commissionOverridden ? (
                           <div className="flex justify-between text-muted-foreground">
                             <span>
-                              Commission ({p.commissionPct.toFixed(2)}%)
+                              Commission on the bill ({p.commissionPct.toFixed(2)}%)
                               {p.commissionOverridden ? " · manual" : ""}
                             </span>
-                            <span className="tabular-nums">−{formatMoney(p.commission)}</span>
+                            <span className="tabular-nums">{formatMoney(p.commission)}</span>
                           </div>
                         ) : null}
                         <div className="mt-1 flex justify-between border-t pt-1 font-semibold">

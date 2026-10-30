@@ -110,6 +110,7 @@ export default async function QuickEstimatePage({
         manufacturer: (p.manufacturer as string) ?? null,
         style: (p.style as string) ?? null,
         color: (p.color as string) ?? null,
+        category: (p.category as string) ?? null,
         cost: cost.missing ? null : cost.amount,
       };
     },

@@ -573,7 +573,7 @@ describe("jobProfit — all-in margin (canonical profit definition)", () => {
     // discount $100 → revenue 1380
     // material cost = 880 + 120 = 1000; × 1.05 freight = 1050
     // labor = 0; fuel 25; car 15; commission 5% of 1380 = 69
-    // profit = 1380 − 1050 − 0 − 25 − 15 − 69 = 221
+    // Those three are on the customer bill. Profit = 1380 − 1050 = 330.
     const p = jobProfit(lines, {
       discountKind: "amount",
       discountValue: 100,
@@ -591,8 +591,8 @@ describe("jobProfit — all-in margin (canonical profit definition)", () => {
     expectMoney(p.fuelFee, 25);
     expectMoney(p.carAllowance, 15);
     expectMoney(p.commission, 69);
-    expectMoney(p.profit, 221);
-    expect(p.margin).toBeCloseTo((221 / 1380) * 100, 10);
+    expectMoney(p.profit, 330);
+    expect(p.margin).toBeCloseTo((330 / 1380) * 100, 10);
   });
 
   it("skips job-level fees when revenue is 0", () => {
