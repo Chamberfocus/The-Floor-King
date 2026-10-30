@@ -29,6 +29,7 @@ export interface QuickProduct {
   manufacturer?: string | null;
   style?: string | null;
   color?: string | null;
+  category?: string | null;
   on_hand?: number | null;
   track_stock?: boolean | null;
 }

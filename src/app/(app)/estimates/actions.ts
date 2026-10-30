@@ -1476,11 +1476,21 @@ export async function setEstimatePresentation(
 
 /** Independently toggle whether the captured questionnaire answers (the Project
  *  details list) appear on the customer copy. */
-export async function setEstimateProjectDetails(id: string, show: boolean): Promise<void> {
-  if (!id) return;
+export async function setEstimateProjectDetails(
+  id: string,
+  show: boolean,
+): Promise<{ ok: boolean }> {
+  if (!id) return { ok: false };
   const supabase = await createClient();
-  await supabase.from("estimates").update({ show_project_details: !!show }).eq("id", id);
+  const { data, error } = await supabase
+    .from("estimates")
+    .update({ show_project_details: !!show })
+    .eq("id", id)
+    .select("id")
+    .maybeSingle();
+  if (error || !data) return { ok: false };
   revalidatePath(`/estimates/${id}`);
+  return { ok: true };
 }
 
 /**

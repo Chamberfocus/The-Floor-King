@@ -1,7 +1,8 @@
 /**
  * Helpers to present an approval snapshot on the customer portal / staff views.
  */
-import { buildCustomerScope, customerFacingLineNote, customerLineLabel, parseProjectDetails } from "@/lib/customer-scope";
+import { presentCustomerBill } from "@/lib/bill-recovery";
+import { buildCustomerScope, customerCopyNarrative, customerFacingLineNote, customerLineLabel, parseProjectDetails } from "@/lib/customer-scope";
 import type { ApprovalSnapshotPayload } from "@/lib/estimate-approval";
 import type { EstimateLineItem } from "@/lib/types";
 
@@ -44,18 +45,27 @@ export function snapshotLinesAsEstimateLines(
   }));
 }
 
-export function snapshotItemGroups(payload: ApprovalSnapshotPayload) {
+export function snapshotItemGroups(
+  payload: ApprovalSnapshotPayload,
+  opts?: { added?: number },
+) {
   const itemized = payload.presentation !== "summary";
   const lines = snapshotLinesAsEstimateLines(payload);
+  const presented = presentCustomerBill({
+    lineTotals: payload.option.lines.map((l) => Number(l.line_total) || 0),
+    discount: payload.discount_amount,
+    taxRatePct: payload.tax_rate,
+    added: Number(opts?.added) || 0,
+  });
   const itemGroups: {
     room: string;
     items: { label: string; note: string; amount: number }[];
   }[] = [];
   if (itemized) {
     const at = new Map<string, number>();
-    for (const l of lines) {
-      const amount = payload.option.lines.find((x) => x.id === l.id)?.line_total ?? 0;
-      if (!(amount > 0)) continue;
+    lines.forEach((l, index) => {
+      const amount = presented.lineTotals[index] ?? 0;
+      if (!(amount > 0)) return;
       const room = (l.room ?? "").trim() || "Project";
       if (!at.has(room)) {
         at.set(room, itemGroups.length);
@@ -66,23 +76,24 @@ export function snapshotItemGroups(payload: ApprovalSnapshotPayload) {
         note: customerFacingLineNote(l.note),
         amount,
       });
-    }
+    });
   }
-  const scope = buildCustomerScope(lines, payload.job_description);
-  const projectDetails =
-    payload.show_project_details === false
-      ? []
-      : parseProjectDetails(payload.job_description).details;
+  const showDetails = payload.show_project_details !== false;
+  const narrative = customerCopyNarrative(payload.job_description, showDetails);
+  const scope = buildCustomerScope(lines, narrative);
+  const projectDetails = showDetails
+    ? parseProjectDetails(payload.job_description).details
+    : [];
   return {
     itemized,
     itemGroups,
     scope,
     projectDetails,
     totals: {
-      subtotal: payload.subtotal,
-      discount: payload.discount_amount,
-      tax: payload.tax_amount,
-      total: payload.total,
+      subtotal: presented.subtotal,
+      discount: presented.discount,
+      tax: presented.tax,
+      total: presented.total,
     },
     optionName: payload.option.name,
   };

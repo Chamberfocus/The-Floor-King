@@ -62,12 +62,12 @@ export default async function FinancialsPage({
     {
       label: "Fuel / car / comm.",
       value: summary.jobOverhead,
-      hint: "Fuel + car allowance + commission on this period's jobs",
+      hint: "Added to the bill on this period's jobs — not taken out of net",
     },
     {
       label: "Net cash",
       value: summary.net,
-      hint: "Collected − expenses − POs − crew pay − fuel/car/commission",
+      hint: "Collected − expenses − POs − crew pay",
     },
   ];
 
@@ -235,19 +235,19 @@ export default async function FinancialsPage({
                       </div>
                       {j.fuelCost > 0 ? (
                         <div>
-                          <div className="text-xs text-muted-foreground">Fuel</div>
+                          <div className="text-xs text-muted-foreground">Fuel (on the bill)</div>
                           <div className="font-medium">{formatMoney(j.fuelCost)}</div>
                         </div>
                       ) : null}
                       {j.carCost > 0 ? (
                         <div>
-                          <div className="text-xs text-muted-foreground">Car allowance</div>
+                          <div className="text-xs text-muted-foreground">Car allowance (on the bill)</div>
                           <div className="font-medium">{formatMoney(j.carCost)}</div>
                         </div>
                       ) : null}
                       {j.commissionCost > 0 ? (
                         <div>
-                          <div className="text-xs text-muted-foreground">Commission</div>
+                          <div className="text-xs text-muted-foreground">Commission (on the bill)</div>
                           <div className="font-medium">{formatMoney(j.commissionCost)}</div>
                         </div>
                       ) : null}
@@ -287,9 +287,9 @@ export default async function FinancialsPage({
                       <TableHead className="text-right">Material</TableHead>
                       <TableHead className="text-right">Crew pay</TableHead>
                       <TableHead className="text-right">Other</TableHead>
-                      <TableHead className="text-right">Fuel</TableHead>
-                      <TableHead className="text-right">Car</TableHead>
-                      <TableHead className="text-right">Comm.</TableHead>
+                      <TableHead className="text-right">Fuel on bill</TableHead>
+                      <TableHead className="text-right">Car on bill</TableHead>
+                      <TableHead className="text-right">Comm. on bill</TableHead>
                       <TableHead className="text-right">Profit</TableHead>
                       <TableHead className="text-right">Margin</TableHead>
                     </TableRow>

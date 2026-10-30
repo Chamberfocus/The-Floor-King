@@ -46,9 +46,9 @@ export function TargetsForm({ settings }: { settings: BusinessSettings }) {
 
       <div className="rounded-lg border bg-muted/30 p-4 space-y-4">
         <div className="text-sm font-semibold">
-          Per-job internal costs{" "}
+          Added to every job{" "}
           <span className="font-normal text-muted-foreground">
-            — folded into your true profit, never shown to the customer
+            — put on the customer bill and buried in the line prices
           </span>
         </div>
         <div className="space-y-1.5">
@@ -59,8 +59,8 @@ export function TargetsForm({ settings }: { settings: BusinessSettings }) {
             defaultValue={String(settings.job_fuel_charge)}
           />
           <p className="text-xs text-muted-foreground">
-            What you charge the customer for fuel — built into the price, never
-            itemized to them. Tracked as part of revenue.
+            Added to the customer bill for fuel and buried in the line prices.
+            It is revenue, not a job cost.
           </p>
         </div>
         <div className="space-y-1.5">
@@ -71,7 +71,8 @@ export function TargetsForm({ settings }: { settings: BusinessSettings }) {
             defaultValue={String(settings.job_fuel_fee)}
           />
           <p className="text-xs text-muted-foreground">
-            Paid to the salesperson to cover gas — a cost on every job.
+            The salesperson&apos;s share of the fuel charge, usually $50. Paid
+            out of that charge. It does not come off job cost or lower the margin.
           </p>
         </div>
         <div className="space-y-1.5">
@@ -82,7 +83,7 @@ export function TargetsForm({ settings }: { settings: BusinessSettings }) {
             defaultValue={String(settings.job_car_allowance)}
           />
           <p className="text-xs text-muted-foreground">
-            Vehicle / fleet upkeep — the balance of your per-job vehicle cost.
+            Fleet upkeep added on top of the flooring price. Not a job cost.
           </p>
         </div>
         <div className="space-y-1.5">
@@ -93,7 +94,8 @@ export function TargetsForm({ settings }: { settings: BusinessSettings }) {
             defaultValue={String(settings.job_commission_pct)}
           />
           <p className="text-xs text-muted-foreground">
-            Deducted from every job&apos;s profit as a percent of the sale price.
+            Percent of the flooring sale, added on top of the price. Buried on
+            the customer copy. It does not come off the margin.
           </p>
         </div>
       </div>

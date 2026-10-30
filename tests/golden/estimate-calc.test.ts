@@ -568,31 +568,35 @@ describe("decimals, zeros, edge cases", () => {
 describe("jobProfit — all-in margin (canonical profit definition)", () => {
   const lines: CalcLine[] = [carpet360sqft10waste, bagsLeveler];
 
-  it("subtracts discount before revenue; applies freight to material only", () => {
+  it("adds gas, car allowance, and commission to revenue and does not deduct them", () => {
     // subtotal = 1320 + 160 = 1480
-    // discount $100 → revenue 1380
+    // discount $100 → flooring base 1380
+    // fuel charge 60, salesperson gas min(50, 60) = 50 (a payout, not a cost)
+    // car 15; commission 5% of 1380 = 69
+    // customer revenue = 1380 + 60 + 15 + 69 = 1524
     // material cost = 880 + 120 = 1000; × 1.05 freight = 1050
-    // labor = 0; fuel 25; car 15; commission 5% of 1380 = 69
-    // profit = 1380 − 1050 − 0 − 25 − 15 − 69 = 221
+    // profit = 1524 − 1050 = 474
     const p = jobProfit(lines, {
       discountKind: "amount",
       discountValue: 100,
       freightMarkupPct: 5,
-      fuelFee: 25,
+      fuelCharge: 60,
+      fuelFee: 50,
       carAllowance: 15,
       commissionPct: 5,
     });
     expectMoney(p.subtotal, 1480);
     expectMoney(p.discount, 100);
-    expectMoney(p.revenue, 1380);
+    expectMoney(p.revenue, 1524);
     expectMoney(p.material, 1050);
     expectMoney(p.labor, 0);
     expectMoney(p.cost, 1050);
-    expectMoney(p.fuelFee, 25);
+    expectMoney(p.fuelCharge, 60);
+    expectMoney(p.fuelFee, 50);
     expectMoney(p.carAllowance, 15);
     expectMoney(p.commission, 69);
-    expectMoney(p.profit, 221);
-    expect(p.margin).toBeCloseTo((221 / 1380) * 100, 10);
+    expectMoney(p.profit, 474);
+    expect(p.margin).toBeCloseTo((474 / 1524) * 100, 10);
   });
 
   it("skips job-level fees when revenue is 0", () => {

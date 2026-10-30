@@ -55,6 +55,8 @@ export {
   isShowIfClause,
   showIfReferencedKeys,
   hideUnkeyedLabelDuplicates,
+  hideDuplicateQuestionKeys,
+  hideNonCarpetSectionsWhenCarpetOnly,
 } from "./show-if";
 
 export {
