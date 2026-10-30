@@ -38,7 +38,7 @@ export function quickEstimateLineRow(line: QuickEstimateLineInput, position: num
   const sqyd = area && unitIsSqyd(unit);
   // A labor product is priced on labor. Putting the sell in material_rate
   // would bill $0 — labor lines ignore a material price.
-  const labor = line.category === "labor";
+  const labor = (line.category ?? "").trim().toLowerCase() === "labor";
   const sell = n(line.rate);
   const cost = n(line.cost);
   return {

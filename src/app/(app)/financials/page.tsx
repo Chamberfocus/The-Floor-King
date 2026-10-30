@@ -60,9 +60,9 @@ export default async function FinancialsPage({
     { label: "Billed", value: summary.billed, hint: "Invoiced in period" },
     { label: "Expenses", value: summary.expenses, hint: "Recorded spend" },
     {
-      label: "On the bills",
+      label: "Fuel / car / comm.",
       value: summary.jobOverhead,
-      hint: "Gas, car allowance, and commission already in the customer totals. Not taken out of net. The salesperson's share of the gas is not a cost.",
+      hint: "Added to the bill on this period's jobs — not taken out of net",
     },
     {
       label: "Net cash",
@@ -235,19 +235,19 @@ export default async function FinancialsPage({
                       </div>
                       {j.fuelCost > 0 ? (
                         <div>
-                          <div className="text-xs text-muted-foreground">Sales gas</div>
+                          <div className="text-xs text-muted-foreground">Fuel (on the bill)</div>
                           <div className="font-medium">{formatMoney(j.fuelCost)}</div>
                         </div>
                       ) : null}
                       {j.carCost > 0 ? (
                         <div>
-                          <div className="text-xs text-muted-foreground">Car allowance</div>
+                          <div className="text-xs text-muted-foreground">Car allowance (on the bill)</div>
                           <div className="font-medium">{formatMoney(j.carCost)}</div>
                         </div>
                       ) : null}
                       {j.commissionCost > 0 ? (
                         <div>
-                          <div className="text-xs text-muted-foreground">Commission</div>
+                          <div className="text-xs text-muted-foreground">Commission (on the bill)</div>
                           <div className="font-medium">{formatMoney(j.commissionCost)}</div>
                         </div>
                       ) : null}
@@ -287,7 +287,7 @@ export default async function FinancialsPage({
                       <TableHead className="text-right">Material</TableHead>
                       <TableHead className="text-right">Crew pay</TableHead>
                       <TableHead className="text-right">Other</TableHead>
-                      <TableHead className="text-right">Sales gas</TableHead>
+                      <TableHead className="text-right">Fuel on bill</TableHead>
                       <TableHead className="text-right">Car on bill</TableHead>
                       <TableHead className="text-right">Comm. on bill</TableHead>
                       <TableHead className="text-right">Profit</TableHead>

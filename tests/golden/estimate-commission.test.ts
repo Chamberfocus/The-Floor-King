@@ -3,7 +3,8 @@
  *
  * Org default remains business_settings.job_commission_pct (% of pre-tax sale).
  * Manual percent or dollars persist independently of unrelated line edits.
- * Customer selling price (lineTotal) is unchanged by commission.
+ * The flooring line price (lineTotal) is unchanged by commission.
+ * Commission is added on top of that price, so the customer total moves with it.
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
@@ -120,8 +121,8 @@ describe("resolveCommission — auto vs override", () => {
   });
 });
 
-describe("jobProfit — override does not change customer price", () => {
-  it("lineTotal is identical with auto vs manual commission", () => {
+describe("jobProfit — commission is added to the customer bill", () => {
+  it("flooring line price stays put; the override changes what the customer pays", () => {
     const auto = jobProfit([LINE], { commissionPct: 3.5 });
     const manual = jobProfit([LINE], {
       commissionPct: 3.5,
@@ -129,15 +130,16 @@ describe("jobProfit — override does not change customer price", () => {
     });
     expectClose(lineTotal(LINE), 700);
     expectClose(auto.subtotal, manual.subtotal);
-    expectClose(auto.revenue, manual.revenue);
-    expect(auto.commission).not.toBe(manual.commission);
-    expectClose(manual.profit, auto.profit);
-    expectClose(manual.margin, auto.margin);
+    expect(manual.revenue).toBeGreaterThan(auto.revenue);
+    expectClose(manual.revenue, manual.subtotal + 200);
+    expectClose(auto.revenue, auto.subtotal + auto.commission);
+    expect(manual.profit).toBeGreaterThan(auto.profit);
+    expectClose(manual.cost, auto.cost);
     expect(manual.commissionOverridden).toBe(true);
     expect(auto.commissionOverridden).toBe(false);
   });
 
-  it("percent override scales with revenue; amount override does not", () => {
+  it("percent override scales with the flooring sale; amount override stays fixed", () => {
     const twoLines = [LINE, LINE];
     const pct = jobProfit(twoLines, {
       commissionPct: 3.5,
@@ -147,9 +149,11 @@ describe("jobProfit — override does not change customer price", () => {
       commissionPct: 3.5,
       commissionOverrideAmount: 50,
     });
-    expectClose(pct.revenue, 1400);
+    expectClose(pct.subtotal, 1400);
     expectClose(pct.commission, 56);
+    expectClose(pct.revenue, 1456);
     expectClose(amt.commission, 50);
+    expectClose(amt.revenue, 1450);
   });
 
   it("allInProfit and jobProfit agree on an amount override", () => {

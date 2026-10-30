@@ -10,37 +10,35 @@ import {
   resolveCommission,
   type CommissionOverrideKind,
 } from "@/lib/estimate-commission";
+import { computeBillRecovery } from "@/lib/bill-recovery";
 
 /**
  * THE profit calculation. One definition, used by every screen that shows a
  * margin — the live builder, the saved estimate, the invoice, job costing.
  *
- * It exists because there used to be two. The builder computed
- * `(subtotal − cost) / subtotal` off the raw line rates, while the estimate page
- * subtracted the discount, marked material up by freight, and took out sales
- * gas, the car allowance, and commission. The same job showed two different
- * margins depending which screen you were on — and the one you saw WHILE
- * PRICING was the optimistic one, which is the worst possible place to be wrong.
- *
- * Freight on material is a real cost and belongs in the margin.
- *
- * Gas, the car allowance, and commission are not. They are added to the
- * customer bill (see job-bill.ts). The salesperson's share of the gas is
- * recorded here and is not subtracted. Margin is flooring revenue minus
- * material and labor.
+ * Direct cost is freighted material plus labor. Gas, the car allowance, and
+ * commission are added to the customer bill (see bill-recovery) and are not
+ * subtracted here. The salesperson's gas is a share of the fuel charge, not
+ * a job cost, so it does not lower the margin.
  */
 export interface ProfitInputs {
   /** Freight & fees markup on material cost, as a percent (org settings). */
   freightMarkupPct?: number | string | null;
-  /** Salesperson's gas for the job (business settings). */
+  /**
+   * Gas added to the customer bill (business_settings.job_fuel_charge).
+   * `jobProfit` folds this into revenue. `allInProfit` only records it —
+   * pass revenue that already includes it.
+   */
+  fuelCharge?: number | string | null;
+  /** Salesperson's share of the gas charge. A payout, not a job cost. */
   fuelFee?: number | string | null;
-  /** Fleet upkeep per job (business settings). */
+  /** Fleet upkeep added to the customer bill. Not a job cost. */
   carAllowance?: number | string | null;
-  /** Internal commission, as a percent of the sale (business settings). */
+  /** Commission percent of the flooring sale, added to the bill. */
   commissionPct?: number | string | null;
   /** Per-estimate manual percent. Ignored when `commissionOverrideAmount` is set. */
   commissionOverridePct?: number | string | null;
-  /** Per-estimate manual dollars. Wins over percent; not a customer price. */
+  /** Per-estimate manual dollars, added to the bill. */
   commissionOverrideAmount?: number | string | null;
 }
 
@@ -54,6 +52,9 @@ export interface ProfitResult {
   labor: number;
   /** material + labor. */
   cost: number;
+  /** Gas added to the bill. */
+  fuelCharge: number;
+  /** Salesperson's share of that gas. Not subtracted from profit. */
   fuelFee: number;
   carAllowance: number;
   commission: number;
@@ -61,7 +62,7 @@ export interface ProfitResult {
   /** True when this estimate's commission is a manual override, not org default. */
   commissionOverridden: boolean;
   commissionKind: CommissionOverrideKind;
-  /** revenue − material − labor. Gas, car, and commission are not deducted. */
+  /** revenue − direct cost. Gas, car allowance, and commission stay in revenue. */
   profit: number;
   /** profit ÷ revenue, as a percent. Zero revenue ⇒ 0. */
   margin: number;
@@ -92,7 +93,14 @@ export function allInProfit(
   const cost = material + labor;
 
   const hasRevenue = revenue > 0;
-  const fuelFee = hasRevenue ? num(args.fuelFee) : 0;
+  const fuelCharge = hasRevenue ? num(args.fuelCharge) : 0;
+  // Salesperson gas is a share of the fuel charge when that charge is known.
+  // It is recorded for the owner and never subtracted from profit.
+  const salespersonGas = hasRevenue
+    ? fuelCharge > 0
+      ? Math.min(Math.max(0, num(args.fuelFee)), fuelCharge)
+      : Math.max(0, num(args.fuelFee))
+    : 0;
   const carAllowance = hasRevenue ? num(args.carAllowance) : 0;
   const resolved = resolveCommission(revenue, {
     defaultPct: args.commissionPct,
@@ -100,8 +108,6 @@ export function allInProfit(
     overrideAmount: args.commissionOverrideAmount,
   });
 
-  // Gas, car allowance, and commission are on the customer bill. They are
-  // not costs, and the salesperson's share of the gas is not deducted.
   const profit = revenue - cost;
   const subtotal = args.subtotal ?? revenue;
   const discount = args.discount ?? 0;
@@ -113,7 +119,8 @@ export function allInProfit(
     material,
     labor,
     cost,
-    fuelFee,
+    fuelCharge,
+    fuelFee: salespersonGas,
     carAllowance,
     commission: resolved.commission,
     commissionPct: resolved.commissionPct,
@@ -133,34 +140,52 @@ export function jobProfit(
 ): ProfitResult {
   const subtotal = lines.reduce((sum, l) => sum + lineTotal(l), 0);
   const discount = discountAmount(subtotal, opts.discountKind, opts.discountValue);
-  // A discount is a real price cut, so it comes off before margin is judged.
-  const revenue = subtotal - discount;
-
-  // optionCostTotals already applies quantity, waste, the flat-line rule, and
-  // the labor-line rule. Reusing it is the whole point — a second split here is
-  // how the two definitions diverged in the first place.
-  const ct = optionCostTotals(lines);
-  return allInProfit({
-    revenue,
-    subtotal,
-    discount,
-    materialBare: ct.material,
-    labor: ct.labor,
-    freightMarkupPct: opts.freightMarkupPct,
-    fuelFee: opts.fuelFee,
+  // A discount is a real price cut, so it comes off before the bill add.
+  const base = subtotal - discount;
+  const recovery = computeBillRecovery(base, {
+    fuelCharge: opts.fuelCharge,
+    salespersonGas: opts.fuelFee,
     carAllowance: opts.carAllowance,
     commissionPct: opts.commissionPct,
     commissionOverridePct: opts.commissionOverridePct,
     commissionOverrideAmount: opts.commissionOverrideAmount,
   });
+
+  // optionCostTotals already applies quantity, waste, the flat-line rule, and
+  // the labor-line rule. Reusing it is the whole point — a second split here is
+  // how the two definitions diverged in the first place.
+  const ct = optionCostTotals(lines);
+  const result = allInProfit({
+    revenue: recovery.customerRevenue,
+    subtotal,
+    discount,
+    materialBare: ct.material,
+    labor: ct.labor,
+    freightMarkupPct: opts.freightMarkupPct,
+    fuelCharge: recovery.fuelCharge,
+    fuelFee: recovery.salespersonGas,
+    carAllowance: recovery.carAllowance,
+    // Lock the memo to the commission that was added on the flooring sale,
+    // not a second percent of the already-increased bill.
+    commissionOverrideAmount: recovery.commission,
+    commissionPct: recovery.commissionPct,
+  });
+  return {
+    ...result,
+    commission: recovery.commission,
+    commissionPct: recovery.commissionPct,
+    commissionOverridden: recovery.commissionOverridden,
+    commissionKind: recovery.commissionKind,
+  };
 }
 
 /**
  * A single line's margin, on the same cost basis as the job (freight included).
  *
- * Gas, car allowance, and commission are on the bill, not on the line, so a
- * line margin and the job margin use the same cost: material (with freight)
- * and labor. `marginShortfall` names lines priced under the target.
+ * Gas, car allowance, and commission are added to the job bill, not to a
+ * single line, so a line can still read the flooring margin while the job
+ * reads the margin on the higher customer total. `marginShortfall` names
+ * lines priced under the flooring target.
  */
 export function lineMargin(
   line: CalcLine,

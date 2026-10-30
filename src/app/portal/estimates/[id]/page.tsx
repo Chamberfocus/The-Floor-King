@@ -19,11 +19,10 @@ import {
   getPortalOrgSettings,
   listPortalApprovalSnapshots,
 } from "@/lib/data/portal-commercial";
-import { buildCustomerScope, customerFacingLineNote, customerLineLabel, parseProjectDetails } from "@/lib/customer-scope";
+import { buildCustomerScope, customerCopyNarrative, customerFacingLineNote, customerLineLabel, parseProjectDetails, projectDetailsShown } from "@/lib/customer-scope";
 import { optionTotalsWithDiscount, lineTotal } from "@/lib/estimate-calc";
-import { customerBillForEstimate } from "@/lib/job-bill";
-import { loadCustomerBillRates } from "@/lib/data/portal-bill-rates";
-import { projectDetailsShown } from "@/lib/customer-scope";
+import { computeBillRecovery, presentCustomerBill } from "@/lib/bill-recovery";
+import { loadBillSettingsForEstimate } from "@/lib/data/bill-settings";
 import { snapshotItemGroups } from "@/lib/approval-snapshot-view";
 import { legacyApprovalSnapshotUnavailable } from "@/lib/estimate-approval";
 import { formatMoney } from "@/lib/format";
@@ -173,19 +172,32 @@ export default async function PortalEstimatePage({
   const estimate = await getPortalEstimate(id);
   if (!estimate) notFound();
   const org = await getPortalOrgSettings();
+  const billSettings = await loadBillSettingsForEstimate(id);
   const currentSnap = await getPortalApprovalSnapshot(id);
   const allSnaps = await listPortalApprovalSnapshots(id);
 
   const options = estimate.options ?? [];
   const canRespond =
     estimate.status === "sent" || estimate.status === "changes_requested";
-  const totalsFor = (o: EstimateOption) =>
-    optionTotalsWithDiscount(
-      o.line_items ?? [],
+  const totalsFor = (o: EstimateOption) => {
+    const lines = o.line_items ?? [];
+    const flooring = optionTotalsWithDiscount(
+      lines,
       estimate.tax_rate,
       estimate.discount_kind,
       estimate.discount_value,
     );
+    const recovery = computeBillRecovery(
+      flooring.subtotal - flooring.discount,
+      billSettings,
+    );
+    return presentCustomerBill({
+      lineTotals: lines.map((l) => lineTotal(l)),
+      discount: flooring.discount,
+      taxRatePct: estimate.tax_rate,
+      added: recovery.added,
+    });
+  };
 
   const showComparison =
     options.length > 1 &&
@@ -196,31 +208,23 @@ export default async function PortalEstimatePage({
   const chosen =
     options.find((o) => o.id === estimate.accepted_option_id) ?? options[0] ?? null;
   const chosenLines = chosen?.line_items ?? [];
-  const scope = buildCustomerScope(chosenLines, estimate.job_description);
+  const showDetails = projectDetailsShown(estimate.show_project_details);
+  const narrative = customerCopyNarrative(estimate.job_description, showDetails);
+  const scope = buildCustomerScope(chosenLines, narrative);
   const chosenTotals = chosen ? totalsFor(chosen) : null;
-  const billRates = await loadCustomerBillRates();
-  const liveBill = chosenTotals
-    ? customerBillForEstimate({
-        lineSells: chosenLines.map((l) => lineTotal(l)),
-        discount: chosenTotals.discount,
-        taxRate: estimate.tax_rate,
-        rates: billRates,
-        estimate,
-      })
-    : null;
   const itemized = estimate.presentation !== "summary";
-  const projectDetails = projectDetailsShown(estimate.show_project_details)
+  const projectDetails = showDetails
     ? parseProjectDetails(estimate.job_description).details
     : [];
   const itemGroups: {
     room: string;
     items: { label: string; note: string; amount: number }[];
   }[] = [];
-  if (itemized) {
+  if (itemized && chosenTotals) {
     const at = new Map<string, number>();
-    for (const [index, l] of chosenLines.entries()) {
-      const amount = liveBill ? liveBill.lineAmounts[index] ?? 0 : lineTotal(l);
-      if (!(amount > 0)) continue;
+    chosenLines.forEach((l, index) => {
+      const amount = chosenTotals.lineTotals[index] ?? 0;
+      if (!(amount > 0)) return;
       const room = (l.room ?? "").trim() || "Project";
       if (!at.has(room)) {
         at.set(room, itemGroups.length);
@@ -231,7 +235,7 @@ export default async function PortalEstimatePage({
         note: customerFacingLineNote(l.note),
         amount,
       });
-    }
+    });
   }
 
   let openInvoice: { id: string; balance: number } | null = null;
@@ -262,11 +266,7 @@ export default async function PortalEstimatePage({
       }
     }
   }
-  const quoteRoom = liveBill
-    ? quoteDepositRoom(liveBill.total, deposited)
-    : chosenTotals
-      ? quoteDepositRoom(chosenTotals.total, deposited)
-      : 0;
+  const quoteRoom = chosenTotals ? quoteDepositRoom(chosenTotals.total, deposited) : 0;
 
   const legacyMissing = legacyApprovalSnapshotUnavailable(
     estimate.status,
@@ -351,8 +351,20 @@ export default async function PortalEstimatePage({
                 ? `Approved v${currentSnap.version}`
                 : undefined
           }
-          {...snapshotItemGroups(currentSnap.payload, billRates, estimate)}
-          narrative={currentSnap.payload.job_description}
+          {...snapshotItemGroups(currentSnap.payload, {
+            added: computeBillRecovery(
+              Math.max(
+                0,
+                Number(currentSnap.payload.subtotal) -
+                  Number(currentSnap.payload.discount_amount),
+              ),
+              billSettings,
+            ).added,
+          })}
+          narrative={customerCopyNarrative(
+            currentSnap.payload.job_description,
+            projectDetailsShown(currentSnap.payload.show_project_details),
+          )}
         />
       ) : null}
 
@@ -381,7 +393,7 @@ export default async function PortalEstimatePage({
               ) : null}
               <EstimateOptionCards
                 estimate={estimate}
-                billRates={billRates}
+                billSettings={billSettings}
                 renderAction={
                   canRespond
                     ? (o) => (
@@ -411,23 +423,14 @@ export default async function PortalEstimatePage({
             itemized={itemized}
             itemGroups={itemGroups}
             scope={scope}
-            narrative={estimate.job_description}
+            narrative={narrative}
             projectDetails={projectDetails}
-            totals={
-              liveBill
-                ? {
-                    subtotal: liveBill.flooringSubtotal + liveBill.added,
-                    discount: liveBill.discount,
-                    tax: liveBill.tax,
-                    total: liveBill.total,
-                  }
-                : {
-                    subtotal: chosenTotals.subtotal,
-                    discount: chosenTotals.discount,
-                    tax: chosenTotals.tax,
-                    total: chosenTotals.total,
-                  }
-            }
+            totals={{
+              subtotal: chosenTotals.subtotal,
+              discount: chosenTotals.discount,
+              tax: chosenTotals.tax,
+              total: chosenTotals.total,
+            }}
           />
         ) : null
       ) : null}

@@ -100,6 +100,59 @@ export function hideDuplicateQuestionLabels<
 }
 
 /**
+ * Two active rows with the same key are the same question. Keep the earlier
+ * one. The later copy does not drive a second answer.
+ */
+export function hideDuplicateQuestionKeys<
+  T extends { id: string; key?: string | null; position?: number | null },
+>(questions: T[], visible: Record<string, boolean>): Record<string, boolean> {
+  const keeper = new Map<string, { id: string; position: number }>();
+  for (const q of questions) {
+    const key = (q.key ?? "").trim();
+    if (!key || !visible[q.id]) continue;
+    const position = Number(q.position) || 0;
+    const prev = keeper.get(key);
+    if (!prev || position < prev.position || (position === prev.position && q.id < prev.id)) {
+      keeper.set(key, { id: q.id, position });
+    }
+  }
+  const next: Record<string, boolean> = { ...visible };
+  for (const q of questions) {
+    const key = (q.key ?? "").trim();
+    if (!key || !next[q.id]) continue;
+    const keep = keeper.get(key);
+    if (keep && keep.id !== q.id) next[q.id] = false;
+  }
+  return next;
+}
+
+const NON_CARPET_SECTION =
+  /hard\s*surface|\btiles?\b|hardwood|laminate|\blvp\b|vinyl/i;
+
+/**
+ * On an exclusive carpet job, an old unkeyed question filed under tile /
+ * hardwood / vinyl is a second copy of something the carpet path does not
+ * ask. Keyed questions stay on the knowledge overlay.
+ */
+export function hideNonCarpetSectionsWhenCarpetOnly<
+  T extends { id: string; key?: string | null; section?: string | null },
+>(
+  questions: T[],
+  visible: Record<string, boolean>,
+  exclusiveCarpet: boolean,
+): Record<string, boolean> {
+  if (!exclusiveCarpet) return visible;
+  const next: Record<string, boolean> = { ...visible };
+  for (const q of questions) {
+    if (!next[q.id]) continue;
+    if ((q.key ?? "").trim()) continue;
+    const section = (q.section ?? "").trim();
+    if (section && NON_CARPET_SECTION.test(section)) next[q.id] = false;
+  }
+  return next;
+}
+
+/**
  * Hard-surface questions that still leak onto a carpet-only walk (radiant
  * heat has no family gate; 6-mil vapor opens on any concrete slab). Carpet
  * keeps pad, tack, stairs, metals, substrate, and glue/tile moisture.

@@ -116,7 +116,6 @@ export async function createQuickEstimate(input: QuickEstimateInput): Promise<{
       tax_rate: n(input.taxRate),
       discount_kind: "amount",
       discount_value: 0,
-      // The same words go on the customer copy and the work order.
       notes: quickEstimateCustomerNotes(input.notes),
       job_description: quickEstimateCustomerNotes(input.notes),
       created_by: user?.id ?? null,

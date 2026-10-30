@@ -46,9 +46,9 @@ export function TargetsForm({ settings }: { settings: BusinessSettings }) {
 
       <div className="rounded-lg border bg-muted/30 p-4 space-y-4">
         <div className="text-sm font-semibold">
-          Added to every customer bill{" "}
+          Added to every job{" "}
           <span className="font-normal text-muted-foreground">
-            — buried in the line prices. Not a cost, and not taken out of the margin.
+            — put on the customer bill and buried in the line prices
           </span>
         </div>
         <div className="space-y-1.5">
@@ -59,8 +59,8 @@ export function TargetsForm({ settings }: { settings: BusinessSettings }) {
             defaultValue={String(settings.job_fuel_charge)}
           />
           <p className="text-xs text-muted-foreground">
-            Gas added to the customer bill and buried in the line prices. It is
-            not a separate line and it does not lower the margin.
+            Added to the customer bill for fuel and buried in the line prices.
+            It is revenue, not a job cost.
           </p>
         </div>
         <div className="space-y-1.5">
@@ -71,8 +71,8 @@ export function TargetsForm({ settings }: { settings: BusinessSettings }) {
             defaultValue={String(settings.job_fuel_fee)}
           />
           <p className="text-xs text-muted-foreground">
-            Of the gas on the bill, this much goes to the salesperson. It is not
-            taken off the job cost and it does not lower the margin.
+            The salesperson&apos;s share of the fuel charge, usually $50. Paid
+            out of that charge. It does not come off job cost or lower the margin.
           </p>
         </div>
         <div className="space-y-1.5">
@@ -83,7 +83,7 @@ export function TargetsForm({ settings }: { settings: BusinessSettings }) {
             defaultValue={String(settings.job_car_allowance)}
           />
           <p className="text-xs text-muted-foreground">
-            Added to the customer bill with the gas. Not deducted from the margin.
+            Fleet upkeep added on top of the flooring price. Not a job cost.
           </p>
         </div>
         <div className="space-y-1.5">
@@ -94,7 +94,8 @@ export function TargetsForm({ settings }: { settings: BusinessSettings }) {
             defaultValue={String(settings.job_commission_pct)}
           />
           <p className="text-xs text-muted-foreground">
-            Percent of the flooring sale, added to the bill. Not deducted from the margin.
+            Percent of the flooring sale, added on top of the price. Buried on
+            the customer copy. It does not come off the margin.
           </p>
         </div>
       </div>

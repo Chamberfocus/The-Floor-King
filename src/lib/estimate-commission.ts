@@ -2,9 +2,10 @@
  * Estimate salesperson commission — org default % of pre-tax revenue, with an
  * optional per-estimate manual override (percent OR fixed dollars).
  *
- * Commission is a profitability deduction only. It does not change customer
- * line totals, tax, or invoices. One resolver; every screen that shows
- * commission goes through `resolveCommission` / `jobProfit`.
+ * Commission is a percent of the flooring sale, added to the customer bill.
+ * It does not change flooring line rates, and it is not taken out of profit.
+ * One resolver; every screen that shows commission goes through
+ * `resolveCommission` / `jobProfit`.
  */
 import { num } from "@/lib/estimate-calc";
 import { SALES_ROLES, type UserRole } from "@/lib/types";
@@ -24,7 +25,7 @@ export interface ResolvedCommission {
   kind: CommissionOverrideKind;
   /** Effective percent (implied from $ / revenue when the override is dollars). */
   commissionPct: number;
-  /** Dollar commission deducted from profit. */
+  /** Dollar commission added to the bill. */
   commission: number;
   overridden: boolean;
 }

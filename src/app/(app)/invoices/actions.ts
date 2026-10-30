@@ -21,8 +21,12 @@ import {
   INVOICE_REQUIRES_APPROVAL_SNAPSHOT_MESSAGE,
 } from "@/lib/estimate-approval";
 import { buildInvoiceItemsFromApprovalSnapshot } from "@/lib/invoice-from-approval";
-import { getBusinessSettings } from "@/lib/data/business-settings";
-import { jobBillRatesFromSettings } from "@/lib/job-bill";
+import {
+  addedShareForSelection,
+  buryAddedOnExtendedPrices,
+  computeBillRecovery,
+} from "@/lib/bill-recovery";
+import { loadBillSettingsForEstimate } from "@/lib/data/bill-settings";
 import {
   invoiceCommercialEditBlocked,
   invoiceCoverageTotal,
@@ -423,8 +427,21 @@ async function createEstimateDerivedInvoice(args: {
   } catch {
     commercialCredits = 0;
   }
+  const billSettings = await loadBillSettingsForEstimate(estimateId);
+  const flooringBase = Math.max(
+    0,
+    (Number(snap.payload.subtotal) || 0) -
+      (Number(snap.payload.discount_amount) || 0),
+  );
+  const recovery = computeBillRecovery(flooringBase, billSettings);
+  const fullPreview = buildInvoiceItemsFromApprovalSnapshot({
+    invoiceId: "pending",
+    payload: snap.payload,
+  });
+  const buriedFull = buryAddedOnExtendedPrices(fullPreview.items, recovery.added);
+  const approvedTotal = invoiceCoverageTotal(buriedFull, fullPreview.taxRate);
   const plan = planEstimateInvoiceCreation({
-    approvedTotal: Number(snap.payload.total) || 0,
+    approvedTotal,
     existing: coverage,
     commercialCreditsTotal: commercialCredits,
   });
@@ -782,23 +799,26 @@ async function createEstimateDerivedInvoice(args: {
       `Approved change order (v${snap.version})`,
     );
   } else {
-    const billSettings = await getBusinessSettings();
-    const { data: commissionRow } = await supabase
-      .from("estimates")
-      .select("commission_override_pct, commission_override_amount")
-      .eq("id", estimateId)
-      .maybeSingle();
-    items = buildInvoiceItemsFromApprovalSnapshot({
+    const built = buildInvoiceItemsFromApprovalSnapshot({
       invoiceId: invoice.id,
       payload: snap.payload,
       selectedLineIds:
         plan.action === "full" && selectedLineIds?.length
           ? selectedLineIds
           : null,
-      billRates: jobBillRatesFromSettings(billSettings),
-      commissionOverridePct: commissionRow?.commission_override_pct ?? null,
-      commissionOverrideAmount: commissionRow?.commission_override_amount ?? null,
     }).items;
+    const positive = built.reduce((sum, it) => {
+      const ext = (Number(it.quantity) || 0) * (Number(it.rate) || 0);
+      return sum + (ext > 0 ? ext : 0);
+    }, 0);
+    const fullSub = snap.payload.option.lines.reduce(
+      (sum, line) => sum + (Number(line.line_total) || 0),
+      0,
+    );
+    items = buryAddedOnExtendedPrices(
+      built,
+      addedShareForSelection(fullSub, positive, recovery.added),
+    );
   }
 
   if (items.length) await supabase.from("invoice_items").insert(items);

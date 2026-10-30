@@ -3,7 +3,6 @@
  * Never reads live estimate_line_items or job_line_items.
  */
 import { lineQty, lineSkipsAreaCartonMath, discountAmount, type CalcLine } from "@/lib/estimate-calc";
-import { buryAddOnInPricedRows, customerBillForLines, type JobBillRates } from "@/lib/job-bill";
 import { lineDisplayUnit } from "@/lib/units";
 import { snapshotLinesAsEstimateLines } from "@/lib/approval-snapshot-view";
 import { customerLineLabel } from "@/lib/customer-scope";
@@ -74,10 +73,6 @@ export function buildInvoiceItemsFromApprovalSnapshot(args: {
   invoiceId: string;
   payload: ApprovalSnapshotPayload;
   selectedLineIds?: string[] | null;
-  /** Gas, car allowance, and commission buried into the positive lines. */
-  billRates?: JobBillRates | null;
-  commissionOverridePct?: number | string | null;
-  commissionOverrideAmount?: number | string | null;
 }): SnapshotInvoiceBuild {
   const { invoiceId, payload } = args;
   const estLines = snapshotLinesAsEstimateLines(payload);
@@ -123,29 +118,10 @@ export function buildInvoiceItemsFromApprovalSnapshot(args: {
     }
   }
 
-  let billed = items;
-  if (args.billRates && payload.subtotal > 0) {
-    const full = customerBillForLines({
-      lineSells: payload.option.lines.map((l) => Number(l.line_total) || 0),
-      discount: payload.discount_amount,
-      taxRate: payload.tax_rate,
-      rates: args.billRates,
-      commissionOverridePct: args.commissionOverridePct,
-      commissionOverrideAmount: args.commissionOverrideAmount,
-    });
-    const selectedSub = items.reduce((sum, it) => {
-      const ext = (Number(it.quantity) || 0) * (Number(it.rate) || 0);
-      return ext > 0 ? sum + ext : sum;
-    }, 0);
-    const share = Math.min(1, selectedSub / payload.subtotal);
-    const added = Math.round(full.added * share * 100) / 100;
-    billed = buryAddOnInPricedRows(items, added);
-  }
-
   return {
     customerId: payload.customer_id,
     optionId: payload.accepted_option_id ?? payload.option.id,
     taxRate: Number(payload.tax_rate) || 0,
-    items: billed,
+    items,
   };
 }

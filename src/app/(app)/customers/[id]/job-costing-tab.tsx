@@ -289,9 +289,8 @@ export function JobCostingTab({
           <DialogHeader>
             <DialogTitle>Cost vs profit — {activeTitle}</DialogTitle>
             <DialogDescription>
-              Revenue minus material, labor, and expenses. Gas, the car allowance,
-              and commission are on the customer bill — they are not taken out of
-              this cost or the margin. Internal only.
+              The real math on this job: revenue minus every cost, including fuel,
+              vehicle, and commission. Internal only — never shown to the customer.
             </DialogDescription>
           </DialogHeader>
           {activeProfit ? <ProfitBreakdown p={activeProfit} /> : null}
@@ -301,17 +300,18 @@ export function JobCostingTab({
   );
 }
 
-/** A single line in the waterfall. Costs subtract. Bill items are shown as amounts. */
+/** A single cost line in the waterfall (shown as a subtraction). */
 function CostLine({
   label,
   value,
   hint,
-  deduct = true,
+  included = false,
 }: {
   label: string;
   value: number;
   hint?: string;
-  deduct?: boolean;
+  /** On the customer bill. Shown as an amount, not a deduction. */
+  included?: boolean;
 }) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-1.5 text-sm">
@@ -320,7 +320,7 @@ function CostLine({
         {hint ? <span className="ml-1 text-xs text-muted-foreground/70">{hint}</span> : null}
       </span>
       <span className="tabular-nums">
-        {deduct && value > 0 ? "−" : ""}
+        {included || !(value > 0) ? "" : "−"}
         {formatMoney(Math.abs(value))}
       </span>
     </div>
@@ -351,14 +351,13 @@ function ProfitBreakdown({ p }: { p: JobProfitLite }) {
         {p.otherCost !== 0 ? <CostLine label="Other expenses" value={p.otherCost} /> : null}
       </div>
 
-      {/* On the bill — not deducted from cost or margin */}
       <div className="border-b pb-2">
         <div className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          On the customer bill — not a cost
+          On the bill, not a cost
         </div>
-        <CostLine label="Salesperson's share of the gas" value={p.fuelCost} hint="not deducted" deduct={false} />
-        <CostLine label="Car allowance" value={p.carCost} hint="on the bill" deduct={false} />
-        <CostLine label="Commission" value={p.commissionCost} hint="on the bill" deduct={false} />
+        <CostLine label="Salesperson gas" value={p.fuelCost} hint="from the fuel charge" included />
+        <CostLine label="Car allowance" value={p.carCost} included />
+        <CostLine label="Commission" value={p.commissionCost} hint="of the flooring sale" included />
       </div>
 
       {/* Totals */}

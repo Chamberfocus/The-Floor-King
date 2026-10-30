@@ -56,6 +56,8 @@ export {
   showIfReferencedKeys,
   hideUnkeyedLabelDuplicates,
   hideDuplicateQuestionLabels,
+  hideDuplicateQuestionKeys,
+  hideNonCarpetSectionsWhenCarpetOnly,
   simplifyCarpetQuestionnaire,
 } from "./show-if";
 

@@ -122,6 +122,9 @@ import {
   amountUnitLabelForQuestion,
   resolveQuestionVisibility,
   hideUnkeyedLabelDuplicates,
+  hideDuplicateQuestionKeys,
+  hideDuplicateQuestionLabels,
+  hideNonCarpetSectionsWhenCarpetOnly,
   simplifyCarpetQuestionnaire,
   jobIsExclusiveCarpetOnly,
   questionPurpose,
@@ -836,19 +839,23 @@ export function Questionnaire({
     const vis = resolveQuestionVisibility(questions, answerVal);
     // Cash & carry: hide every pure-labor question (materials only).
     if (cashCarry) for (const q of questions) if (isPureLaborQuestion(q)) vis[q.id] = false;
-    // One label, one question. The keyed copy is what later steps read.
-    const deduped = hideUnkeyedLabelDuplicates(questions, vis);
     const valByKey: Record<string, string[]> = {};
     for (const q of questions) {
-      if (!deduped[q.id] || !q.key) continue;
-      valByKey[q.key] = answerVal(q);
+      if (!q.key) continue;
+      const vals = answerVal(q);
+      if (vals.length) valByKey[q.key] = vals;
     }
-    // Carpet jobs skip hard-surface leftovers (radiant heat, 6-mil vapor,
-    // plank stairs, transitions) and a second copy of the same question.
+    // One key, then one label. Carpet jobs also drop hard-surface leftovers
+    // (radiant heat, 6-mil vapor, plank stairs) and unkeyed tile/hardwood rows.
+    const exclusive = jobIsExclusiveCarpetOnly(installContextFromValByKey(valByKey));
+    const deduped = hideDuplicateQuestionLabels(
+      questions,
+      hideUnkeyedLabelDuplicates(questions, hideDuplicateQuestionKeys(questions, vis)),
+    );
     return simplifyCarpetQuestionnaire(
       questions,
-      deduped,
-      jobIsExclusiveCarpetOnly(installContextFromValByKey(valByKey)),
+      hideNonCarpetSectionsWhenCarpetOnly(questions, deduped, exclusive),
+      exclusive,
     );
   }, [questions, answers, overrides, cashCarry]);
   const visibleQuestions = useMemo(
@@ -3293,6 +3300,16 @@ export function Questionnaire({
           onChange={(e) => setCashCarry(e.target.checked)}
         />
       </label>
+      {jobIsExclusiveCarpetOnly(flooringCtx) ? (
+        <p className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+          <span className="font-medium">Carpet estimate.</span>{" "}
+          <span className="text-muted-foreground">
+            Rooms, carpet, pad, tack strip, stairs, and the site. Tile, vinyl,
+            and hardwood questions stay off this path, and a repeated question
+            is asked once.
+          </span>
+        </p>
+      ) : null}
       {/*
         Section rail — where you are in the whole thing, and a way back.
     

@@ -1,104 +1,12 @@
 /**
- * Customer bill vs margin.
- *
- * Gas, the car allowance, and commission are added to what the customer pays
- * and buried in the line prices. They are not job costs. Of the gas, the
- * salesperson's share is recorded and is not subtracted. Margin stays
- * (flooring revenue − material − labor) / flooring revenue.
+ * Carpet questionnaire, project-details Off, and a salesperson quick estimate.
+ * Gas, car allowance, and commission live in bill-recovery and are covered there.
  */
 import { describe, expect, it } from "vitest";
 import { lineQty, lineTotal, type CalcLine } from "@/lib/estimate-calc";
-import { jobProfit } from "@/lib/job-profit";
 import { projectDetailsShown } from "@/lib/customer-scope";
 import { simplifyCarpetQuestionnaire } from "@/lib/flooring-knowledge/show-if";
-import {
-  buryAddOnInPricedRows,
-  customerBillForLines,
-  flooringPriceForCustomerPreTax,
-  marginRevenueForInvoice,
-  spreadBillAddOn,
-} from "@/lib/job-bill";
 import { quickEstimateCustomerNotes, quickEstimateLineRow } from "@/lib/quick-estimate";
-
-const RATES = {
-  fuelCharge: 60,
-  salespersonGas: 50,
-  carAllowance: 110,
-  commissionPct: 3.5,
-};
-
-describe("customer bill buries gas, car, and commission", () => {
-  it("adds them on top of the flooring sale and splits them across the lines", () => {
-    const bill = customerBillForLines({
-      lineSells: [1000, 1000],
-      rates: RATES,
-    });
-    expect(bill.flooringRevenue).toBe(2000);
-    expect(bill.fuelCharge).toBe(60);
-    expect(bill.salespersonGas).toBe(50);
-    expect(bill.carAllowance).toBe(110);
-    expect(bill.commission).toBe(70);
-    expect(bill.added).toBe(240);
-    expect(bill.preTax).toBe(2240);
-    expect(bill.lineAmounts.reduce((s, n) => s + n, 0)).toBe(2240);
-    expect(bill.lineAmounts[0]).toBe(bill.lineAmounts[1]);
-  });
-
-  it("does not lower the flooring margin", () => {
-    const line: CalcLine = {
-      line_type: "flat",
-      flat_amount: 2000,
-    };
-    const withFees = jobProfit([line], {
-      fuelFee: 50,
-      carAllowance: 110,
-      commissionPct: 3.5,
-    });
-    const bare = jobProfit([line], {
-      fuelFee: 0,
-      carAllowance: 0,
-      commissionPct: 0,
-    });
-    expect(withFees.profit).toBe(bare.profit);
-    expect(withFees.margin).toBe(bare.margin);
-    expect(withFees.fuelFee).toBe(50);
-    expect(withFees.commission).toBe(70);
-  });
-
-  it("solves the flooring price underneath a customer total", () => {
-    expect(flooringPriceForCustomerPreTax(2240, RATES)).toBe(2000);
-  });
-
-  it("caps the salesperson's gas at the gas on the bill", () => {
-    const bill = customerBillForLines({
-      lineSells: [500],
-      rates: { ...RATES, fuelCharge: 40, salespersonGas: 50 },
-    });
-    expect(bill.fuelCharge).toBe(40);
-    expect(bill.salespersonGas).toBe(40);
-  });
-
-  it("keeps a discount line and lands the buried total on the cent", () => {
-    const rows = buryAddOnInPricedRows(
-      [
-        { quantity: 3, rate: 100 },
-        { quantity: 1, rate: -25 },
-      ],
-      10,
-    );
-    const sum = rows.reduce((s, r) => s + r.quantity * r.rate, 0);
-    expect(rows[1].rate).toBe(-25);
-    expect(sum).toBeCloseTo(285, 2);
-    const odd = spreadBillAddOn([10.01, 10.02], 0.01);
-    expect(odd.reduce((s, n) => s + n, 0)).toBeCloseTo(20.04, 2);
-  });
-
-  it("backs buried charges out of an invoice before judging margin", () => {
-    const bill = customerBillForLines({ lineSells: [2000], rates: RATES });
-    expect(marginRevenueForInvoice(bill.preTax, bill.flooringRevenue, bill.preTax)).toBe(2000);
-    expect(marginRevenueForInvoice(2000, bill.flooringRevenue, bill.preTax)).toBe(2000);
-  });
-});
 
 describe("project details toggle", () => {
   it("treats an explicit off as hidden and anything else as shown", () => {
