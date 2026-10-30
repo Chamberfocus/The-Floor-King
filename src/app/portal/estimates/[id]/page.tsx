@@ -19,7 +19,7 @@ import {
   getPortalOrgSettings,
   listPortalApprovalSnapshots,
 } from "@/lib/data/portal-commercial";
-import { buildCustomerScope, customerCopyNarrative, customerFacingLineNote, customerLineLabel, parseProjectDetails } from "@/lib/customer-scope";
+import { buildCustomerScope, customerCopyNarrative, customerFacingLineNote, customerLineLabel, parseProjectDetails, projectDetailsShown } from "@/lib/customer-scope";
 import { optionTotalsWithDiscount, lineTotal } from "@/lib/estimate-calc";
 import { computeBillRecovery, presentCustomerBill } from "@/lib/bill-recovery";
 import { loadBillSettingsForEstimate } from "@/lib/data/bill-settings";
@@ -208,17 +208,14 @@ export default async function PortalEstimatePage({
   const chosen =
     options.find((o) => o.id === estimate.accepted_option_id) ?? options[0] ?? null;
   const chosenLines = chosen?.line_items ?? [];
-  const narrative = customerCopyNarrative(
-    estimate.job_description,
-    estimate.show_project_details !== false,
-  );
+  const showDetails = projectDetailsShown(estimate.show_project_details);
+  const narrative = customerCopyNarrative(estimate.job_description, showDetails);
   const scope = buildCustomerScope(chosenLines, narrative);
   const chosenTotals = chosen ? totalsFor(chosen) : null;
   const itemized = estimate.presentation !== "summary";
-  const projectDetails =
-    estimate.show_project_details === false
-      ? []
-      : parseProjectDetails(estimate.job_description).details;
+  const projectDetails = showDetails
+    ? parseProjectDetails(estimate.job_description).details
+    : [];
   const itemGroups: {
     room: string;
     items: { label: string; note: string; amount: number }[];
@@ -366,7 +363,7 @@ export default async function PortalEstimatePage({
           })}
           narrative={customerCopyNarrative(
             currentSnap.payload.job_description,
-            currentSnap.payload.show_project_details !== false,
+            projectDetailsShown(currentSnap.payload.show_project_details),
           )}
         />
       ) : null}

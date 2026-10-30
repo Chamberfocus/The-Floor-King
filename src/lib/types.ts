@@ -1699,11 +1699,13 @@ export interface BusinessSettings {
   installer_collects_balance: boolean; // installers can collect the balance on site
   notify_staff: boolean; // texts/emails to staff, installers, warehouse, sales
   notify_customers: boolean; // texts/emails to customers (off until ready)
-  // Fuel / vehicle structure — all internal, never shown to the customer:
-  job_fuel_charge: number; // what we CHARGE the customer for fuel (hidden in the price)
-  job_fuel_fee: number; // salesperson gas comp per job (paid out of the fuel structure)
-  job_car_allowance: number; // fleet upkeep per job (the balance of the vehicle cost)
-  job_commission_pct: number; // internal commission % of the sale (hidden from customer)
+  // Added to the customer bill and buried in the line prices. Not job costs,
+  // and not deducted from margin. The salesperson's gas is their share of the
+  // gas charge — it is not taken off the cost.
+  job_fuel_charge: number; // gas added to the customer bill
+  job_fuel_fee: number; // of that gas, the dollars that go to the salesperson
+  job_car_allowance: number; // vehicle allowance added to the customer bill
+  job_commission_pct: number; // commission, as a percent of the flooring sale, added to the bill
   updated_at: string;
 }
 

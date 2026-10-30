@@ -123,7 +123,9 @@ import {
   resolveQuestionVisibility,
   hideUnkeyedLabelDuplicates,
   hideDuplicateQuestionKeys,
+  hideDuplicateQuestionLabels,
   hideNonCarpetSectionsWhenCarpetOnly,
+  simplifyCarpetQuestionnaire,
   jobIsExclusiveCarpetOnly,
   questionPurpose,
   reviewToJobNotes,
@@ -843,15 +845,17 @@ export function Questionnaire({
       const vals = answerVal(q);
       if (vals.length) valByKey[q.key] = vals;
     }
-    // One key, one question, then one label. Keyed copy is what later steps read.
-    const deduped = hideUnkeyedLabelDuplicates(
+    // One key, then one label. Carpet jobs also drop hard-surface leftovers
+    // (radiant heat, 6-mil vapor, plank stairs) and unkeyed tile/hardwood rows.
+    const exclusive = jobIsExclusiveCarpetOnly(installContextFromValByKey(valByKey));
+    const deduped = hideDuplicateQuestionLabels(
       questions,
-      hideDuplicateQuestionKeys(questions, vis),
+      hideUnkeyedLabelDuplicates(questions, hideDuplicateQuestionKeys(questions, vis)),
     );
-    return hideNonCarpetSectionsWhenCarpetOnly(
+    return simplifyCarpetQuestionnaire(
       questions,
-      deduped,
-      jobIsExclusiveCarpetOnly(installContextFromValByKey(valByKey)),
+      hideNonCarpetSectionsWhenCarpetOnly(questions, deduped, exclusive),
+      exclusive,
     );
   }, [questions, answers, overrides, cashCarry]);
   const visibleQuestions = useMemo(
@@ -3425,6 +3429,11 @@ export function Questionnaire({
           <CardContent className="space-y-4 p-4 sm:p-6">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-wide text-primary">{phaseName(q)}</div>
+              {jobIsExclusiveCarpetOnly(flooringCtx) ? (
+                <p className="text-xs text-muted-foreground">
+                  Carpet job — rooms, carpet, pad, stairs, and the site. Hard-surface questions stay off.
+                </p>
+              ) : null}
               <h2 className="text-lg font-semibold sm:text-xl">
                 {q.required ? <span className="text-amber-600">★ </span> : null}
                 {q.label}

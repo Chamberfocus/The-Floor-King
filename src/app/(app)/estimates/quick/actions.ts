@@ -8,7 +8,7 @@ import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
 import { advanceFromAutoAction } from "@/lib/workflow-engine";
 import { onEstimateSentOps } from "@/lib/data/ops-automation";
 import { leadEstimateBlock } from "@/lib/lead-acceptance-guard";
-import { normalizeUnit } from "@/lib/units";
+import { quickEstimateCustomerNotes, quickEstimateLineRow } from "@/lib/quick-estimate";
 
 const OFFICE = ["admin", "office", "sales_manager", "salesman"] as const;
 
@@ -116,8 +116,8 @@ export async function createQuickEstimate(input: QuickEstimateInput): Promise<{
       tax_rate: n(input.taxRate),
       discount_kind: "amount",
       discount_value: 0,
-      notes: input.notes.trim() || null,
-      job_description: input.notes.trim() || null,
+      notes: quickEstimateCustomerNotes(input.notes),
+      job_description: quickEstimateCustomerNotes(input.notes),
       created_by: user?.id ?? null,
     })
     .select("id")
@@ -132,33 +132,10 @@ export async function createQuickEstimate(input: QuickEstimateInput): Promise<{
   if (optErr || !option) return { error: "Couldn't create the option." };
 
   const { error: lineErr } = await supabase.from("estimate_line_items").insert(
-    lines.map((l, i) => {
-      const unitKey = normalizeUnit(l.unit);
-      const labor = (l.category ?? "").trim().toLowerCase() === "labor";
-      const rate = n(l.rate);
-      const cost = n(l.cost);
-      return {
-        option_id: option.id,
-        position: i,
-        description: l.description.trim(),
-        // Count units price by quantity; area units price by measured area. The
-        // shared calc reads the UNIT to decide, so it has to be carried.
-        unit: l.unit || "",
-        quantity: n(l.quantity),
-        line_type: "mat_labor" as const,
-        measure_unit: unitKey === "sqyd" ? ("sqyd" as const) : ("sqft" as const),
-        material_rate: labor ? 0 : rate,
-        material_cost: labor ? 0 : cost,
-        labor_rate: labor ? rate : 0,
-        labor_cost: labor ? cost : 0,
-        waste_pct: 0,
-        product_id: l.productId ?? null,
-        category: l.category ?? null,
-        manufacturer: l.manufacturer ?? null,
-        style: l.style ?? null,
-        color: l.color ?? null,
-      };
-    }),
+    lines.map((l, i) => ({
+      option_id: option.id,
+      ...quickEstimateLineRow(l, i),
+    })),
   );
   if (lineErr) return { error: "Couldn't save the lines." };
 

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Star } from "lucide-react";
 import { optionTotalsWithDiscount } from "@/lib/estimate-calc";
 import { computeBillRecovery, type BillRecoverySettings } from "@/lib/bill-recovery";
-import { buildCustomerScope, customerCopyNarrative } from "@/lib/customer-scope";
+import { buildCustomerScope, customerCopyNarrative, projectDetailsShown } from "@/lib/customer-scope";
 import { CustomerScopeView } from "@/components/customer-scope-view";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -35,7 +35,7 @@ export function EstimateOptionCards({
   const variant = "full";
   const narrative = customerCopyNarrative(
     estimate.job_description,
-    estimate.show_project_details !== false,
+    projectDetailsShown(estimate.show_project_details),
   );
   const cols = Math.min(options.length, 3);
   const gridCols =

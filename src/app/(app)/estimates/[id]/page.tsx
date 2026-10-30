@@ -65,7 +65,7 @@ import { padRollCount } from "@/lib/job-scope";
 import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
 import { jobProfit } from "@/lib/job-profit";
 import { computeBillRecovery, presentCustomerBill } from "@/lib/bill-recovery";
-import { parseProjectDetails } from "@/lib/customer-scope";
+import { parseProjectDetails, projectDetailsShown } from "@/lib/customer-scope";
 import { formatMoney, formatDate, formatDateTime } from "@/lib/format";
 import { estimateViewLabel } from "@/lib/estimate-client-response";
 import { cn } from "@/lib/utils";
@@ -387,7 +387,7 @@ export default async function EstimatePage({
         <EstimateCustomerControls
           estimateId={estimate.id}
           presentation={estimate.presentation}
-          showProjectDetails={estimate.show_project_details}
+          showProjectDetails={projectDetailsShown(estimate.show_project_details)}
         />
       </div>
 
@@ -636,6 +636,7 @@ export default async function EstimatePage({
 
       {(() => {
         const { details, flags } = parseProjectDetails(estimate.job_description);
+        const detailsOn = projectDetailsShown(estimate.show_project_details);
         if (!details.length && !flags.length) return null;
         return (
           <Card className="mb-6 print:hidden">
@@ -643,7 +644,7 @@ export default async function EstimatePage({
               <CardTitle className="text-base">Project details</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {details.length ? (
+              {detailsOn && details.length ? (
                 <ul className="grid grid-cols-1 gap-x-8 gap-y-1 text-sm sm:grid-cols-2">
                   {details.map((d, i) => (
                     <li key={i} className="flex gap-2">
@@ -666,9 +667,9 @@ export default async function EstimatePage({
                 </div>
               ) : null}
               <p className="text-xs text-muted-foreground">
-                {estimate.show_project_details
-                  ? "The details list above appears on the customer copy — toggle it above. Internal flags stay internal."
-                  : "The details list above is hidden from the customer copy — toggle it above to include it. Internal flags stay internal."}
+                {detailsOn
+                  ? "The details list above appears on the customer copy. Turn it off above to hide it. Internal flags stay internal."
+                  : "Project details are off. They are hidden on the customer copy. Turn them on above to include them. Internal flags stay internal."}
               </p>
             </CardContent>
           </Card>

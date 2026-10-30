@@ -2,7 +2,7 @@
  * Helpers to present an approval snapshot on the customer portal / staff views.
  */
 import { presentCustomerBill } from "@/lib/bill-recovery";
-import { buildCustomerScope, customerCopyNarrative, customerFacingLineNote, customerLineLabel, parseProjectDetails } from "@/lib/customer-scope";
+import { buildCustomerScope, customerCopyNarrative, customerFacingLineNote, customerLineLabel, parseProjectDetails, projectDetailsShown } from "@/lib/customer-scope";
 import type { ApprovalSnapshotPayload } from "@/lib/estimate-approval";
 import type { EstimateLineItem } from "@/lib/types";
 
@@ -78,7 +78,7 @@ export function snapshotItemGroups(
       });
     });
   }
-  const showDetails = payload.show_project_details !== false;
+  const showDetails = projectDetailsShown(payload.show_project_details);
   const narrative = customerCopyNarrative(payload.job_description, showDetails);
   const scope = buildCustomerScope(lines, narrative);
   const projectDetails = showDetails

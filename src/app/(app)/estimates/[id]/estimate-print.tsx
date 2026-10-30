@@ -7,7 +7,7 @@ import { Printer, Save, ListChecks, Receipt } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { EstimateOptionCards } from "@/components/estimate-option-cards";
-import { customerCopyNarrative, customerFacingJobNotes, customerFacingLineNote, customerLineLabel, buildCustomerScope } from "@/lib/customer-scope";
+import { customerCopyNarrative, customerFacingJobNotes, customerFacingLineNote, customerLineLabel, buildCustomerScope, projectDetailsShown } from "@/lib/customer-scope";
 import { CustomerScopeView } from "@/components/customer-scope-view";
 import { optionTotalsWithDiscount, lineTotal } from "@/lib/estimate-calc";
 import { computeBillRecovery, presentCustomerBill, type BillRecoverySettings } from "@/lib/bill-recovery";
@@ -251,12 +251,10 @@ export function EstimatePrintDoc({
   // Body content (customer-facing): the AREAS being done and the customer-facing
   // job_description. Never internal estimate.notes (cost/margin commentary).
   const areas = [...new Set(lines.map((l) => (l.room ?? "").trim()).filter(Boolean))];
-  const crewSafeNotes = customerFacingJobNotes(estimate.job_description);
+  const showDetails = projectDetailsShown(estimate.show_project_details);
   const description = customerCopyNarrative(
-    estimate.show_project_details === false
-      ? estimate.job_description
-      : crewSafeNotes,
-    estimate.show_project_details !== false,
+    showDetails ? customerFacingJobNotes(estimate.job_description) : estimate.job_description,
+    showDetails,
   );
   /**
    * The headline on a lump-sum quote.
@@ -348,7 +346,7 @@ export function EstimatePrintDoc({
       ? org.website
       : `http://www.${org.website.replace(/^www\./, "")}`
     : "";
-  const scope = buildCustomerScope(lines, estimate.job_description);
+  const scope = buildCustomerScope(lines, description);
 
   return (
     <div
