@@ -262,6 +262,10 @@ export function InstallSchedule({
               );
             })}
             </div>
+            <p className="text-xs text-muted-foreground">
+              These days already skip other jobs, approved time off, weekdays with no shift, and days the crew marked unavailable.
+              Choose an arrival window from the times the shop allots.
+            </p>
           </div>
         ) : null}
 

@@ -52,7 +52,7 @@ export default async function SchedulingSettingsPage() {
     <div className="mx-auto max-w-2xl">
       <PageHeader
         title="Scheduling"
-        description="Daily capacities, shop hours, and the store address. Both schedulers use these numbers, and the person booking approves the result."
+        description="Shop days, arrival windows, and the store address. Estimate times and install days both use these, and the person booking approves the result."
       />
       <form action={saveSchedulingSettings} className="space-y-6">
         <Card>
@@ -62,6 +62,10 @@ export default async function SchedulingSettingsPage() {
           <CardContent className="space-y-4">
             <div className="space-y-1.5">
               <Label>Work days</Label>
+              <p className="text-xs text-muted-foreground">
+                Estimators with no saved shift use these days and hours. A saved shift replaces them.
+                Install suggestions use these days, and skip a weekday that has no shift.
+              </p>
               <div className="flex flex-wrap gap-3">
                 {DAYS.map((d) => (
                   <label key={d.v} className="flex items-center gap-1.5 text-sm">
@@ -112,6 +116,9 @@ export default async function SchedulingSettingsPage() {
                 type="number"
                 defaultValue={s.travel_buffer_min}
               />
+              <p className="text-xs text-muted-foreground">
+                Added to the drive from the store or the previous stop. The arrival window cannot open until both have elapsed.
+              </p>
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="default_origin">
@@ -130,8 +137,7 @@ export default async function SchedulingSettingsPage() {
             <div className="space-y-1.5 sm:col-span-2">
               <Label>Arrival windows</Label>
               <p className="text-xs text-muted-foreground">
-                The time windows you offer customers for estimate visits. Shown
-                in 12-hour time — customize as many as you like.
+                The only times smart scheduling offers for an estimate. A window is used when the salesperson can arrive at its start and the visit still ends by the end of their day.
               </p>
               <ArrivalWindowsField value={s.arrival_windows} />
             </div>
