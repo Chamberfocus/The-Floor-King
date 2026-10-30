@@ -22,6 +22,7 @@ import { CustomerMatchPanel } from "@/components/customer-match-panel";
 import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
 import { marginPct, num as parseMoney } from "@/lib/estimate-calc";
 import { landedMaterialCost } from "@/lib/freight";
+import { computeBillRecovery } from "@/lib/bill-recovery";
 
 const num = (v: string) => parseMoney(v);
 
@@ -32,6 +33,10 @@ export function QuickEstimateForm({
   targetMargin,
   freightMarkupPct = 0,
   presetCustomerId,
+  fuelCharge = 0,
+  salespersonGas = 0,
+  carAllowance = 0,
+  commissionPct = 0,
 }: {
   customers: { id: string; full_name: string }[];
   products: (QuickProduct & { cost?: number | null })[];
@@ -40,6 +45,10 @@ export function QuickEstimateForm({
   /** Org freight & fees % — applied to catalog material cost for margin. */
   freightMarkupPct?: number;
   presetCustomerId?: string;
+  fuelCharge?: number;
+  salespersonGas?: number;
+  carAllowance?: number;
+  commissionPct?: number;
 }) {
   const router = useRouter();
   const [mode, setMode] = useState<"existing" | "new">(
@@ -57,7 +66,14 @@ export function QuickEstimateForm({
   const [overrideReason, setOverrideReason] = useState("");
 
   const subtotal = lines.reduce((s, l) => s + lineTotal(l), 0);
-  const tax = subtotal * (num(taxRate) / 100);
+  const recovery = computeBillRecovery(subtotal, {
+    fuelCharge,
+    salespersonGas,
+    carAllowance,
+    commissionPct,
+  });
+  const pretax = recovery.customerRevenue;
+  const tax = pretax * (num(taxRate) / 100);
 
   // Landed catalog material cost (freight included). No job gas/car/commission
   // here — Quick Estimate is lighter than the full builder.
@@ -70,7 +86,7 @@ export function QuickEstimateForm({
     const p = l.productId ? products.find((x) => x.id === l.productId) : null;
     return Number(p?.cost ?? 0) > 0;
   });
-  const margin = marginPct(subtotal, cost);
+  const margin = marginPct(pretax, cost);
 
   const submit = (opts?: { useExistingId?: string; forceCreate?: boolean }) =>
     start(async () => {
@@ -92,6 +108,10 @@ export function QuickEstimateForm({
             rate: l.rate,
             cost: p?.cost ?? 0,
             productId: l.productId,
+            category: p?.category ?? null,
+            manufacturer: p?.manufacturer ?? null,
+            style: p?.style ?? null,
+            color: p?.color ?? null,
           };
         }),
         taxRate,
@@ -221,11 +241,17 @@ export function QuickEstimateForm({
             </div>
             <div className="ml-auto text-right tabular-nums">
               <div className="text-sm text-muted-foreground">
-                {formatMoney(subtotal)} + {formatMoney(tax)} tax
+                {formatMoney(pretax)} + {formatMoney(tax)} tax
               </div>
               <div className="text-2xl font-semibold">
-                {formatMoney(subtotal + tax)}
+                {formatMoney(pretax + tax)}
               </div>
+              {recovery.added > 0 ? (
+                <div className="text-xs text-muted-foreground">
+                  Includes {formatMoney(recovery.added)} gas, car allowance, and
+                  commission, buried in the price.
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -233,7 +259,7 @@ export function QuickEstimateForm({
           <div className="rounded-md border bg-muted/30 p-2 text-sm">
             {known ? (
               <>
-                Estimated margin before job overhead{" "}
+                Margin on the customer total{" "}
                 <span
                   className={
                     margin >= targetMargin - 0.05
@@ -243,7 +269,7 @@ export function QuickEstimateForm({
                 >
                   {margin.toFixed(1)}%
                 </span>{" "}
-                — {formatMoney(subtotal)} less {formatMoney(cost)} landed
+                — {formatMoney(pretax)} less {formatMoney(cost)} landed
                 material cost
                 {freightMarkupPct > 0
                   ? ` (incl. ${freightMarkupPct}% freight)`
@@ -275,8 +301,8 @@ export function QuickEstimateForm({
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={2}
-            placeholder="Notes (optional)"
-            aria-label="Estimate notes"
+            placeholder="Scope for the work order — rooms, products, and the work"
+            aria-label="Work order scope"
             className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
         </CardContent>

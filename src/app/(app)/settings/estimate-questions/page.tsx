@@ -58,6 +58,18 @@ export default async function EstimateQuestionsSettingsPage() {
   const sections = Array.from(new Set(questions.map((q) => q.section))).sort((a, b) =>
     a.localeCompare(b),
   );
+  const duplicateGroups = (() => {
+    const byLabel = new Map<string, string[]>();
+    for (const q of questions) {
+      if (!q.active) continue;
+      const label = q.label.trim().toLowerCase();
+      if (!label) continue;
+      const arr = byLabel.get(label) ?? [];
+      arr.push(q.section);
+      byLabel.set(label, arr);
+    }
+    return [...byLabel.entries()].filter(([, secs]) => secs.length > 1);
+  })();
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -72,6 +84,25 @@ export default async function EstimateQuestionsSettingsPage() {
           carry example costs / allowances (per-step carpet labor &amp; yardage, subfloor $/sheet, self-leveler coverage &amp; $/bag, demo tear-out rates). Check them against your real numbers — metals, J-channel &amp; stairnose are notes only (no cost).
         </span>
       </div>
+
+      {duplicateGroups.length ? (
+        <div className="mb-6 rounded-lg border border-amber-400 bg-amber-50 px-4 py-3 text-sm dark:border-amber-500/40 dark:bg-amber-950/30">
+          <p className="font-semibold text-amber-800 dark:text-amber-300">
+            {duplicateGroups.length} question{duplicateGroups.length === 1 ? "" : "s"} asked more than once
+          </p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-amber-900/90 dark:text-amber-100/90">
+            {duplicateGroups.slice(0, 12).map(([label, secs]) => (
+              <li key={label}>
+                “{label}” appears {secs.length} times ({secs.join(", ")})
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-amber-900/80 dark:text-amber-100/80">
+            The guided estimate keeps one copy. On a carpet-only job, unkeyed
+            tile, vinyl, and hardwood questions are left out.
+          </p>
+        </div>
+      ) : null}
 
       <Card className="mb-6">
         <CardHeader>

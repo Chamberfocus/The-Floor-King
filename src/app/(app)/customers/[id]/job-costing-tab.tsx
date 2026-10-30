@@ -301,7 +301,18 @@ export function JobCostingTab({
 }
 
 /** A single cost line in the waterfall (shown as a subtraction). */
-function CostLine({ label, value, hint }: { label: string; value: number; hint?: string }) {
+function CostLine({
+  label,
+  value,
+  hint,
+  included = false,
+}: {
+  label: string;
+  value: number;
+  hint?: string;
+  /** On the customer bill. Shown as an amount, not a deduction. */
+  included?: boolean;
+}) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-1.5 text-sm">
       <span className="text-muted-foreground">
@@ -309,7 +320,7 @@ function CostLine({ label, value, hint }: { label: string; value: number; hint?:
         {hint ? <span className="ml-1 text-xs text-muted-foreground/70">{hint}</span> : null}
       </span>
       <span className="tabular-nums">
-        {value > 0 ? "−" : ""}
+        {included || !(value > 0) ? "" : "−"}
         {formatMoney(Math.abs(value))}
       </span>
     </div>
@@ -340,14 +351,13 @@ function ProfitBreakdown({ p }: { p: JobProfitLite }) {
         {p.otherCost !== 0 ? <CostLine label="Other expenses" value={p.otherCost} /> : null}
       </div>
 
-      {/* Internal overheads — the lines the owner asked to see */}
       <div className="border-b pb-2">
         <div className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Internal (hidden from customer)
+          On the bill, not a cost
         </div>
-        <CostLine label="Salesperson gas" value={p.fuelCost} />
-        <CostLine label="Car allowance" value={p.carCost} />
-        <CostLine label="Commission" value={p.commissionCost} hint="% of revenue" />
+        <CostLine label="Salesperson gas" value={p.fuelCost} hint="from the fuel charge" included />
+        <CostLine label="Car allowance" value={p.carCost} included />
+        <CostLine label="Commission" value={p.commissionCost} hint="of the flooring sale" included />
       </div>
 
       {/* Totals */}

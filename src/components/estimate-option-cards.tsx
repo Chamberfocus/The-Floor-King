@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { Star } from "lucide-react";
 import { optionTotalsWithDiscount } from "@/lib/estimate-calc";
-import { buildCustomerScope } from "@/lib/customer-scope";
+import { computeBillRecovery, type BillRecoverySettings } from "@/lib/bill-recovery";
+import { buildCustomerScope, customerCopyNarrative } from "@/lib/customer-scope";
 import { CustomerScopeView } from "@/components/customer-scope-view";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -21,14 +22,21 @@ export function EstimateOptionCards({
   estimate,
   printMode = false,
   renderAction,
+  billSettings = null,
 }: {
   estimate: Estimate;
   /** Print-safe styling (black text, no theme colors). */
   printMode?: boolean;
   renderAction?: (option: EstimateOption) => ReactNode;
+  /** Buried into each option's total. Never named on the card. */
+  billSettings?: BillRecoverySettings | null;
 }) {
   const options = estimate.options ?? [];
-  const variant = estimate.presentation === "summary" ? "condensed" : "full";
+  const variant = "full";
+  const narrative = customerCopyNarrative(
+    estimate.job_description,
+    estimate.show_project_details !== false,
+  );
   const cols = Math.min(options.length, 3);
   const gridCols =
     cols >= 3 ? "md:grid-cols-2 lg:grid-cols-3" : cols === 2 ? "md:grid-cols-2" : "";
@@ -37,13 +45,21 @@ export function EstimateOptionCards({
     <div className={cn("grid gap-4", gridCols)}>
       {options.map((o) => {
         const lines = o.line_items ?? [];
-        const totals = optionTotalsWithDiscount(
+        const flooring = optionTotalsWithDiscount(
           lines,
           estimate.tax_rate,
           estimate.discount_kind,
           estimate.discount_value,
         );
-        const scope = buildCustomerScope(lines, estimate.job_description);
+        const recovery = computeBillRecovery(
+          flooring.subtotal - flooring.discount,
+          billSettings ?? {},
+        );
+        const customerPretax = recovery.customerRevenue;
+        const tax =
+          customerPretax * (Number(estimate.tax_rate) || 0) / 100;
+        const customerTotal = customerPretax + tax;
+        const scope = buildCustomerScope(lines, narrative);
         const recommended = o.id === estimate.recommended_option_id;
         return (
           <div
@@ -73,7 +89,7 @@ export function EstimateOptionCards({
             </div>
 
             <div className="flex-1">
-              <CustomerScopeView scope={scope} variant={variant} />
+              <CustomerScopeView scope={scope} variant={variant} narrative={narrative} />
             </div>
 
             <div className="mt-3 flex items-baseline justify-between border-t pt-2">
@@ -86,7 +102,7 @@ export function EstimateOptionCards({
                 Total
               </span>
               <span className="text-xl font-bold tabular-nums">
-                {formatMoney(totals.total)}
+                {formatMoney(customerTotal)}
               </span>
             </div>
 

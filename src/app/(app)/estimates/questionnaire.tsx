@@ -122,6 +122,9 @@ import {
   amountUnitLabelForQuestion,
   resolveQuestionVisibility,
   hideUnkeyedLabelDuplicates,
+  hideDuplicateQuestionKeys,
+  hideNonCarpetSectionsWhenCarpetOnly,
+  jobIsExclusiveCarpetOnly,
   questionPurpose,
   reviewToJobNotes,
   buildSalespersonReview,
@@ -834,8 +837,22 @@ export function Questionnaire({
     const vis = resolveQuestionVisibility(questions, answerVal);
     // Cash & carry: hide every pure-labor question (materials only).
     if (cashCarry) for (const q of questions) if (isPureLaborQuestion(q)) vis[q.id] = false;
-    // One label, one question. The keyed copy is what later steps read.
-    return hideUnkeyedLabelDuplicates(questions, vis);
+    const valByKey: Record<string, string[]> = {};
+    for (const q of questions) {
+      if (!q.key) continue;
+      const vals = answerVal(q);
+      if (vals.length) valByKey[q.key] = vals;
+    }
+    // One key, one question, then one label. Keyed copy is what later steps read.
+    const deduped = hideUnkeyedLabelDuplicates(
+      questions,
+      hideDuplicateQuestionKeys(questions, vis),
+    );
+    return hideNonCarpetSectionsWhenCarpetOnly(
+      questions,
+      deduped,
+      jobIsExclusiveCarpetOnly(installContextFromValByKey(valByKey)),
+    );
   }, [questions, answers, overrides, cashCarry]);
   const visibleQuestions = useMemo(
     () => sortEstimateQuestions(questions.filter((q) => visible[q.id])),
@@ -3279,6 +3296,16 @@ export function Questionnaire({
           onChange={(e) => setCashCarry(e.target.checked)}
         />
       </label>
+      {jobIsExclusiveCarpetOnly(flooringCtx) ? (
+        <p className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+          <span className="font-medium">Carpet estimate.</span>{" "}
+          <span className="text-muted-foreground">
+            Rooms, carpet, pad, tack strip, stairs, and the site. Tile, vinyl,
+            and hardwood questions stay off this path, and a repeated question
+            is asked once.
+          </span>
+        </p>
+      ) : null}
       {/*
         Section rail — where you are in the whole thing, and a way back.
     

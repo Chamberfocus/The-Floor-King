@@ -110,6 +110,7 @@ export default async function QuickEstimatePage({
         manufacturer: (p.manufacturer as string) ?? null,
         style: (p.style as string) ?? null,
         color: (p.color as string) ?? null,
+        category: (p.category as string) ?? null,
         cost: cost.missing ? null : cost.amount,
       };
     },
@@ -134,6 +135,10 @@ export default async function QuickEstimatePage({
         targetMargin={margin}
         freightMarkupPct={freight}
         presetCustomerId={customer}
+        fuelCharge={Number(biz.job_fuel_charge) || 0}
+        salespersonGas={Number(biz.job_fuel_fee) || 0}
+        carAllowance={Number(biz.job_car_allowance) || 0}
+        commissionPct={Number(biz.job_commission_pct) || 0}
       />
     </div>
   );

@@ -30,11 +30,15 @@ import {
   type SaveEstimateInput,
 } from "@/lib/estimate-calc";
 import { jobProfit, marginShortfall } from "@/lib/job-profit";
-import { recoverAreaSqftFromQuantity } from "@/lib/questionnaire-emit";
 import {
-  isPresentCommissionOverride,
-  resolveCommission,
-} from "@/lib/estimate-commission";
+  computeBillRecovery,
+  flooringBaseForCustomerTotal,
+  presentCustomerBill,
+} from "@/lib/bill-recovery";
+import { recoverAreaSqftFromQuantity } from "@/lib/questionnaire-emit";
+import { isPresentCommissionOverride } from "@/lib/estimate-commission";
+import { CustomerScopeView } from "@/components/customer-scope-view";
+import { buildCustomerScope, customerCopyNarrative } from "@/lib/customer-scope";
 import { ratesFromTargetMargin, landedMaterialForTarget } from "@/lib/estimate-pricing";
 import { parseCutsFromText, carpetLineIsModularCoverage, carpetInstallSystemsForBoxedRate, padRollCount } from "@/lib/job-scope";
 import {
@@ -503,6 +507,7 @@ export function EstimateBuilder({
   customer = null,
   org,
   fuelFee = 0,
+  fuelCharge = 0,
   carAllowance = 0,
   commissionPct = 0,
   autoPrint = false,
@@ -521,9 +526,10 @@ export function EstimateBuilder({
    *  copy so a landlord's five identical-looking estimates can be told apart. */
   siteAddress?: string;
   org?: OrgSettings;
-  /** Flat per-job fuel + car allowance + commission % of sale — internal, folded
-   *  into the owner's true profit, NEVER shown to the customer. */
+  /** Salesperson's share of the fuel charge. Added to the bill, not a cost. */
   fuelFee?: number;
+  /** Fuel added to the customer bill. The salesperson's share comes out of this. */
+  fuelCharge?: number;
   carAllowance?: number;
   commissionPct?: number;
   autoPrint?: boolean;
@@ -1357,35 +1363,36 @@ export function EstimateBuilder({
       );
       return;
     }
-    // Judge the target against the SAME cost the rest of the app uses: freight
-    // on material, plus fuel, car allowance and commission. The old guard
-    // compared against raw line cost alone, so a price that cleared material
-    // and labor but not the overheads sailed straight through — $14,500
-    // against $14,000 of line cost passed as "3% margin" while actually losing
-    // $967.50 once freight, gas, car and commission were counted.
-    //
-    // Commission scales with revenue, so the all-in cost is a function of the
-    // TARGET, not of the current prices.
+    // The typed number is the customer pre-tax total. Gas, car allowance, and
+    // commission sit on top of the flooring price, so the lines are solved to
+    // the flooring base that lands on that total. The loss check is material
+    // and labor only — those adds are not costs.
     const ct = optionCostTotals(opt.lines.map(toCalc));
     const freightMult = 1 + num(org?.freight_markup_pct ?? 0) / 100;
     const lineCostAllIn = ct.material * freightMult + ct.labor;
-    const costAtTarget = (revenue: number) => {
-      const comm = resolveCommission(revenue, {
-        defaultPct: commissionPct,
-        overridePct: commissionOverridePct,
-        overrideAmount: commissionOverrideAmount,
-      });
-      return lineCostAllIn + fuelFee + carAllowance + comm.commission;
+    const bill = {
+      fuelCharge,
+      carAllowance,
+      commissionPct,
+      commissionOverridePct,
+      commissionOverrideAmount,
     };
-    const trueCostAtTarget = costAtTarget(target);
-    if (target < trueCostAtTarget) {
+    if (target < lineCostAllIn) {
       toast.error(
-        `That total is below your all-in cost (${formatMoney(trueCostAtTarget)} once freight, gas, car allowance and commission are counted). It would be a loss.`,
+        `That total is below material and labor (${formatMoney(lineCostAllIn)} with freight). It would be a loss.`,
         { duration: 8000 },
       );
       return;
     }
-    const k = target / currentSub;
+    const flooringBase = flooringBaseForCustomerTotal(target, bill);
+    let flooringSubtotal = flooringBase;
+    if (discountKind === "percent") {
+      const rate = num(discountValue) / 100;
+      flooringSubtotal = rate < 1 ? flooringBase / (1 - rate) : flooringBase;
+    } else {
+      flooringSubtotal = flooringBase + Math.max(0, num(discountValue));
+    }
+    const k = flooringSubtotal / currentSub;
     // 6 decimals keeps rate fields sane while the subtotal lands on target. The
     // DB stores rates at 6dp too (migration 0133), so the solved price survives
     // the save — without that, rates truncated to cents and the total drifted
@@ -1406,7 +1413,7 @@ export function EstimateBuilder({
     }));
     // Scaling + rounding can leave a fractional-cent residual. Absorb it fully
     // into the biggest line so the subtotal equals the typed total to the penny.
-    const residual = target - scaled.reduce((s, l) => s + lineTotal(toCalc(l)), 0);
+    const residual = flooringSubtotal - scaled.reduce((s, l) => s + lineTotal(toCalc(l)), 0);
     if (Math.abs(residual) >= 5e-7) {
       let bi = -1;
       let bt = -Infinity;
@@ -1437,10 +1444,18 @@ export function EstimateBuilder({
     setOptions((prev) =>
       prev.map((o, oi) => (oi !== safeActive ? o : { ...o, lines: scaled })),
     );
-    // The real margin at this price — all-in, not just line cost. Reporting
-    // "44%" when the honest number was 36.7% overstated by $1,835 on the very
-    // screen where the price gets decided.
-    const trueMargin = target > 0 ? (1 - trueCostAtTarget / target) * 100 : 0;
+    const solved = jobProfit(scaled.map(toCalc), {
+      discountKind,
+      discountValue,
+      freightMarkupPct: org?.freight_markup_pct ?? 0,
+      fuelFee,
+      fuelCharge,
+      carAllowance,
+      commissionPct,
+      commissionOverridePct,
+      commissionOverrideAmount,
+    });
+    const trueMargin = solved.margin;
     setOverallMargin(round2s(Math.max(trueMargin, 0)));
     setTargetPrice("");
     toast.success(
@@ -2113,7 +2128,7 @@ export function EstimateBuilder({
   // AI "pre-fill from a description" — describe the job in plain English and the
   // same engine the guided flow used generates lines, merged into the active
   // option's LIVE state (nothing saved until you Save). Review & adjust after.
-  // Running grand total — discount-aware (matches the estimate view / invoice)
+  // Customer total — flooring after discount, plus gas, car allowance, and commission.
   // and shown in the always-visible bar, with the true blended margin.
   const toCalc = (l: LineState) => ({
     line_type: l.line_type,
@@ -2150,12 +2165,6 @@ export function EstimateBuilder({
     material_cost: l.material_cost,
     labor_cost: l.labor_cost,
   });
-  const grand = optionTotalsWithDiscount(
-    options.flatMap((o) => o.lines.map(toCalc)),
-    taxRate,
-    discountKind,
-    discountValue,
-  );
   // THE margin — same definition the saved estimate, invoice and job costing
   // use. It used to be (subtotal − cost) / subtotal, which ignored the discount,
   // freight on material, sales gas, the car allowance and commission, so the
@@ -2167,6 +2176,7 @@ export function EstimateBuilder({
       discountValue,
       freightMarkupPct: org?.freight_markup_pct ?? 0,
       fuelFee,
+      fuelCharge,
       carAllowance,
       commissionPct,
       commissionOverridePct,
@@ -2174,6 +2184,8 @@ export function EstimateBuilder({
     },
   );
   const grandMargin = grandProfit.margin;
+  const grandCustomerTotal =
+    grandProfit.revenue + grandProfit.revenue * (num(taxRate) / 100);
   // Which lines are keeping the job off its target, and what that costs. A
   // blended margin below target is usually a pinned line, not bad arithmetic —
   // so name it instead of leaving the estimator to wonder.
@@ -2400,14 +2412,9 @@ export function EstimateBuilder({
                 {formatMoney(grandProfit.cost)} cost
                 {grandProfit.discount > 0
                   ? ` (after ${formatMoney(grandProfit.discount)} discount)`
-                  : ""}
-                {grandProfit.commission > 0
-                  ? ` − ${formatMoney(grandProfit.commission)} commission`
-                  : ""}
-                {grandProfit.fuelFee + grandProfit.carAllowance > 0
-                  ? ` − ${formatMoney(grandProfit.fuelFee + grandProfit.carAllowance)} gas & vehicle`
                   : ""}{" "}
-                = {formatMoney(grandProfit.profit)} profit
+                = {formatMoney(grandProfit.profit)} profit. Gas, car allowance,
+                and commission are in that revenue.
               </div>
 
               {shortfall.offTarget.length > 0 ? (
@@ -2615,6 +2622,7 @@ export function EstimateBuilder({
             discountValue,
             freightMarkupPct: org?.freight_markup_pct ?? 0,
             fuelFee,
+            fuelCharge,
             carAllowance,
             commissionPct,
             commissionOverridePct,
@@ -2628,6 +2636,13 @@ export function EstimateBuilder({
           const fuel = optionProfit.fuelFee;
           const car = optionProfit.carAllowance;
           const optionMargin = optionProfit.margin;
+          const customerPretax = optionProfit.revenue;
+          const customerTax = customerPretax * (num(taxRate) / 100);
+          const customerTotal = customerPretax + customerTax;
+          const addedToBill = Math.max(
+            0,
+            customerPretax - (totals.subtotal - totals.discount),
+          );
 
           const isRecommended = option.key === recommendedKey;
           const hasOptional = option.lines.some((l) => l.is_optional);
@@ -4266,13 +4281,19 @@ export function EstimateBuilder({
                       <span>−{formatMoney(totals.discount)}</span>
                     </div>
                   ) : null}
+                  {addedToBill > 0 ? (
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Added to the bill</span>
+                      <span>{formatMoney(addedToBill)}</span>
+                    </div>
+                  ) : null}
                   <div className="flex justify-between text-muted-foreground">
                     <span>Tax ({taxRate || 0}%)</span>
-                    <span>{formatMoney(totals.tax)}</span>
+                    <span>{formatMoney(customerTax)}</span>
                   </div>
                   <div className="flex justify-between text-base font-semibold">
                     <span>Total</span>
-                    <span>{formatMoney(totals.total)}</span>
+                    <span>{formatMoney(customerTotal)}</span>
                   </div>
                   {optionCost > 0 ? (
                     <div className="mt-1 space-y-1 border-t border-dashed pt-2 text-xs">
@@ -4290,15 +4311,21 @@ export function EstimateBuilder({
                           </span>
                         </div>
                       ) : null}
+                      {optionProfit.fuelCharge > 0 ? (
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Fuel on the bill</span>
+                          <span className="tabular-nums">{formatMoney(optionProfit.fuelCharge)}</span>
+                        </div>
+                      ) : null}
                       {fuel > 0 ? (
                         <div className="flex justify-between text-muted-foreground">
-                          <span>Salesperson gas</span>
+                          <span>Salesperson gas (from that fuel)</span>
                           <span className="tabular-nums">{formatMoney(fuel)}</span>
                         </div>
                       ) : null}
                       {car > 0 ? (
                         <div className="flex justify-between text-muted-foreground">
-                          <span>Car allowance</span>
+                          <span>Car allowance (on the bill)</span>
                           <span className="tabular-nums">{formatMoney(car)}</span>
                         </div>
                       ) : null}
@@ -4380,7 +4407,9 @@ export function EstimateBuilder({
                               </div>
                             </div>
                             <p className="text-[11px] text-muted-foreground">
-                              Internal — does not change the customer total.
+                              Added to the customer total and buried in the line
+                              prices. Salesperson gas is paid from the fuel charge
+                              and is not a job cost.
                             </p>
                           </div>
                         );
@@ -4419,7 +4448,7 @@ export function EstimateBuilder({
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2 px-1">
           <div className="flex items-baseline gap-2">
             <span className="text-xs text-muted-foreground">Total</span>
-            <span className="text-xl font-bold tabular-nums">{formatMoney(grand.total)}</span>
+            <span className="text-xl font-bold tabular-nums">{formatMoney(grandCustomerTotal)}</span>
             <span className="text-xs tabular-nums text-muted-foreground">
               Cost {formatMoney(grandProfit.cost)} · {Math.round(grandMargin)}%
             </span>
@@ -4497,6 +4526,12 @@ export function EstimateBuilder({
         taxRate={taxRate}
         discountKind={discountKind}
         discountValue={discountValue}
+        showProjectDetails={estimate.show_project_details !== false}
+        fuelCharge={fuelCharge}
+        carAllowance={carAllowance}
+        commissionPct={commissionPct}
+        commissionOverridePct={commissionOverridePct}
+        commissionOverrideAmount={commissionOverrideAmount}
         options={options}
       />
     ) : null}
@@ -4516,6 +4551,12 @@ function EstimatePrintDoc({
   taxRate,
   discountKind,
   discountValue,
+  showProjectDetails,
+  fuelCharge,
+  carAllowance,
+  commissionPct,
+  commissionOverridePct,
+  commissionOverrideAmount,
   options,
 }: {
   org: OrgSettings;
@@ -4528,6 +4569,12 @@ function EstimatePrintDoc({
   taxRate: string;
   discountKind: "amount" | "percent";
   discountValue: string;
+  showProjectDetails: boolean;
+  fuelCharge: number;
+  carAllowance: number;
+  commissionPct: number;
+  commissionOverridePct: string;
+  commissionOverrideAmount: string;
   options: OptionState[];
 }) {
   const detailed = presentation === "detailed";
@@ -4579,74 +4626,136 @@ function EstimatePrintDoc({
         </div>
       ) : null}
 
-      {jobDescription ? (
-        <p className="mb-4 whitespace-pre-wrap text-sm">{jobDescription}</p>
-      ) : null}
-
-      {options.map((o, oi) => {
-        const totals = optionTotalsWithDiscount(
-          o.lines.map(calc),
-          taxRate,
-          discountKind,
-          discountValue,
-        );
+      {(() => {
+        const narrative = customerCopyNarrative(jobDescription, showProjectDetails);
         return (
-          <div key={oi} className="mb-5">
-            {options.length > 1 ? (
-              <div className="mb-1 text-sm font-semibold">{o.name}</div>
+          <>
+            {detailed && narrative ? (
+              <p className="mb-4 whitespace-pre-wrap text-sm">{narrative}</p>
             ) : null}
-            {detailed ? (
-              <table className="w-full border-collapse text-sm">
-                <thead>
-                  <tr className="border-b text-left text-xs text-gray-500">
-                    <th className="py-1 pr-2 font-medium">Description</th>
-                    <th className="py-1 pl-2 text-right font-medium">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {o.lines
-                    .filter((l) => l.description.trim() || lineTotal(calc(l)) > 0)
-                    .map((l, li) => (
-                      <tr key={li} className="border-b align-top">
-                        <td className="py-1 pr-2">
-                          {l.room ? `${l.room} — ` : ""}
-                          {l.description}
-                        </td>
-                        <td className="py-1 pl-2 text-right tabular-nums">
-                          {formatMoney(lineTotal(calc(l)))}
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            ) : null}
-            <div className="ml-auto mt-2 w-64 text-sm">
-              {detailed ? (
-                <>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Subtotal</span>
-                    <span>{formatMoney(totals.subtotal)}</span>
-                  </div>
-                  {totals.discount > 0 ? (
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Discount</span>
-                      <span>−{formatMoney(totals.discount)}</span>
-                    </div>
+            {options.map((o, oi) => {
+              const calcLines = o.lines.map(calc);
+              const flooring = optionTotalsWithDiscount(
+                calcLines,
+                taxRate,
+                discountKind,
+                discountValue,
+              );
+              const recovery = computeBillRecovery(
+                flooring.subtotal - flooring.discount,
+                {
+                  fuelCharge,
+                  carAllowance,
+                  commissionPct,
+                  commissionOverridePct,
+                  commissionOverrideAmount,
+                },
+              );
+              const totals = presentCustomerBill({
+                lineTotals: calcLines.map((l) => lineTotal(l)),
+                discount: flooring.discount,
+                taxRatePct: taxRate,
+                added: recovery.added,
+              });
+              const scope = buildCustomerScope(
+                o.lines.map(
+                  (l, i) =>
+                    ({
+                      id: l.id ?? l.key,
+                      option_id: "",
+                      position: i,
+                      room: l.room || null,
+                      description: l.description || "",
+                      note: l.note || null,
+                      line_type: l.line_type,
+                      sqft: num(l.sqft) || null,
+                      length_in: null,
+                      width_in: null,
+                      measure_unit: l.measure_unit,
+                      material_rate: num(l.material_rate) || null,
+                      labor_rate: num(l.labor_rate) || null,
+                      installed_rate: num(l.installed_rate) || null,
+                      flat_amount: num(l.flat_amount) || null,
+                      waste_pct: num(l.waste_pct) || null,
+                      product_id: l.product_id || null,
+                      manufacturer: l.manufacturer || null,
+                      style: l.style || null,
+                      color: l.color || null,
+                      item_no: l.item_no || null,
+                      material_cost: null,
+                      labor_cost: null,
+                      quantity: num(l.quantity) || null,
+                      unit: l.unit || null,
+                      category: (l.category || null) as EstimateLineItem["category"],
+                      measurements: null,
+                    }) satisfies EstimateLineItem,
+                ),
+                narrative,
+              );
+              return (
+                <div key={oi} className="mb-5">
+                  {options.length > 1 ? (
+                    <div className="mb-1 text-sm font-semibold">{o.name}</div>
                   ) : null}
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Tax</span>
-                    <span>{formatMoney(totals.tax)}</span>
+                  {detailed ? (
+                    <table className="w-full border-collapse text-sm">
+                      <thead>
+                        <tr className="border-b text-left text-xs text-gray-500">
+                          <th className="py-1 pr-2 font-medium">Description</th>
+                          <th className="py-1 pl-2 text-right font-medium">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {o.lines.map((l, li) => {
+                          const amt = totals.lineTotals[li] ?? 0;
+                          if (!(amt > 0)) return null;
+                          return (
+                            <tr key={li} className="border-b align-top">
+                              <td className="py-1 pr-2">
+                                {l.room ? `${l.room} — ` : ""}
+                                {l.description}
+                              </td>
+                              <td className="py-1 pl-2 text-right tabular-nums">
+                                {formatMoney(amt)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <CustomerScopeView scope={scope} variant="full" narrative={narrative} />
+                  )}
+                  <div className="ml-auto mt-2 w-64 text-sm">
+                    {detailed ? (
+                      <>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Subtotal</span>
+                          <span>{formatMoney(totals.subtotal)}</span>
+                        </div>
+                        {totals.discount > 0 ? (
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Discount</span>
+                            <span>−{formatMoney(totals.discount)}</span>
+                          </div>
+                        ) : null}
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Tax</span>
+                          <span>{formatMoney(totals.tax)}</span>
+                        </div>
+                      </>
+                    ) : null}
+                    <div className="flex justify-between border-t pt-1 text-base font-bold">
+                      <span>{options.length > 1 ? `${o.name} total` : "Total"}</span>
+                      <span>{formatMoney(totals.total)}</span>
+                    </div>
                   </div>
-                </>
-              ) : null}
-              <div className="flex justify-between border-t pt-1 text-base font-bold">
-                <span>{options.length > 1 ? `${o.name} total` : "Total"}</span>
-                <span>{formatMoney(totals.total)}</span>
-              </div>
-            </div>
-          </div>
+                </div>
+              );
+            })}
+          </>
         );
-      })}
+      })()}
 
       {notes ? (
         <div className="mt-4 text-xs text-gray-600">

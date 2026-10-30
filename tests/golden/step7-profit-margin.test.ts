@@ -79,18 +79,9 @@ describe("Step 7 — canonical all-in profit", () => {
 
   it("3: freight > 0 — omitting freight overstates margin (regression)", () => {
     const allIn = jobProfit([FIXTURE], OPTS);
-    const ct = optionCostTotals([FIXTURE]);
-    // Old builder option-card bug: bare cost + fees, no freight.
-    const revenue = allIn.revenue;
-    const bareCost = ct.material + ct.labor;
-    const optimistic =
-      revenue -
-      bareCost -
-      OPTS.fuelFee -
-      OPTS.carAllowance -
-      (OPTS.commissionPct / 100) * revenue;
-    const optimisticMargin = (optimistic / revenue) * 100;
-    expect(optimisticMargin).toBeGreaterThan(allIn.margin);
+    const noFreight = jobProfit([FIXTURE], { ...OPTS, freightMarkupPct: 0 });
+    expect(noFreight.margin).toBeGreaterThan(allIn.margin);
+    expect(noFreight.cost).toBeLessThan(allIn.cost);
   });
 
   it("4: freight = 0 — all-in matches bare-cost + fees", () => {
@@ -175,33 +166,32 @@ describe("Step 7 — canonical all-in profit", () => {
     expectClose(p.margin, 40);
   });
 
-  it("10–12: equal direct + equal overhead → equal estimated vs actual margins", () => {
+  it("10–12: gas, car, and commission are memos — they do not change margin", () => {
     const revenue = 10_000;
     const materialBare = 4_000;
     const labor = 2_000;
-    const fees = {
-      freightMarkupPct: 5,
-      fuelFee: 50,
-      carAllowance: 25,
-      commissionPct: 3,
-    };
-    const estimated = allInProfit({
+    const withMemos = allInProfit({
       revenue,
       materialBare,
       labor,
-      ...fees,
+      freightMarkupPct: 5,
+      fuelCharge: 60,
+      fuelFee: 50,
+      carAllowance: 25,
+      commissionPct: 3,
     });
-    // Actual with same direct landed cost + same overhead.
-    const actualDirect =
-      materialBare * freightMultiplier(fees.freightMarkupPct) + labor;
-    const actualOverhead =
-      fees.fuelFee +
-      fees.carAllowance +
-      (fees.commissionPct / 100) * revenue;
-    const actualCost = actualDirect + actualOverhead;
-    const actualMargin = marginPct(revenue, actualCost);
-    expectClose(estimated.margin, actualMargin);
-    expectClose(estimated.profit, revenue - actualCost);
+    const directOnly = allInProfit({
+      revenue,
+      materialBare,
+      labor,
+      freightMarkupPct: 5,
+    });
+    const direct = materialBare * freightMultiplier(5) + labor;
+    expectClose(withMemos.margin, directOnly.margin);
+    expectClose(withMemos.profit, revenue - direct);
+    expectClose(marginPct(revenue, direct), withMemos.margin);
+    expect(withMemos.fuelFee).toBe(50);
+    expect(withMemos.carAllowance).toBe(25);
   });
 
   it("13: discount reduces revenue consistently", () => {
@@ -211,10 +201,13 @@ describe("Step 7 — canonical all-in profit", () => {
     expect(withDisc.discount).toBeGreaterThan(0);
   });
 
-  it("14: tax excluded — jobProfit revenue is pre-tax (subtotal − discount)", () => {
+  it("14: tax excluded — revenue is pre-tax and includes the bill add", () => {
     const p = jobProfit([FIXTURE], OPTS);
-    expectClose(p.revenue, p.subtotal - p.discount);
-    // Tax would be on (subtotal − discount); it must not appear in revenue.
+    const base = p.subtotal - p.discount;
+    // No fuel charge was passed, so salesperson gas is not added.
+    expect(p.fuelFee).toBe(0);
+    // The add is rounded to the cent, so revenue matches the flooring base plus that add.
+    expect(p.revenue).toBeCloseTo(base + p.carAllowance + p.commission, 2);
     const taxWouldBe = p.revenue * 0.08;
     expect(p.revenue).not.toBeCloseTo(p.revenue + taxWouldBe, 5);
   });

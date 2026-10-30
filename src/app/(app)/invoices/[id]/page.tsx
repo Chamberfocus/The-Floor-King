@@ -189,20 +189,20 @@ export default async function InvoicePage({
               ) : null}
               {invProfit.salesGas > 0 ? (
                 <div className="flex justify-between text-muted-foreground">
-                  <span>Salesperson gas</span>
-                  <span className="tabular-nums">−{formatMoney(invProfit.salesGas)}</span>
+                  <span>Salesperson gas (from the fuel charge)</span>
+                  <span className="tabular-nums">{formatMoney(invProfit.salesGas)}</span>
                 </div>
               ) : null}
               {invProfit.fleetUpkeep > 0 ? (
                 <div className="flex justify-between text-muted-foreground">
-                  <span>Car allowance</span>
-                  <span className="tabular-nums">−{formatMoney(invProfit.fleetUpkeep)}</span>
+                  <span>Car allowance (on the bill)</span>
+                  <span className="tabular-nums">{formatMoney(invProfit.fleetUpkeep)}</span>
                 </div>
               ) : null}
               {invProfit.commission > 0 ? (
                 <div className="flex justify-between text-muted-foreground">
-                  <span>Commission ({invProfit.commissionPct}%)</span>
-                  <span className="tabular-nums">−{formatMoney(invProfit.commission)}</span>
+                  <span>Commission ({invProfit.commissionPct}%) on the bill</span>
+                  <span className="tabular-nums">{formatMoney(invProfit.commission)}</span>
                 </div>
               ) : null}
               <div className="mt-1 flex justify-between border-t pt-1 font-semibold">
@@ -224,9 +224,9 @@ export default async function InvoicePage({
             </div>
             {invProfit.cost === 0 ? (
               <p className="mt-2 text-xs text-muted-foreground">
-                No costs are on the source estimate, so this shows revenue minus
-                only the fuel/car/commission overheads. Add material &amp; labor
-                costs on the estimate for a true margin.
+                No material or labor cost is on the source estimate yet. Add those
+                costs on the estimate for a true margin. Gas, car allowance, and
+                commission stay in the total.
               </p>
             ) : null}
           </CardContent>

@@ -374,6 +374,36 @@ function isCrewOnlyCustomerText(raw: string): boolean {
   );
 }
 
+/**
+ * Narrative for the customer copy. When project details are off, the captured
+ * questionnaire lines are removed and the prose that is left stays.
+ */
+export function customerCopyNarrative(
+  text: string | null | undefined,
+  showProjectDetails: boolean,
+): string {
+  const facing = customerFacingJobNotes(text);
+  if (showProjectDetails) return facing;
+  const hide = new Set(
+    parseProjectDetails(text).details.map((d) => d.trim().toLowerCase()),
+  );
+  if (!hide.size) return facing;
+  return facing
+    .split("\n")
+    .filter((line) => {
+      const key = line
+        .trim()
+        .replace(/^[•\-]\s*/, "")
+        .replace(/\?:/g, ":")
+        .trim()
+        .toLowerCase();
+      return !!key && !hide.has(key);
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 /** Customer print / portal narrative. Stored job_description keeps crew stamps. */
 export function customerFacingJobNotes(text: string | null | undefined): string {
   if (!text) return "";

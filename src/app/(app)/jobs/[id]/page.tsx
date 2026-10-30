@@ -1733,9 +1733,9 @@ export default async function JobPage({
                   </tr>
                   <tr>
                     <td className="px-3 py-2">
-                      Overhead
+                      On the bill
                       <span className="ml-1 text-xs text-muted-foreground">
-                        gas, car allowance, commission
+                        gas, car allowance, and commission — included in revenue
                       </span>
                     </td>
                     <td className="px-3 py-2 text-right">

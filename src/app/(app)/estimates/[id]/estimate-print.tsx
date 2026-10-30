@@ -7,8 +7,10 @@ import { Printer, Save, ListChecks, Receipt } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { EstimateOptionCards } from "@/components/estimate-option-cards";
-import { customerFacingJobNotes, customerFacingLineNote, customerLineLabel } from "@/lib/customer-scope";
+import { customerCopyNarrative, customerFacingJobNotes, customerFacingLineNote, customerLineLabel, buildCustomerScope } from "@/lib/customer-scope";
+import { CustomerScopeView } from "@/components/customer-scope-view";
 import { optionTotalsWithDiscount, lineTotal } from "@/lib/estimate-calc";
+import { computeBillRecovery, presentCustomerBill, type BillRecoverySettings } from "@/lib/bill-recovery";
 import { docRef } from "@/lib/format";
 import { formatMoney, formatDate } from "@/lib/format";
 import { PRODUCT_CATEGORY_LABELS } from "@/lib/types";
@@ -64,17 +66,29 @@ export function EstimateCustomerControls({
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  const [detailsOn, setDetailsOn] = useState(showProjectDetails);
+  useEffect(() => {
+    setDetailsOn(showProjectDetails);
+  }, [showProjectDetails]);
   const itemized = presentation !== "summary";
   const setPres = (v: string) =>
     start(async () => {
       await setEstimatePresentation(estimateId, v === "summary" ? "summary" : "detailed");
       router.refresh();
     });
-  const setPD = (v: string) =>
+  const setPD = (v: string) => {
+    const next = v === "on";
+    setDetailsOn(next);
     start(async () => {
-      await setEstimateProjectDetails(estimateId, v === "on");
+      const res = await setEstimateProjectDetails(estimateId, next);
+      if (!res.ok) {
+        setDetailsOn(showProjectDetails);
+        toast.error("Couldn't update project details. Try again.");
+        return;
+      }
       router.refresh();
     });
+  };
   return (
     <div className="flex flex-col gap-3 rounded-lg border bg-muted/30 p-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-8">
       <div className="flex flex-wrap items-center gap-2">
@@ -99,7 +113,7 @@ export function EstimateCustomerControls({
           <ListChecks className="size-4 text-muted-foreground" /> Project details
         </span>
         <Seg
-          value={showProjectDetails ? "on" : "off"}
+          value={detailsOn ? "on" : "off"}
           disabled={pending}
           onChange={setPD}
           options={[
@@ -179,6 +193,7 @@ export function EstimatePrintDoc({
   preparedBy,
   siteAddress = null,
   preview = false,
+  billSettings = null,
 }: {
   org: OrgSettings;
   customer: Customer | null;
@@ -194,6 +209,8 @@ export function EstimatePrintDoc({
   } | null;
   /** On-screen document preview: show the doc as a white sheet (not print-only). */
   preview?: boolean;
+  /** Buried into the line prices. Never itemized on this copy. */
+  billSettings?: BillRecoverySettings | null;
 }) {
   const options = estimate.options ?? [];
   // Multiple options with no choice made yet → present them side by side so the
@@ -203,12 +220,29 @@ export function EstimatePrintDoc({
   const chosen =
     options.find((o) => o.id === estimate.accepted_option_id) ?? options[0] ?? null;
   const lines = chosen?.line_items ?? [];
-  const totals = optionTotalsWithDiscount(
+  const flooringTotals = optionTotalsWithDiscount(
     lines,
     estimate.tax_rate,
     estimate.discount_kind,
     estimate.discount_value,
   );
+  const recovery = computeBillRecovery(
+    flooringTotals.subtotal - flooringTotals.discount,
+    billSettings ?? {},
+  );
+  const presented = presentCustomerBill({
+    lineTotals: lines.map((l) => lineTotal(l)),
+    discount: flooringTotals.discount,
+    taxRatePct: estimate.tax_rate,
+    added: recovery.added,
+  });
+  const totals = {
+    subtotal: presented.subtotal,
+    discount: presented.discount,
+    tax: presented.tax,
+    total: presented.total,
+  };
+  const shownLineAmount = (index: number) => presented.lineTotals[index] ?? 0;
   // "Itemized" prices each line; otherwise one lump sum. Firewall-safe either way
   // (no sq ft / quantities / unit costs / margins / carpet cuts).
   const itemized = estimate.presentation !== "summary";
@@ -217,7 +251,13 @@ export function EstimatePrintDoc({
   // Body content (customer-facing): the AREAS being done and the customer-facing
   // job_description. Never internal estimate.notes (cost/margin commentary).
   const areas = [...new Set(lines.map((l) => (l.room ?? "").trim()).filter(Boolean))];
-  const description = customerFacingJobNotes(estimate.job_description);
+  const crewSafeNotes = customerFacingJobNotes(estimate.job_description);
+  const description = customerCopyNarrative(
+    estimate.show_project_details === false
+      ? estimate.job_description
+      : crewSafeNotes,
+    estimate.show_project_details !== false,
+  );
   /**
    * The headline on a lump-sum quote.
    *
@@ -308,7 +348,7 @@ export function EstimatePrintDoc({
       ? org.website
       : `http://www.${org.website.replace(/^www\./, "")}`
     : "";
-  const pricedLines = itemized ? lines.filter((l) => lineTotal(l) > 0) : [];
+  const scope = buildCustomerScope(lines, estimate.job_description);
 
   return (
     <div
@@ -382,7 +422,7 @@ export function EstimatePrintDoc({
           {description ? (
             <p className="mb-4 whitespace-pre-wrap text-[15px] leading-relaxed">{description}</p>
           ) : null}
-          <EstimateOptionCards estimate={estimate} printMode />
+          <EstimateOptionCards estimate={estimate} printMode billSettings={billSettings} />
           <p className="mt-4 text-[13px] leading-relaxed text-gray-600">
             Each option is a single, all-inclusive price — materials, professional installation, and site
             preparation as described. Applicable tax included. Approve the option you&apos;d like online, or let
@@ -406,20 +446,20 @@ export function EstimatePrintDoc({
             </p>
           ) : null}
 
-          {/* Materials / scope table */}
-          <table className="mt-4 w-full border-collapse">
-            <thead>
-              <tr className="bg-[#8a9099] text-[13px] font-semibold text-white">
-                <th className="px-3 py-1.5 text-left">Materials</th>
-                <th className="px-3 py-1.5 text-right">qty</th>
-                <th className="px-3 py-1.5 text-right">unit price</th>
-                <th className="px-3 py-1.5 text-right">amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {itemized ? (
-                pricedLines.map((l, i) => {
-                  const amt = lineTotal(l);
+          {itemized ? (
+            <table className="mt-4 w-full border-collapse">
+              <thead>
+                <tr className="bg-[#8a9099] text-[13px] font-semibold text-white">
+                  <th className="px-3 py-1.5 text-left">Materials</th>
+                  <th className="px-3 py-1.5 text-right">qty</th>
+                  <th className="px-3 py-1.5 text-right">unit price</th>
+                  <th className="px-3 py-1.5 text-right">amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((l, i) => {
+                  const amt = shownLineAmount(i);
+                  if (!(amt > 0)) return null;
                   const note = customerFacingLineNote(l.note);
                   return (
                     <tr key={i} className="border-b border-gray-200 align-top">
@@ -435,32 +475,24 @@ export function EstimatePrintDoc({
                       <td className="px-3 py-2.5 text-right text-[13px] tabular-nums text-gray-700">{formatMoney(amt)}</td>
                     </tr>
                   );
-                })
-              ) : (
-                <tr className="border-b border-gray-200 align-top">
-                  <td className="px-3 py-2.5">
-                    <div className="font-semibold">{primaryLabel}</div>
-                    {areas.length ? (
-                      <div className="mt-1.5 text-[14px]">
-                        <span className="font-semibold">Areas:</span> {areas.join(", ")}
-                      </div>
-                    ) : null}
-                    {description ? (
-                      <div className="mt-2 whitespace-pre-wrap text-[13.5px] leading-relaxed text-gray-700">
-                        {description}
-                      </div>
-                    ) : null}
-                  </td>
-                  <td className="px-3 py-2.5 text-right text-[13px] tabular-nums text-gray-600">1.0</td>
-                  <td className="px-3 py-2.5 text-right text-[13px] tabular-nums text-gray-600">{formatMoney(totals.subtotal)}</td>
-                  <td className="px-3 py-2.5 text-right text-[13px] tabular-nums text-gray-700">{formatMoney(totals.subtotal)}</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-          <div className="mt-2 text-right text-[13px] text-gray-700">
-            Materials subtotal: {formatMoney(totals.subtotal)}
-          </div>
+                })}
+              </tbody>
+            </table>
+          ) : (
+            <div className="mt-4">
+              <div className="mb-3 text-base font-semibold">{primaryLabel}</div>
+              <CustomerScopeView
+                scope={scope}
+                variant="full"
+                narrative={description}
+              />
+            </div>
+          )}
+          {itemized ? (
+            <div className="mt-2 text-right text-[13px] text-gray-700">
+              Materials subtotal: {formatMoney(totals.subtotal)}
+            </div>
+          ) : null}
 
           {/* Itemized still surfaces areas + description below the priced lines. */}
           {itemized && (areas.length > 0 || description) ? (
