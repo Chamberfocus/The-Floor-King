@@ -209,3 +209,98 @@ export function rankCatalogProducts<T extends RankableProduct>(rows: T[], query:
     .sort((a, b) => b.s - a.s || (a.p.name ?? "").localeCompare(b.p.name ?? ""))
     .map((x) => x.p);
 }
+
+const PAD_WORDS = new Set([
+  "pad",
+  "pads",
+  "padding",
+  "cushion",
+  "cushions",
+  "rebond",
+  "underlayment",
+  "underlay",
+]);
+
+function padQueryTokens(query: string): string[] {
+  return query
+    .trim()
+    .toLowerCase()
+    .replace(/(\d+)\s*\/\s*(\d+)/g, "$1/$2")
+    .split(/[^a-z0-9/]+/)
+    .filter(Boolean);
+}
+
+/** 7/16, 1/2, 8lb — how padding is asked for. A bare number is not enough. */
+export function isPadSearchQuery(query: string): boolean {
+  const tokens = padQueryTokens(query);
+  if (!tokens.length) return false;
+  let fractions = 0;
+  let words = 0;
+  let weights = 0;
+  for (const t of tokens) {
+    if (/^\d+\/\d+$/.test(t)) fractions += 1;
+    else if (PAD_WORDS.has(t)) words += 1;
+    else if (/^\d+(?:\.\d+)?(?:lb|lbs|#)$/.test(t)) weights += 1;
+    else return false;
+  }
+  return fractions > 0 || words > 0 || weights > 0;
+}
+
+/** Spellings of a pad thickness that show up in names and notes. */
+export function padFractionSpellings(token: string): string[] {
+  const t = token.trim().toLowerCase();
+  const out = new Set<string>([t]);
+  const frac = /^(\d+)\s*\/\s*(\d+)$/.exec(t);
+  if (!frac) return [...out];
+  const v = Number(frac[1]) / Number(frac[2]);
+  if (Number.isFinite(v) && v > 0) {
+    const dec = String(Math.round(v * 10000) / 10000);
+    out.add(dec);
+    out.add(dec.replace(/^0/, ""));
+    out.add(`${frac[1]}/${frac[2]}in`);
+    out.add(`${frac[1]}/${frac[2]} in`);
+  }
+  return [...out];
+}
+
+function padHaystack(p: RankableProduct): string {
+  return [p.name, p.sku, p.manufacturer, p.style, p.color, p.notes, p.search_text, p.fiber]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+/** True when the row actually carries this thickness, weight, or pad word. */
+export function productMatchesPadQuery(p: RankableProduct, query: string): boolean {
+  const hay = padHaystack(p);
+  const squashed = hay.replace(/[^a-z0-9./]+/g, "");
+  const tokens = padQueryTokens(query);
+  return tokens.some((token) => {
+    if (PAD_WORDS.has(token)) return hay.includes(token);
+    return padFractionSpellings(token).some((spelling) => {
+      const compact = spelling.replace(/[^a-z0-9./]+/g, "");
+      return hay.includes(spelling) || (compact.length > 0 && squashed.includes(compact));
+    });
+  });
+}
+
+/**
+ * Thickness matches first, then the rest of the padding. A 7/16 search must
+ * not come back empty just because one row spells the thickness differently.
+ */
+export function rankPadCatalog<T extends RankableProduct>(rows: T[], query: string): T[] {
+  const q = query.trim();
+  if (!q) return rows;
+  const hits: T[] = [];
+  const rest: T[] = [];
+  for (const p of rows) {
+    if (productMatchesPadQuery(p, q)) hits.push(p);
+    else rest.push(p);
+  }
+  const byScore = (a: T, b: T) =>
+    scoreCatalogProduct(b, q) - scoreCatalogProduct(a, q) ||
+    (a.name ?? "").localeCompare(b.name ?? "");
+  hits.sort(byScore);
+  rest.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+  return [...hits, ...rest];
+}

@@ -59,6 +59,7 @@ export {
   hideDuplicateQuestionKeys,
   hideNonCarpetSectionsWhenCarpetOnly,
   simplifyCarpetQuestionnaire,
+  hideCarpetPadAndTackDuplicates,
 } from "./show-if";
 
 export {
