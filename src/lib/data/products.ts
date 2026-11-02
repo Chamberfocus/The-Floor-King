@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { catalogUnitCost, hydrateCatalogPricing } from "@/lib/catalog-pricing";
-import { rankCatalogProducts } from "@/lib/catalog-search";
+import { isPadSearchQuery, rankCatalogProducts, rankPadCatalog } from "@/lib/catalog-search";
 import { attachMillFacts } from "@/lib/data/supplier-facts";
 import type { Product, ProductVendor, SupplierKind } from "@/lib/types";
 
@@ -370,10 +370,16 @@ export async function searchCatalogWith(
 ): Promise<Product[]> {
   const displayLimit = opts.limit ?? 50;
   const tokens = query.trim().split(/\s+/).filter(Boolean);
+  // "7/16" is a pad thickness. Stay on the underlayment category instead of
+  // scoring every product in the catalog.
+  const searchOpts =
+    isPadSearchQuery(query) && !(opts.categories ?? []).filter(Boolean).length
+      ? { ...opts, categories: ["underlayment"], browseTokens: null }
+      : opts;
 
   let scoped: Product[] | null = null;
   try {
-    scoped = await searchCatalogScoped(supabase, query, tokens, displayLimit, opts);
+    scoped = await searchCatalogScoped(supabase, query, tokens, displayLimit, searchOpts);
   } catch {
     scoped = null;
   }
@@ -528,7 +534,13 @@ async function searchCatalogScoped(
   const browse = (opts.browseTokens ?? []).map((t) => t.trim()).filter(Boolean);
   if (!categories.length && !browse.length) return null;
 
-  const pool = tokens.length ? Math.min(Math.max(displayLimit * 3, 80), 150) : displayLimit;
+  const padBrowse =
+    isPadSearchQuery(query) && categories.length === 1 && categories[0] === "underlayment";
+  const pool = padBrowse
+    ? 200
+    : tokens.length
+      ? Math.min(Math.max(displayLimit * 3, 80), 150)
+      : displayLimit;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let q: any = supabase
     .from("products")
@@ -543,8 +555,12 @@ async function searchCatalogScoped(
     const parts = browse.map((token) => tokenColumnOr(token, TEXT_MATCH_COLS));
     q = q.or(parts.join(","));
   }
-  for (const token of tokens) {
-    q = q.or(tokenColumnOr(token, TEXT_MATCH_COLS));
+  // A thickness like 7/16 is ranked in memory against the whole padding
+  // category. An ILIKE that misses one spelling used to return nothing.
+  if (!padBrowse) {
+    for (const token of tokens) {
+      q = q.or(tokenColumnOr(token, TEXT_MATCH_COLS));
+    }
   }
 
   const { data, error } = await q;
@@ -552,6 +568,10 @@ async function searchCatalogScoped(
   let rows = ((data ?? []) as Product[]).filter(
     (p) => opts.includeLabor || p.category !== "labor",
   );
+  if (padBrowse) {
+    rows = rankPadCatalog(rows, query);
+    return enrichCatalogProducts(supabase, rows.slice(0, Math.max(displayLimit, 120)));
+  }
   if (tokens.length) rows = rankCatalogProducts(rows, query);
   else if (browse.length) rows = rankCatalogProducts(rows, browse[0]);
   if (!tokens.length && browse.length && !rows.length && categories.length) {

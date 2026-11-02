@@ -126,6 +126,7 @@ import {
   hideDuplicateQuestionLabels,
   hideNonCarpetSectionsWhenCarpetOnly,
   simplifyCarpetQuestionnaire,
+  hideCarpetPadAndTackDuplicates,
   jobIsExclusiveCarpetOnly,
   questionPurpose,
   reviewToJobNotes,
@@ -852,9 +853,13 @@ export function Questionnaire({
       questions,
       hideUnkeyedLabelDuplicates(questions, hideDuplicateQuestionKeys(questions, vis)),
     );
-    return simplifyCarpetQuestionnaire(
+    return hideCarpetPadAndTackDuplicates(
       questions,
-      hideNonCarpetSectionsWhenCarpetOnly(questions, deduped, exclusive),
+      simplifyCarpetQuestionnaire(
+        questions,
+        hideNonCarpetSectionsWhenCarpetOnly(questions, deduped, exclusive),
+        exclusive,
+      ),
       exclusive,
     );
   }, [questions, answers, overrides, cashCarry]);
@@ -4973,9 +4978,11 @@ function QuestionBody({
 
         {/* One OR multiple: add another product for a specific area. */}
         {q.config.allow_additional ? (
+          <div className="space-y-2">
+            {extras.length ? (
           <div className="space-y-2 rounded-lg border border-dashed p-2.5">
             <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Additional {kindLabel} for a specific area
+              {kindLabel} for one area
             </div>
             <p className="text-xs text-muted-foreground">{SALESPERSON_MEASURED_HINT}</p>
             {extras.map((ex) => {
@@ -5117,8 +5124,10 @@ function QuestionBody({
               </div>
               );
             })}
+          </div>
+            ) : null}
             <Button type="button" variant="outline" size="sm" onClick={() => setExtras([...extras, newExtra()])}>
-              <Plus className="size-4" /> Add {kindLabel}
+              <Plus className="size-4" /> Add {kindLabel} for one area
             </Button>
           </div>
         ) : null}

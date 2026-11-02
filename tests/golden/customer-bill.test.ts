@@ -5,7 +5,10 @@
 import { describe, expect, it } from "vitest";
 import { lineQty, lineTotal, type CalcLine } from "@/lib/estimate-calc";
 import { projectDetailsShown } from "@/lib/customer-scope";
-import { simplifyCarpetQuestionnaire } from "@/lib/flooring-knowledge/show-if";
+import {
+  hideCarpetPadAndTackDuplicates,
+  simplifyCarpetQuestionnaire,
+} from "@/lib/flooring-knowledge/show-if";
 import { quickEstimateCustomerNotes, quickEstimateLineRow } from "@/lib/quick-estimate";
 
 describe("project details toggle", () => {
@@ -46,6 +49,29 @@ describe("carpet questionnaire", () => {
     expect(next.dup).toBe(false);
     expect(next.heat).toBe(true);
     expect(next.vapor).toBe(true);
+  });
+
+  it("asks padding once and tack strip once on a carpet-only walk", () => {
+    const questions = [
+      { id: "old-pad", key: null, label: "What padding?" },
+      { id: "exist-pad", key: "existing_pad", label: "Existing pad?" },
+      { id: "new-pad", key: "carpet_pad", label: "What padding?" },
+      { id: "old-tack", key: null, label: "Tackless (tackstrip) needed?" },
+      { id: "exist-tack", key: "existing_tack", label: "Existing tack strip?" },
+      { id: "tack", key: "tack_strip", label: "Tack strip condition?" },
+      { id: "tack-qty", key: "tack_strip_qty", label: "New tack strip — linear feet?" },
+      { id: "stairs", key: "carpet_stairs", label: "Stairs?" },
+    ];
+    const visible = Object.fromEntries(questions.map((q) => [q.id, true]));
+    const next = hideCarpetPadAndTackDuplicates(questions, visible, true);
+    expect(next["new-pad"]).toBe(true);
+    expect(next["old-pad"]).toBe(false);
+    expect(next["exist-pad"]).toBe(false);
+    expect(next.tack).toBe(true);
+    expect(next["tack-qty"]).toBe(true);
+    expect(next["old-tack"]).toBe(false);
+    expect(next["exist-tack"]).toBe(false);
+    expect(next.stairs).toBe(true);
   });
 });
 

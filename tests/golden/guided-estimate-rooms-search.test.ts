@@ -3,9 +3,11 @@ import { searchCatalogWith } from "@/lib/data/products";
 import {
   HARD_SURFACE_CATEGORIES,
   catalogSuggestionPlan,
+  isPadSearchQuery,
   pickerCatalogScope,
   productInPickerScope,
   rankCatalogProducts,
+  rankPadCatalog,
 } from "@/lib/catalog-search";
 import {
   alignCutGroupsToMeasuredRooms,
@@ -398,5 +400,92 @@ describe("catalog context and search ranking", () => {
     expect(or).toContain("sku.ilike");
     expect(rows.map((r) => r.id)).toEqual(["saga"]);
     expect(rows.some((r) => r.category === "lvp")).toBe(false);
+  });
+
+  it("treats 7/16 as padding and lists every pad, thickness first", async () => {
+    expect(isPadSearchQuery("7/16")).toBe(true);
+    expect(isPadSearchQuery("7 / 16")).toBe(true);
+    expect(isPadSearchQuery("8lb")).toBe(true);
+    expect(isPadSearchQuery("saga")).toBe(false);
+    expect(isPadSearchQuery("8")).toBe(false);
+
+    const seven = {
+      id: "seven",
+      name: "7/16 6lb padding",
+      category: "underlayment",
+      active: true,
+    };
+    const decimal = {
+      id: "dec",
+      name: "Rebond cushion",
+      notes: "0.4375 in",
+      category: "underlayment",
+      active: true,
+    };
+    const other = {
+      id: "half",
+      name: "1/2 8lb padding",
+      category: "underlayment",
+      active: true,
+    };
+    const carpet = { ...sagaRow, category: "carpet" };
+    const ranked = rankPadCatalog([other, carpet, decimal, seven], "7/16");
+    expect(ranked.map((r) => r.id).slice(0, 2)).toEqual(["seven", "dec"]);
+    expect(ranked.map((r) => r.id)).toContain("half");
+
+    const rpcCalls: string[] = [];
+    const filters: string[] = [];
+    const products = [seven, decimal, other, carpet];
+    const productChain: Record<string, unknown> = {};
+    const self = () => productChain;
+    productChain.select = self;
+    productChain.order = self;
+    productChain.limit = self;
+    productChain.eq = (col: string, val: string) => {
+      filters.push(`eq:${col}:${val}`);
+      return productChain;
+    };
+    productChain.in = self;
+    productChain.or = (expr: string) => {
+      filters.push(`or:${expr}`);
+      return productChain;
+    };
+    productChain.then = (resolve: (v: unknown) => unknown) => {
+      const cat = [...filters].reverse().find((f) => f.startsWith("eq:category:"));
+      const want = cat?.split(":")[2];
+      const data = products.filter((p) => !want || p.category === want);
+      return Promise.resolve({ data, error: null }).then(resolve);
+    };
+    const dead: Record<string, unknown> = {};
+    const deadSelf = () => dead;
+    dead.select = deadSelf;
+    dead.eq = deadSelf;
+    dead.in = deadSelf;
+    dead.order = deadSelf;
+    dead.limit = deadSelf;
+    dead.or = deadSelf;
+    dead.maybeSingle = () => Promise.resolve({ data: null, error: { message: "no" } });
+    dead.then = (resolve: (v: unknown) => unknown) =>
+      Promise.resolve({ data: null, error: { message: "no" } }).then(resolve);
+
+    const rows = await searchCatalogWith(
+      {
+        rpc() {
+          rpcCalls.push("rpc");
+          return Promise.resolve({ data: [], error: { message: "should not run" } });
+        },
+        from(table: string) {
+          return table === "products" ? productChain : dead;
+        },
+      },
+      "7/16",
+      { limit: 10 },
+    );
+    expect(rpcCalls).toEqual([]);
+    expect(filters.some((f) => f.startsWith("or:"))).toBe(false);
+    expect(filters).toContain("eq:category:underlayment");
+    expect(rows.map((r) => r.id).slice(0, 2)).toEqual(["seven", "dec"]);
+    expect(rows.map((r) => r.id)).toEqual(expect.arrayContaining(["half"]));
+    expect(rows.some((r) => r.category === "carpet")).toBe(false);
   });
 });

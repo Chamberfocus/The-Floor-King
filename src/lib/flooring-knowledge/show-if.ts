@@ -197,6 +197,69 @@ export function simplifyCarpetQuestionnaire<
   return next;
 }
 
+const PAD_TOPIC_KEYS = new Set([
+  "carpet_pad",
+  "existing_pad",
+  "attached_pad",
+  "hs_underlayment",
+]);
+const TACK_TOPIC_KEYS = new Set(["tack_strip", "tack_strip_qty", "existing_tack"]);
+
+function carpetQuestionTopic(q: {
+  key?: string | null;
+  label?: string | null;
+}): "pad" | "tack" | null {
+  const key = (q.key ?? "").trim();
+  if (PAD_TOPIC_KEYS.has(key)) return "pad";
+  if (TACK_TOPIC_KEYS.has(key)) return "tack";
+  const label = (q.label ?? "").trim().toLowerCase();
+  if (!label || key) return null;
+  if (/tack\s*-?\s*less|tackstrip|tack\s*strip/.test(label)) return "tack";
+  if (/\bpadding\b|\bpads?\b|\bcushion\b/.test(label)) return "pad";
+  return null;
+}
+
+/**
+ * A carpet walk should ask padding once and tack strip once.
+ *
+ * The product question (new pad) wins over "existing pad?" and any older
+ * unkeyed "What padding?" row. The stretch-in tack condition wins over
+ * "existing tack strip?" and the old yes/no. Linear feet stay, and only after
+ * replace. A mixed job still asks tear-out pad and tack when the new-product
+ * questions are hidden.
+ */
+export function hideCarpetPadAndTackDuplicates<
+  T extends { id: string; key?: string | null; label?: string | null },
+>(
+  questions: T[],
+  visible: Record<string, boolean>,
+  exclusiveCarpet: boolean,
+): Record<string, boolean> {
+  const next: Record<string, boolean> = { ...visible };
+  const shown = questions.filter((q) => next[q.id]);
+  const padKeeper =
+    shown.find((q) => (q.key ?? "").trim() === "carpet_pad") ??
+    shown.find((q) => (q.key ?? "").trim() === "existing_pad");
+  const tackKeeper =
+    shown.find((q) => (q.key ?? "").trim() === "tack_strip") ??
+    shown.find((q) => (q.key ?? "").trim() === "existing_tack");
+
+  for (const q of shown) {
+    const topic = carpetQuestionTopic(q);
+    if (!topic) continue;
+    const key = (q.key ?? "").trim();
+    if (topic === "tack" && key === "tack_strip_qty") continue;
+    const keeper = topic === "pad" ? padKeeper : tackKeeper;
+    if (!keeper || q.id === keeper.id) continue;
+    if (!key) {
+      next[q.id] = false;
+      continue;
+    }
+    if (exclusiveCarpet) next[q.id] = false;
+  }
+  return next;
+}
+
 /** Keys a `show_if` clause reads — used so dependents never sort before their gates. */
 export function showIfReferencedKeys(clause: ShowIfClause | null | undefined): string[] {
   if (!clause) return [];

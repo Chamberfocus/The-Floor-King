@@ -323,7 +323,7 @@ export function ProductPicker({
           setLoading(false);
         }
       }
-    }, cached ? 0 : 160);
+    }, cached ? 0 : categories?.length ? 80 : 220);
     return () => {
       cancelled = true;
       clearTimeout(t);
@@ -524,9 +524,11 @@ export function ProductPicker({
             onKeyDown={onKeyDown}
             autoFocus={editing}
             placeholder={
-              scope.label && !searchAll
-                ? `Search ${scope.label.toLowerCase()} — any part of the color, style, or number`
-                : "Color, style, style #, or color #"
+              scope.label === "Padding" && !searchAll
+                ? "Search padding — 7/16, 8lb, or a name"
+                : scope.label && !searchAll
+                  ? `Search ${scope.label.toLowerCase()} — color, style, or number`
+                  : "Color, style, style #, or color #"
             }
             className={cn(inputSm, "w-full pl-9 pr-9 text-base", fullWidth ? "h-12" : "h-11")}
           />
