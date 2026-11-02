@@ -13,6 +13,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { MeasureAreaUnitToggle, useMeasureAreaUnit } from "@/components/measure-area-unit";
+import { formatMeasureArea, formatMeasureAreaLabel } from "@/lib/measure-area-unit";
 
 const n = (v: string) => {
   const x = parseFloat(v);
@@ -50,8 +52,9 @@ const r2 = (x: number) => Math.round(x * 100) / 100;
 
 /**
  * Multi-area square-footage calculator. Add a row per area (room, closet,
- * hallway), enter length × width in feet + inches, and it totals to sq ft and
- * sq yd. If `onApply` is given it can push the total back into an estimate room;
+ * hallway), enter width × length in feet + inches, and it totals in the
+ * working unit (square feet or square yards). If `onApply` is given it pushes
+ * square feet back into an estimate room;
  * otherwise it's just a quick calculator.
  */
 export function AreaCalculator({
@@ -59,7 +62,7 @@ export function AreaCalculator({
   triggerVariant = "outline",
   triggerSize = "sm",
   triggerClassName,
-  title = "Square footage calculator",
+  title = "Area calculator",
   initialLabel,
   onApply,
 }: {
@@ -77,6 +80,7 @@ export function AreaCalculator({
   const set = (id: string, patch: Partial<Seg>) =>
     setSegs((ss) => ss.map((s) => (s.id === id ? { ...s, ...patch } : s)));
 
+  const { unit } = useMeasureAreaUnit();
   const totalSqft = Math.max(0, segs.reduce((a, s) => a + segSigned(s), 0));
   // Cutouts don't add room perimeter — only count the added areas.
   const totalPerim = segs.reduce((a, s) => a + (s.op === "add" ? segPerim(s) : 0), 0);
@@ -102,11 +106,11 @@ export function AreaCalculator({
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>
             <DialogDescription>
-              Add a row for each area — room, closet, hallway. For an irregular
-              room, add each rectangle; tap <strong>+</strong> to switch a row to
-              <strong> − cut out</strong> to subtract an island, hearth, or other
-              area that isn&apos;t getting floor. It totals MEASURED square
-              footage.
+              Add a row for each area — room, closet, hallway. Width, then length.
+              For an irregular room, add each rectangle; tap <strong>+</strong> to
+              switch a row to <strong> − cut out</strong> to subtract an island,
+              hearth, or other area that isn&apos;t getting floor. The total is
+              measured area.
             </DialogDescription>
           </DialogHeader>
 
@@ -114,9 +118,9 @@ export function AreaCalculator({
             <div className="hidden grid-cols-[auto_1fr_auto_auto_auto] gap-2 px-1 text-xs text-muted-foreground sm:grid">
               <span className="w-9" />
               <span>Area</span>
-              <span className="text-center">Length (ft / in)</span>
               <span className="text-center">Width (ft / in)</span>
-              <span className="pr-7 text-right">Sq ft</span>
+              <span className="text-center">Length (ft / in)</span>
+              <span className="pr-7 text-right">{unit === "sqyd" ? "Sq yd" : "Sq ft"}</span>
             </div>
 
             {segs.map((s, i) => (
@@ -151,26 +155,11 @@ export function AreaCalculator({
                 />
                 <div className="flex gap-1">
                   <Input
-                    value={s.lf}
-                    onChange={(e) => set(s.id, { lf: e.target.value })}
-                    inputMode="decimal"
-                    placeholder="ft"
-                    className="h-9 w-14"
-                  />
-                  <Input
-                    value={s.li}
-                    onChange={(e) => set(s.id, { li: e.target.value })}
-                    inputMode="decimal"
-                    placeholder="in"
-                    className="h-9 w-12"
-                  />
-                </div>
-                <div className="flex gap-1">
-                  <Input
                     value={s.wf}
                     onChange={(e) => set(s.id, { wf: e.target.value })}
                     inputMode="decimal"
                     placeholder="ft"
+                    aria-label="Width feet"
                     className="h-9 w-14"
                   />
                   <Input
@@ -178,6 +167,25 @@ export function AreaCalculator({
                     onChange={(e) => set(s.id, { wi: e.target.value })}
                     inputMode="decimal"
                     placeholder="in"
+                    aria-label="Width inches"
+                    className="h-9 w-12"
+                  />
+                </div>
+                <div className="flex gap-1">
+                  <Input
+                    value={s.lf}
+                    onChange={(e) => set(s.id, { lf: e.target.value })}
+                    inputMode="decimal"
+                    placeholder="ft"
+                    aria-label="Length feet"
+                    className="h-9 w-14"
+                  />
+                  <Input
+                    value={s.li}
+                    onChange={(e) => set(s.id, { li: e.target.value })}
+                    inputMode="decimal"
+                    placeholder="in"
+                    aria-label="Length inches"
                     className="h-9 w-12"
                   />
                 </div>
@@ -189,7 +197,7 @@ export function AreaCalculator({
                     )}
                   >
                     {segSqft(s) > 0
-                      ? `${s.op === "subtract" ? "−" : ""}${r2(segSqft(s))}`
+                      ? `${s.op === "subtract" ? "−" : ""}${formatMeasureArea(segSqft(s), unit)}`
                       : "—"}
                   </span>
                   <Button
@@ -219,15 +227,17 @@ export function AreaCalculator({
           </div>
 
           <div className="flex flex-wrap items-end justify-between gap-3 rounded-lg border bg-muted/40 p-3">
-            <div className="flex gap-6">
+            <div className="flex flex-wrap items-end gap-4">
+              <MeasureAreaUnitToggle />
               <div>
-                <div className="text-xs text-muted-foreground">Measured sq ft</div>
-                <div className="text-2xl font-bold tabular-nums">
-                  {r2(totalSqft)}
+                <div className="text-xs text-muted-foreground">
+                  Measured {unit === "sqyd" ? "sq yd" : "sq ft"}
                 </div>
+                <div className="text-2xl font-bold tabular-nums">
+                  {formatMeasureArea(totalSqft, unit)}
+                </div>
+                <p className="text-[11px] text-muted-foreground">Measured area. Carpet order still comes from the cuts.</p>
               </div>
-              {/* Equivalent sq yd — not an order */}
-              {/* formatEquivalentSqyd */}
             </div>
             <button
               type="button"
@@ -255,7 +265,7 @@ export function AreaCalculator({
                   setOpen(false);
                 }}
               >
-                Use {r2(totalSqft)} sq ft
+                Use {formatMeasureAreaLabel(totalSqft, unit)}
               </Button>
             ) : null}
           </DialogFooter>

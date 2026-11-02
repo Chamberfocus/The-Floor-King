@@ -111,6 +111,8 @@ import { ProductPicker, type CustomProductInput } from "./product-picker";
 import type { AddonCatalogItem } from "@/lib/data/addon-defaults";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { AreaCalculator } from "@/components/area-calculator";
+import { MeasureAreaNumber, MeasureAreaUnitToggle, useMeasureAreaUnit } from "@/components/measure-area-unit";
+import { formatMeasureAreaLabel } from "@/lib/measure-area-unit";
 import { SendToClient } from "@/components/send-to-client";
 import {
   Sheet,
@@ -559,6 +561,7 @@ export function EstimateBuilder({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const { unit: measureAreaUnit } = useMeasureAreaUnit();
   const keyCounter = useRef(0);
   const newKey = () => `k${keyCounter.current++}`;
 
@@ -3320,11 +3323,12 @@ export function EstimateBuilder({
                                 </span>
                               ) : null}
                               <div className="flex flex-wrap items-end gap-3">
-                                <LabeledNumber
-                                  label="Measured sq ft"
+                                <MeasureAreaUnitToggle />
+                                <MeasureAreaNumber
+                                  label="Measured"
                                   width="w-28"
-                                  value={line.sqft}
-                                  onChange={(v) => {
+                                  sqft={line.sqft}
+                                  onSqft={(v) => {
                                     // Exclusive tile bills leftover sq yd from leftover measured
                                     // coverage. Do not wipe leftover order qty — leftover taped
                                     // sq ft is not the order, and clearing How many zeros the line.
@@ -3387,14 +3391,15 @@ export function EstimateBuilder({
                               {line.measurements.length === 0 ? (
                                 <div className="space-y-1">
                                   <div className="flex items-end gap-2">
-                                    <LabeledNumber
-                                      label={builderAreaFallbackLabel({
+                                    <MeasureAreaNumber
+                                      caption={builderAreaFallbackLabel({
                                         isRollGood: isRollGoodCategory(line.category) && !modularCarpet,
                                         hasWarehouseCuts: !rollCutsMissing,
+                                        unit: measureAreaUnit,
                                       })}
                                       width="w-28"
-                                      value={line.sqft}
-                                      onChange={(v) => updateLine(oi, li, { sqft: v, quantity: "" })}
+                                      sqft={line.sqft}
+                                      onSqft={(v) => updateLine(oi, li, { sqft: v, quantity: "" })}
                                     />
                                   </div>
                                   {rollCutsMissing ? (
@@ -3413,16 +3418,17 @@ export function EstimateBuilder({
                                 items are handled by the calculators below. */}
                             {!isCountLine(line) ? (
                               <div className="flex items-end gap-2">
-                                <LabeledNumber
-                                  label="Sq ft"
-                                  value={line.sqft}
-                                  onChange={(v) => updateLine(oi, li, { sqft: v, quantity: "" })}
+                                <MeasureAreaUnitToggle />
+                                <MeasureAreaNumber
+                                  label="Area"
+                                  sqft={line.sqft}
+                                  onSqft={(v) => updateLine(oi, li, { sqft: v, quantity: "" })}
                                 />
                                 <AreaCalculator
                                   triggerLabel="Add up areas"
                                   triggerVariant="ghost"
                                   triggerClassName="h-9 px-2 text-xs"
-                                  title={`Square footage${line.room ? ` — ${line.room}` : ""}`}
+                                  title={`Area${line.room ? ` — ${line.room}` : ""}`}
                                   initialLabel={line.room}
                                   onApply={(area) => updateLine(oi, li, { sqft: String(area), quantity: "" })}
                                 />
@@ -3468,10 +3474,11 @@ export function EstimateBuilder({
                                       {scales ? ` @ ${thicknessLabel(covT)}` : " (flat coverage)"}
                                     </div>
                                     <div className="flex flex-wrap items-end gap-2">
-                                      <LabeledNumber
-                                        label="Area (sq ft)"
-                                        value={line.sqft}
-                                        onChange={setArea}
+                                      <MeasureAreaUnitToggle />
+                                      <MeasureAreaNumber
+                                        label="Area"
+                                        sqft={line.sqft}
+                                        onSqft={setArea}
                                       />
                                       {scales ? (
                                         <div>
@@ -3508,7 +3515,8 @@ export function EstimateBuilder({
                                     </div>
                                     {num(line.sqft) > 0 && per > 0 ? (
                                       <div className="text-xs text-muted-foreground">
-                                        {Math.round(num(line.sqft))} sq ft
+                                        {formatMeasureAreaLabel(num(line.sqft), measureAreaUnit)}
+                                        {measureAreaUnit === "sqyd" ? ` (${Math.round(num(line.sqft))} sq ft)` : ""}
                                         {scales ? ` at ${thicknessLabel(t)}` : ""} ÷ {perR} SF/{u} ={" "}
                                         <span className="font-semibold text-foreground">{calcBags} {u}{calcBags === 1 ? "" : "s"}</span>
                                         {num(line.quantity) !== calcBags && num(line.quantity) > 0 ? (

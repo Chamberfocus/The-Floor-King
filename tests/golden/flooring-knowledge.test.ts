@@ -22568,7 +22568,8 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(builder).toMatch(/billedQty=\{sQty\}/);
     expect(builder).toMatch(/orderQty=\{lineOrderQty\(summ\)\}/);
     expect(builder).toMatch(/formatMoney\(sSell\)/);
-    expect(builder).toMatch(/label="Sq ft"/);
+    expect(builder).toMatch(/MeasureAreaNumber/);
+    expect(builder).toMatch(/sqft=\{line\.sqft\}/);
     expect(builder).toMatch(
       /Exclusive carpet-tile Builder expanded pad order pad-roll count stays off 30-yard roll math/,
     );
@@ -122856,7 +122857,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(builder).toMatch(/const qty = sf > 0 \? String\(Math\.round\(\(sf \/ 9\) \* 100\) \/ 100\) : ""/);
     expect(builder).toMatch(/updateLine\(oi, li, \{ sqft: v, quantity: qty \}\)/);
-    expect(builder).toMatch(/onChange=\{\(v\) => updateLine\(oi, li, \{ sqft: v, quantity: "" \}\)/);
+    expect(builder).toMatch(/onSqft=\{\(v\) => updateLine\(oi, li, \{ sqft: v, quantity: "" \}\)/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

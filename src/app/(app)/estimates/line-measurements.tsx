@@ -8,6 +8,8 @@ import { hardSurfaceAreaCartonCount, num } from "@/lib/estimate-calc";
 import { padRollCount } from "@/lib/job-scope";
 import { isRollGoodCategory, isHardSurfaceCategory } from "@/lib/types";
 import { billedQtyToSqft, normalizeUnit, unitIsSqyd } from "@/lib/units";
+import { MeasureAreaUnitToggle, useMeasureAreaUnit } from "@/components/measure-area-unit";
+import { formatMeasureAreaLabel } from "@/lib/measure-area-unit";
 import {
   ROLL_GOODS_CUTS_EMPTY_HINT,
   ROLL_GOODS_CUTS_HEADER,
@@ -91,6 +93,7 @@ export function LineMeasurements({
   billedQty?: number;
   orderQty?: number;
 }) {
+  const { unit: measureUnit } = useMeasureAreaUnit();
   const isRoll = isRollGoodCategory(category);
   const isHard = isHardSurfaceCategory(category);
   const pieceWord = isRoll ? "cut" : "area";
@@ -138,17 +141,20 @@ export function LineMeasurements({
 
   return (
     <div className="w-full space-y-2 rounded-lg border bg-card p-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           <Ruler className="size-3.5" />
           {isRoll ? ROLL_GOODS_CUTS_HEADER : "Measurements"}
         </div>
-        <div className="text-xs font-medium tabular-nums text-muted-foreground">
-          {isRoll
-            ? lineMeasurementsRollTotalLabel(total)
-            : total > 0
-              ? `${total.toFixed(total % 1 === 0 ? 0 : 1)} sq ft`
-              : "0 sq ft"}
+        <div className="flex items-center gap-2">
+          <MeasureAreaUnitToggle />
+          <div className="text-xs font-medium tabular-nums text-muted-foreground">
+            {isRoll && !(total > 0)
+              ? lineMeasurementsRollTotalLabel(total)
+              : total > 0
+                ? `${formatMeasureAreaLabel(total, measureUnit)}${isRoll ? " from cuts (the order)" : ""}`
+                : formatMeasureAreaLabel(0, measureUnit)}
+          </div>
         </div>
       </div>
 
@@ -165,19 +171,7 @@ export function LineMeasurements({
                   className="h-9 min-w-28 flex-1"
                 />
                 <div className="flex items-center gap-1">
-                  <input
-                    type="number" step="any" min="0" inputMode="decimal"
-                    value={m.len_ft}
-                    onChange={(e) => update(m.id, { len_ft: e.target.value })}
-                    placeholder="ft" aria-label="Length feet" className={dim}
-                  />
-                  <input
-                    type="number" step="any" min="0" inputMode="decimal"
-                    value={m.len_in}
-                    onChange={(e) => update(m.id, { len_in: e.target.value })}
-                    placeholder="in" aria-label="Length inches" className={dimSm}
-                  />
-                  <span className="px-0.5 text-xs text-muted-foreground">×</span>
+                  <span className="text-[10px] font-medium text-muted-foreground">W</span>
                   <input
                     type="number" step="any" min="0" inputMode="decimal"
                     value={m.wid_ft}
@@ -189,6 +183,20 @@ export function LineMeasurements({
                     value={m.wid_in}
                     onChange={(e) => update(m.id, { wid_in: e.target.value })}
                     placeholder="in" aria-label="Width inches" className={dimSm}
+                  />
+                  <span className="px-0.5 text-xs text-muted-foreground">×</span>
+                  <span className="text-[10px] font-medium text-muted-foreground">L</span>
+                  <input
+                    type="number" step="any" min="0" inputMode="decimal"
+                    value={m.len_ft}
+                    onChange={(e) => update(m.id, { len_ft: e.target.value })}
+                    placeholder="ft" aria-label="Length feet" className={dim}
+                  />
+                  <input
+                    type="number" step="any" min="0" inputMode="decimal"
+                    value={m.len_in}
+                    onChange={(e) => update(m.id, { len_in: e.target.value })}
+                    placeholder="in" aria-label="Length inches" className={dimSm}
                   />
                 </div>
                 {/* Hard surface can subtract a cutout; carpet cuts only add. */}
@@ -211,11 +219,11 @@ export function LineMeasurements({
                 ) : null}
                 <span
                   className={cn(
-                    "w-20 text-right text-xs tabular-nums",
+                    "min-w-24 text-right text-xs tabular-nums",
                     m.op === "subtract" ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground",
                   )}
                 >
-                  {rSqft > 0 ? `${m.op === "subtract" ? "−" : ""}${rSqft.toFixed(rSqft % 1 === 0 ? 0 : 1)} sf` : "—"}
+                  {rSqft > 0 ? `${m.op === "subtract" ? "−" : ""}${formatMeasureAreaLabel(rSqft, measureUnit)}` : "—"}
                 </span>
                 <Button
                   type="button" variant="ghost" size="icon-sm"
@@ -232,7 +240,7 @@ export function LineMeasurements({
         <p className="px-0.5 text-xs text-muted-foreground">
           {isRoll
             ? ROLL_GOODS_CUTS_EMPTY_HINT
-            : "Add each area (length × width). They add up to the total square footage as you go — subtract a piece for a cutout."}
+            : "Add each area (width × length). They add up in the unit you picked — subtract a piece for a cutout."}
         </p>
       )}
 
