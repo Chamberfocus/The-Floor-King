@@ -521,11 +521,14 @@ export function formatEquivalentSqyd(sqft: number): string {
 export function builderAreaFallbackLabel(opts: {
   isRollGood: boolean;
   hasWarehouseCuts: boolean;
+  /** Working unit the salesperson is typing. Storage stays square feet. */
+  unit?: "sqft" | "sqyd";
 }): string {
+  const yd = opts.unit === "sqyd";
   if (opts.isRollGood && !opts.hasWarehouseCuts) {
-    return "Measured sq ft (not the order)";
+    return yd ? "Measured sq yd (not the order)" : "Measured sq ft (not the order)";
   }
-  return "Or enter sq ft directly";
+  return yd ? "Or enter sq yd directly" : "Or enter sq ft directly";
 }
 
 /** Caption under the Builder measured-sq-ft field when roll cuts are missing. */

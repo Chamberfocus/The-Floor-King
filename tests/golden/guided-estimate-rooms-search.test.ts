@@ -95,9 +95,11 @@ describe("guided estimate rooms flow into carpet cuts", () => {
       "Hallway",
     ]);
     expect(planned.groups.every((g) => !cutGroupAsksForRoomName(g))).toBe(true);
-    expect(formatMeasuredRoomReference(living)).toBe("12' × 14' = 168 sq ft");
-    expect(formatMeasuredRoomReference(bedroom)).toBe("11' × 12' = 132 sq ft");
-    expect(formatMeasuredRoomReference(hallway)).toBe("3' × 10' = 30 sq ft");
+    expect(formatMeasuredRoomReference(living)).toBe("14' × 12' = 168 sq ft");
+    expect(formatMeasuredRoomReference(bedroom)).toBe("12' × 11' = 132 sq ft");
+    expect(formatMeasuredRoomReference(hallway)).toBe("10' × 3' = 30 sq ft");
+    expect(formatMeasuredRoomReference(living, "sqyd")).toBe("14' × 12' = 18.67 sq yd");
+    expect(formatMeasuredRoomReference(living, "sqft")).toBe("14' × 12' = 168 sq ft");
   });
 
   it("keeps more than one cut on the same measured room", () => {

@@ -396,17 +396,18 @@ describe("call sites no longer fall back measure_unit → sq ft on count lines",
 });
 
 describe("measured sq ft is never labeled as a carpet order in sq yd", () => {
-  it("customer areas card uses equivalent-area copy, not a bare sq yd order", () => {
+  it("customer areas card stores square feet and converts the working unit", () => {
     const src = readFileSync(join(root, "src/app/(app)/customers/[id]/areas-card.tsx"), "utf8");
-    expect(src).toMatch(/formatMeasuredLabel/);
-    expect(src).toMatch(/showEquivalentYd/);
+    expect(src).toMatch(/CustomerAreaMeasureFields/);
+    expect(src).toMatch(/MeasureAreaUnitToggle/);
     expect(src).not.toMatch(/total \/ 9\) \* 100\) \/ 100} sq yd/);
   });
 
-  it("area calculator labels ÷ 9 as equivalent area, not Total sq yd (carpet)", () => {
+  it("area calculator totals measured area, not a carpet order in sq yd", () => {
     const src = readFileSync(join(root, "src/components/area-calculator.tsx"), "utf8");
-    expect(src).toMatch(/formatEquivalentSqyd/);
-    expect(src).toMatch(/Equivalent sq yd — not an order/);
+    expect(src).toMatch(/formatMeasureAreaLabel/);
+    expect(src).toMatch(/Measured area/);
+    expect(src).toMatch(/onApply\(r2\(totalSqft\)/);
     expect(src).not.toMatch(/Total sq yd \(carpet\)/);
     expect(src).not.toMatch(/totalSqyd = totalSqft \/ 9/);
   });

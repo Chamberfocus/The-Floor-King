@@ -168,6 +168,8 @@ import {
   type FlooringFamily,
 } from "@/lib/flooring-knowledge";
 import { AreaCalculator } from "@/components/area-calculator";
+import { AreaAmountField, MeasureAreaUnitToggle, useMeasureAreaUnit } from "@/components/measure-area-unit";
+import { formatMeasureAreaLabel } from "@/lib/measure-area-unit";
 import { ProductPicker, type CustomProductInput } from "./product-picker";
 import {
   createSmartEstimate,
@@ -3432,7 +3434,8 @@ export function Questionnaire({
           className="animate-in fade-in slide-in-from-bottom-2 border-primary/20 duration-200"
         >
           <CardContent className="space-y-4 p-4 sm:p-6">
-            <div>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-primary">{phaseName(q)}</div>
               {jobIsExclusiveCarpetOnly(flooringCtx) ? (
                 <p className="text-xs text-muted-foreground">
@@ -3446,6 +3449,8 @@ export function Questionnaire({
               {visibleQuestionHelp(q, flooringCtx) ? (
                 <p className="mt-1 text-sm text-muted-foreground">{visibleQuestionHelp(q, flooringCtx)}</p>
               ) : null}
+              </div>
+              <MeasureAreaUnitToggle className="mt-0.5" />
             </div>
 
             <QuestionBody
@@ -3799,6 +3804,8 @@ function QuestionBody({
   const [stairCountTyped, setStairCountTyped] = useState<string | null>(null);
   const stairCount =
     stairCountTyped ?? (derivedHsStairSteps > 0 ? String(derivedHsStairSteps) : "");
+  const { unit: measureUnit } = useMeasureAreaUnit();
+  const showArea = (n: number) => formatMeasureAreaLabel(n, measureUnit);
   const coverSf = measuredSqftForQuestionCover({
     kind: q.kind,
     key: q.key,
@@ -3823,6 +3830,9 @@ function QuestionBody({
     const mixedRooms = flooringCtx.families.filter((f) => f !== "other").length > 1;
     return (
       <div className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Width, then length, in feet and inches. Totals follow the square feet / square yards switch — flip it anytime and the measurement stays.
+        </p>
         {rooms.map((r, i) => {
           const usingCalc = numv(r.override) > 0;
           const sf = rowSqft(r);
@@ -3850,33 +3860,29 @@ function QuestionBody({
               </div>
 
               <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
-                <FtInField label="Length" ft={r.lf} inch={r.li} disabled={usingCalc}
-                  onFt={(v) => patch(r.id, { lf: v })} onIn={(v) => patch(r.id, { li: v })} />
-                <span className="pb-2.5 text-muted-foreground">×</span>
                 <FtInField label="Width" ft={r.wf} inch={r.wi} disabled={usingCalc}
                   onFt={(v) => patch(r.id, { wf: v })} onIn={(v) => patch(r.id, { wi: v })} />
-                <div>
-                  <label className="mb-1 block text-xs text-muted-foreground">or total sq ft</label>
-                  <Input
-                    value={r.override}
-                    onChange={(e) => patch(r.id, { override: e.target.value })}
-                    inputMode="decimal"
-                    placeholder="sq ft"
-                    className="h-11 w-24 text-base md:h-10"
-                  />
-                </div>
+                <span className="pb-2.5 text-muted-foreground">×</span>
+                <FtInField label="Length" ft={r.lf} inch={r.li} disabled={usingCalc}
+                  onFt={(v) => patch(r.id, { lf: v })} onIn={(v) => patch(r.id, { li: v })} />
+                <AreaAmountField
+                  sqft={r.override}
+                  onSqft={(v) => patch(r.id, { override: v })}
+                  label="or total"
+                  className="h-11 w-28 text-base md:h-10"
+                />
                 <div className="flex items-center gap-1 pb-0.5">
                   <AreaCalculator
                     triggerLabel={usingCalc ? "Edit areas" : "Odd shape?"}
                     triggerVariant="ghost"
                     triggerClassName="h-9 px-2 text-xs"
-                    title={`Square footage — ${r.name || "area"}`}
+                    title={`Area — ${r.name || "area"}`}
                     initialLabel={r.name}
                     onApply={(sqft) => patch(r.id, { override: String(sqft) })}
                   />
                   {usingCalc ? (
                     <button type="button" onClick={() => patch(r.id, { override: "" })} className="text-xs text-muted-foreground underline-offset-2 hover:underline">
-                      use L×W
+                      use W×L
                     </button>
                   ) : null}
                 </div>
@@ -3900,27 +3906,6 @@ function QuestionBody({
                     disabled={usingCalc}
                   />
                   <FtInField
-                    label="Length"
-                    ft={sec.lf}
-                    inch={sec.li}
-                    disabled={usingCalc}
-                    onFt={(v) =>
-                      patch(r.id, {
-                        sections: (r.sections ?? []).map((s) =>
-                          s.id === sec.id ? { ...s, lf: v } : s,
-                        ),
-                      })
-                    }
-                    onIn={(v) =>
-                      patch(r.id, {
-                        sections: (r.sections ?? []).map((s) =>
-                          s.id === sec.id ? { ...s, li: v } : s,
-                        ),
-                      })
-                    }
-                  />
-                  <span className="pb-2.5 text-muted-foreground">×</span>
-                  <FtInField
                     label="Width"
                     ft={sec.wf}
                     inch={sec.wi}
@@ -3940,8 +3925,29 @@ function QuestionBody({
                       })
                     }
                   />
+                  <span className="pb-2.5 text-muted-foreground">×</span>
+                  <FtInField
+                    label="Length"
+                    ft={sec.lf}
+                    inch={sec.li}
+                    disabled={usingCalc}
+                    onFt={(v) =>
+                      patch(r.id, {
+                        sections: (r.sections ?? []).map((s) =>
+                          s.id === sec.id ? { ...s, lf: v } : s,
+                        ),
+                      })
+                    }
+                    onIn={(v) =>
+                      patch(r.id, {
+                        sections: (r.sections ?? []).map((s) =>
+                          s.id === sec.id ? { ...s, li: v } : s,
+                        ),
+                      })
+                    }
+                  />
                   <span className="pb-2 text-xs tabular-nums text-muted-foreground">
-                    {formatSqft(sectionSqft(sec))}
+                    {showArea(sectionSqft(sec))}
                   </span>
                   <Button
                     type="button"
@@ -3982,7 +3988,7 @@ function QuestionBody({
                 <span>
                   <Ruler className="mr-1 inline size-3.5 text-muted-foreground" />
                   Measured{" "}
-                  <span className="font-semibold tabular-nums">{formatSqft(sf)}</span>
+                  <span className="font-semibold tabular-nums">{showArea(sf)}</span>
                   {usingCalc ? <span className="ml-1 text-xs text-primary">· added up</span> : null}
                 </span>
                 {r.differs ? (
@@ -4004,7 +4010,7 @@ function QuestionBody({
                       Leveling, primer, moisture, subfloor & demo for {r.name || "this area"} only.
                       Leave blank for none.
                       {sf > 0
-                        ? ` This room ${formatSqft(sf)}${mixedRooms ? " — not the whole mixed job" : ""}${roomFam !== "other" ? ` · ${familyLabel(roomFam)}` : ""}.`
+                        ? ` This room ${showArea(sf)}${mixedRooms ? " — not the whole mixed job" : ""}${roomFam !== "other" ? ` · ${familyLabel(roomFam)}` : ""}.`
                         : ""}
                     </p>
                     {perRoom.map((pq) => (
@@ -4100,7 +4106,7 @@ function QuestionBody({
             ) : null}
           </div>
           <span className="rounded-md bg-primary/10 px-3 py-1.5 text-sm">
-            Total measured <span className="font-bold tabular-nums">{formatSqft(total)}</span>
+            Total measured <span className="font-bold tabular-nums">{showArea(total)}</span>
           </span>
         </div>
       </div>
@@ -4214,7 +4220,7 @@ function QuestionBody({
               <div className="mb-1.5 flex items-baseline justify-between gap-2">
                 <span className="font-medium">{rm.name || `Room ${i + 1}`}</span>
                 <span className="text-xs tabular-nums text-muted-foreground">
-                  measured {formatSqft(rm.sqft)}
+                  measured {showArea(rm.sqft)}
                   {p ? (
                     <button
                       type="button"
@@ -4306,7 +4312,7 @@ function QuestionBody({
                         </div>
                         {rm.sqft > 0 ? (
                           <p className="text-xs">
-                            Measured {formatSqft(takeoff.measured.sqft)}
+                            Measured {showArea(takeoff.measured.sqft)}
                             {" · "}
                             {takeoff.orderBasis === "cuts"
                               ? "Order "
@@ -4757,7 +4763,7 @@ function QuestionBody({
                 {mainAsksCount
                   ? ""
                   : coverSf > 0
-                  ? ` · measured ${formatSqft(coverSf)}`
+                  ? ` · measured ${showArea(coverSf)}`
                   : mixedUnassigned
                     ? " · assign rooms to this product — mixed jobs do not clone whole-job sq ft"
                     : ""}
@@ -4815,14 +4821,14 @@ function QuestionBody({
                       <div className="space-y-0.5 text-sm">
                         <p>
                           Measured{" "}
-                          <span className="font-semibold tabular-nums">{formatSqft(takeoff.measured.sqft)}</span>
+                          <span className="font-semibold tabular-nums">{showArea(takeoff.measured.sqft)}</span>
                         </p>
                         {!isRoll ? (
                         <p>
                           Waste{" "}
                           <span className="font-semibold tabular-nums">{takeoff.wastePct}%</span>
                           {takeoff.wasteSqft > 0 ? (
-                            <span className="text-muted-foreground"> ({formatSqft(takeoff.wasteSqft)})</span>
+                            <span className="text-muted-foreground"> ({showArea(takeoff.wasteSqft)})</span>
                           ) : null}
                         </p>
                         ) : null}
@@ -5026,8 +5032,13 @@ function QuestionBody({
                 </div>
                 {extraNeedsMeasured ? (
                 <div className="flex flex-wrap items-center gap-2">
-                  <label className="text-xs text-muted-foreground">{EXTRA_AREA_MEASURED_LABEL}</label>
-                  <Input value={ex.sqft} onChange={(e) => patchExtra(ex.id, { sqft: e.target.value })} inputMode="decimal" placeholder={EXTRA_AREA_MEASURED_PLACEHOLDER} className="h-10 w-28" />
+                  <AreaAmountField
+                    sqft={ex.sqft}
+                    onSqft={(v) => patchExtra(ex.id, { sqft: v })}
+                    label={measureUnit === "sqyd" ? "Measured" : EXTRA_AREA_MEASURED_LABEL.replace(/ sq ft$/, "")}
+                    placeholder={measureUnit === "sqyd" ? "sq yd" : EXTRA_AREA_MEASURED_PLACEHOLDER}
+                    className="h-10 w-28"
+                  />
                   {ex.product && numv(ex.sqft) > 0 ? (() => {
                     const extraTakeoff = computeMaterialTakeoff({
                       family: familyFromCatalogCategory(ex.product.category || cat),
@@ -5200,16 +5211,12 @@ function QuestionBody({
                 ))}
               </select>
             </div>
-            <div>
-              <label className="mb-1 block text-xs text-muted-foreground">Area (sq ft)</label>
-              <Input
-                value={row.sqft}
-                onChange={(e) => patch(row.id, { sqft: e.target.value })}
-                inputMode="decimal"
-                placeholder="sq ft"
-                className="h-10 w-28 text-base"
-              />
-            </div>
+            <AreaAmountField
+              sqft={row.sqft}
+              onSqft={(v) => patch(row.id, { sqft: v })}
+              label="Area"
+              className="h-10 w-28 text-base"
+            />
             <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove" onClick={() => upd(rows.filter((x) => x.id !== row.id))}>
               <Trash2 className="size-4 text-destructive" />
             </Button>
@@ -5608,7 +5615,7 @@ function QuestionBody({
                   </p>
                   {room ? (
                     <p className="text-xs text-muted-foreground">
-                      Measured: {formatMeasuredRoomReference(room)}
+                      Measured: {formatMeasuredRoomReference(room, measureUnit)}
                     </p>
                   ) : null}
                   {shown?.label ? (
@@ -5688,13 +5695,10 @@ function QuestionBody({
                 <p className="text-xs font-medium text-muted-foreground">Cuts</p>
                 {g.cuts.map((c, ci) => (
                   <div key={c.id} className="flex flex-wrap items-end gap-2">
-                    <FtInField label={ci === 0 ? "Length" : ""} ft={c.lf} inch={c.li}
-                      onFt={(v) => patchCut(g.id, c.id, { lf: v })} onIn={(v) => patchCut(g.id, c.id, { li: v })} />
-                    <span className="pb-2.5 text-muted-foreground">×</span>
                     <div>
                       {ci === 0 ? <label className="mb-1 block text-xs text-muted-foreground">Width (ft)</label> : null}
                       <Input value={c.width} onChange={(e) => patchCut(g.id, c.id, { width: e.target.value })}
-                        inputMode="decimal" placeholder="Width TBD"
+                        inputMode="decimal" placeholder="Width TBD" aria-label="Width (ft)"
                         className="h-11 w-20 text-base md:h-10 md:w-16" />
                     </div>
                     <div className="flex flex-wrap gap-1 pb-2">
@@ -5717,6 +5721,9 @@ function QuestionBody({
                         <span className="self-center text-[11px] text-muted-foreground">catalog roll</span>
                       ) : null}
                     </div>
+                    <span className="pb-2.5 text-muted-foreground">×</span>
+                    <FtInField label={ci === 0 ? "Length" : ""} ft={c.lf} inch={c.li}
+                      onFt={(v) => patchCut(g.id, c.id, { lf: v })} onIn={(v) => patchCut(g.id, c.id, { li: v })} />
                     {g.cuts.length > 1 ? (
                       <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove cut" onClick={() => removeCut(g.id, c.id)}>
                         <Trash2 className="size-4 text-destructive" />

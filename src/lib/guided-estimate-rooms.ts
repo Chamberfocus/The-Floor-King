@@ -5,6 +5,8 @@
  * Measured square feet stays the measured area.
  */
 
+import { formatMeasureAreaLabel, type MeasureAreaUnit } from "@/lib/measure-area-unit";
+
 export interface MeasuredCutRoom<P = unknown> {
   id: string;
   name: string;
@@ -68,17 +70,19 @@ export function formatInchDim(inches: number | null | undefined): string | null 
   return `${ft}'`;
 }
 
-/** Reference only. This string is not an order quantity. */
-export function formatMeasuredRoomReference(room: {
-  sqft: number;
-  lenIn: number | null;
-  widIn: number | null;
-}): string {
-  const a = formatInchDim(room.lenIn);
-  const b = formatInchDim(room.widIn);
-  const sq = Number.isInteger(room.sqft) ? String(room.sqft) : String(room.sqft);
-  const area = `${sq} sq ft`;
-  if (a && b) return `${a} × ${b} = ${area}`;
+/** Reference only. This string is not an order quantity. Width, then length. */
+export function formatMeasuredRoomReference(
+  room: {
+    sqft: number;
+    lenIn: number | null;
+    widIn: number | null;
+  },
+  unit: MeasureAreaUnit = "sqft",
+): string {
+  const width = formatInchDim(room.widIn);
+  const length = formatInchDim(room.lenIn);
+  const area = formatMeasureAreaLabel(room.sqft, unit);
+  if (width && length) return `${width} × ${length} = ${area}`;
   return area;
 }
 

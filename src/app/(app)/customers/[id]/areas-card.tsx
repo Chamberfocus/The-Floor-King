@@ -4,12 +4,8 @@ import { Button } from "@/components/ui/button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { Input } from "@/components/ui/input";
 import type { CustomerArea } from "@/lib/types";
-import { formatMeasuredLabel, measuredArea } from "@/lib/flooring-knowledge";
+import { CustomerAreaMeasureFields, MeasureAreaReadout, MeasureAreaUnitToggle } from "@/components/measure-area-unit";
 import { saveCustomerArea, deleteCustomerArea, moveCustomerArea } from "./area-actions";
-
-const ftPart = (totalIn: number | null) => (totalIn ? String(Math.floor(totalIn / 12)) : "");
-const inPart = (totalIn: number | null) => (totalIn ? String(Math.round(totalIn % 12)) : "");
-const cell = "h-9 w-14 rounded-md border border-input bg-transparent px-1.5 text-sm";
 
 /**
  * Areas & measurements for a customer — the sq ft calculator's list, editable
@@ -33,14 +29,11 @@ export function CustomerAreasCard({
       <input type="hidden" name="customer_id" value={customerId} />
       {a ? <input type="hidden" name="id" value={a.id} /> : null}
       <Input name="name" defaultValue={a?.name ?? ""} placeholder="Area name" className="h-9 min-w-[8rem] flex-1" />
-      <div className="flex items-center gap-1">
-        <input name="len_ft" defaultValue={ftPart(a?.length_in ?? null)} placeholder="ft" inputMode="decimal" className={cell} />
-        <input name="len_in" defaultValue={inPart(a?.length_in ?? null)} placeholder="in" inputMode="decimal" className={cell} />
-        <span className="text-xs text-muted-foreground">×</span>
-        <input name="wid_ft" defaultValue={ftPart(a?.width_in ?? null)} placeholder="ft" inputMode="decimal" className={cell} />
-        <input name="wid_in" defaultValue={inPart(a?.width_in ?? null)} placeholder="in" inputMode="decimal" className={cell} />
-      </div>
-      <input name="sqft" defaultValue={a?.sqft != null ? String(a.sqft) : ""} placeholder="sq ft" inputMode="decimal" className="h-9 w-20 rounded-md border border-input bg-transparent px-2 text-sm" />
+      <CustomerAreaMeasureFields
+        lengthIn={a?.length_in ?? null}
+        widthIn={a?.width_in ?? null}
+        sqft={a?.sqft ?? null}
+      />
       <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <input type="checkbox" name="differs" defaultChecked={a?.differs} className="size-4" /> diff. prep
       </label>
@@ -56,11 +49,14 @@ export function CustomerAreasCard({
         <CardTitle className="flex items-center gap-2 text-base">
           <Ruler className="size-4 text-primary" /> Areas &amp; measurements
         </CardTitle>
-        {total > 0 ? (
-          <span className="rounded-md bg-primary/10 px-2.5 py-1 text-sm font-medium">
-            {formatMeasuredLabel(measuredArea(total), { showEquivalentYd: true })}
-          </span>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          <MeasureAreaUnitToggle />
+          {total > 0 ? (
+            <span className="rounded-md bg-primary/10 px-2.5 py-1 text-sm font-medium">
+              <MeasureAreaReadout sqft={total} />
+            </span>
+          ) : null}
+        </div>
       </CardHeader>
       <CardContent className="space-y-2">
         {areas.length === 0 ? (
