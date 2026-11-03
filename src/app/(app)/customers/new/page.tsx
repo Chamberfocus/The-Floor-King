@@ -1,15 +1,23 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
-import { CustomerForm } from "../customer-form";
+import { requireProfile } from "@/lib/auth";
+import { listHandoffMembers } from "@/lib/data/workflow";
 import { listLeadSources } from "@/lib/data/lead-sources";
+import { seesEveryLead } from "@/lib/lead-acceptance";
+import { NewCustomerForm } from "../new-customer-form";
 
 export const metadata: Metadata = { title: "Add customer" };
 
 export default async function NewCustomerPage() {
+  const profile = await requireProfile();
   const sources = await listLeadSources({ activeOnly: true });
+  const assignees = seesEveryLead(profile.role)
+    ? (await listHandoffMembers())
+        .filter((m) => m.role === "salesman" || m.role === "sales_manager")
+        .map((m) => ({ id: m.id, name: m.name }))
+    : [];
   return (
     <div className="mx-auto max-w-2xl">
       <Link
@@ -20,13 +28,9 @@ export default async function NewCustomerPage() {
       </Link>
       <PageHeader
         title="Add customer"
-        description="Create a new lead or customer. Only a name is required — fill in the rest as you learn it."
+        description="Paste a Facebook or website lead, or type the customer in. A name and a source are required."
       />
-      <Card>
-        <CardContent className="pt-6">
-          <CustomerForm sources={sources} />
-        </CardContent>
-      </Card>
+      <NewCustomerForm sources={sources} assignees={assignees} />
     </div>
   );
 }
