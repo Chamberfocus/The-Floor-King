@@ -32,7 +32,7 @@ export async function searchUntrackedProducts(
     );
   }
   const { data } = await q;
-  return (data ?? []) as Product[];
+  return ((data ?? []) as Product[]).filter((p) => p.category !== "labor");
 }
 
 function str(v: FormDataEntryValue | null): string {

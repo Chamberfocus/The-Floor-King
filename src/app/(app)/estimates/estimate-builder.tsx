@@ -1567,6 +1567,10 @@ export function EstimateBuilder({
       updateLine(oi, li, { product_id: "" });
       return;
     }
+    if (p.category === "labor") {
+      toast.error("Labor is not a product. Add it as its own labor line.");
+      return;
+    }
     // Respect the product's OWN unit. Count units (each / bag / linear ft…) price
     // by quantity in that unit — no area, no ×9 conversion, no waste. Area units
     // (sq ft / sq yd) keep the area math; carpet is quoted by the square yard, so
@@ -1783,6 +1787,10 @@ export function EstimateBuilder({
   // new line (at index `li`) is patched right after it's appended.
   const addMaterialFromPick = (oi: number, p: Product | null) => {
     if (!p) return;
+    if (p.category === "labor") {
+      toast.error("Labor is not a product. Add it as its own labor line.");
+      return;
+    }
     const li = options[oi]?.lines.length ?? 0;
     // Stay on the estimate. Opening the line editor on every pick is what made
     // adding a product feel like starting over.
@@ -1912,7 +1920,7 @@ export function EstimateBuilder({
     const seen = new Set<string>();
     for (const o of options)
       for (const l of o.lines) {
-        if (!l.save_default || !l.product_id || seen.has(l.product_id)) continue;
+        if (!l.save_default || !l.product_id || seen.has(l.product_id) || isLaborLine(l)) continue;
         seen.add(l.product_id);
         const wrap = lineIsStairWrapTbd(l);
         await saveProductRate({
@@ -1930,6 +1938,10 @@ export function EstimateBuilder({
   const saveLineToCatalog = (oi: number, li: number) => {
     const l = options[oi]?.lines[li];
     if (!l) return;
+    if (isLaborLine(l)) {
+      toast.error("Labor is not a product. It stays on this estimate.");
+      return;
+    }
     startTransition(async () => {
       const res = await createProductInline({
         name: l.description || "New product",
@@ -2910,7 +2922,7 @@ export function EstimateBuilder({
                           {roomList !== "all"
                             ? "Nothing in this room yet."
                             : section === "labor"
-                              ? "Add a product or labor item."
+                              ? "Add labor on a material line, or from Extras. Labor is not a product."
                               : "Choose a product."}
                         </p>
                       ) : null}
@@ -3654,7 +3666,7 @@ export function EstimateBuilder({
                                         >
                                           {isStandard ? "Standard rate" : def != null ? "Custom — this estimate" : "One-off — not in catalog"}
                                         </span>
-                                        {line.product_id ? (
+                                        {line.product_id && !labor ? (
                                           <div className="inline-flex rounded-md border p-0.5 text-xs">
                                             <button
                                               type="button"
@@ -3671,7 +3683,7 @@ export function EstimateBuilder({
                                               Save as my default
                                             </button>
                                           </div>
-                                        ) : cur > 0 ? (
+                                        ) : cur > 0 && !labor ? (
                                           <button
                                             type="button"
                                             onClick={() => saveLineToCatalog(oi, li)}
@@ -3681,9 +3693,9 @@ export function EstimateBuilder({
                                           </button>
                                         ) : null}
                                       </div>
-                                      {line.product_id && line.save_default ? (
+                                      {line.product_id && line.save_default && !labor ? (
                                         <p className="text-[11px] text-primary">
-                                          Saving the estimate updates your catalog default to this {labor ? "labor " : ""}cost.
+                                          Saving the estimate updates your catalog default to this cost.
                                         </p>
                                       ) : null}
                                     </div>

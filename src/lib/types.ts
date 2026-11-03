@@ -941,6 +941,45 @@ export const PRODUCT_CATEGORY_ORDER: ProductCategory[] = [
   "other",
 ];
 
+/**
+ * What a catalog product may be. Labor is work on an estimate — its own line,
+ * its own cost — and is never a SKU you stock, search, or import.
+ */
+export const CATALOG_PRODUCT_CATEGORIES = PRODUCT_CATEGORY_ORDER.filter(
+  (c): c is Exclude<ProductCategory, "labor"> => c !== "labor",
+);
+
+export function isLaborCategory(category: string | null | undefined): boolean {
+  return (category ?? "").trim().toLowerCase() === "labor";
+}
+
+export function isCatalogProductCategory(
+  category: string | null | undefined,
+): category is Exclude<ProductCategory, "labor"> {
+  return (CATALOG_PRODUCT_CATEGORIES as readonly string[]).includes(
+    (category ?? "").trim(),
+  );
+}
+
+/**
+ * Category to store on a catalog row. Labor returns null so the importer
+ * skips the row instead of filing install work under Other.
+ * Anything else unknown becomes Other.
+ */
+export function catalogProductCategory(
+  category: string | null | undefined,
+): Exclude<ProductCategory, "labor"> | null {
+  if (isLaborCategory(category)) return null;
+  const c = (category ?? "").trim().toLowerCase();
+  if ((CATALOG_PRODUCT_CATEGORIES as readonly string[]).includes(c)) {
+    return c as Exclude<ProductCategory, "labor">;
+  }
+  return "other";
+}
+
+export const LABOR_NOT_A_PRODUCT =
+  "Labor is not a product. Add it as a labor line on the estimate.";
+
 export const ESTIMATE_STATUS_LABELS: Record<EstimateStatus, string> = {
   draft: "Draft",
   sent: "Sent",

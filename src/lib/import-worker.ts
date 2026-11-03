@@ -1,7 +1,7 @@
 // Shared helpers for background import jobs. SERVER ONLY.
 import { createAdminClient } from "@/lib/supabase/admin";
 import { extractPriceList } from "@/lib/extract";
-import { PRODUCT_CATEGORY_ORDER, type ProductCategory } from "@/lib/types";
+import { catalogProductCategory } from "@/lib/types";
 import { inferUnit, parseCoverage } from "@/lib/units";
 
 /** Absolute base URL for the app to call its own API routes. */
@@ -49,24 +49,24 @@ async function insertProducts(
   rows: RawRow[],
   opts: { update?: boolean; supplier?: string } = {},
 ): Promise<number> {
-  const cats = new Set<string>(PRODUCT_CATEGORY_ORDER);
   const items = (rows ?? [])
-    .filter((r) => r.name?.trim())
-    .map((r) => ({
-      name: r.name!.trim(),
-      category: (cats.has(r.category ?? "")
-        ? r.category
-        : "other") as ProductCategory,
-      unit: inferUnit(r.name, r.unit, cats.has(r.category ?? "") ? r.category : "other"),
-      material_rate: Number(r.material_rate) || 0,
-      labor_rate: Number(r.labor_rate) || 0,
-      sku: r.sku || "",
-      manufacturer: r.manufacturer || "",
-      style: r.style || "",
-      color: r.color || "",
-      notes: r.notes || "",
-      ...(parseCoverage(r.name) ?? {}),
-    }));
+    .filter((r) => r.name?.trim() && catalogProductCategory(r.category) != null)
+    .map((r) => {
+      const category = catalogProductCategory(r.category)!;
+      return {
+        name: r.name!.trim(),
+        category,
+        unit: inferUnit(r.name, r.unit, category),
+        material_rate: Number(r.material_rate) || 0,
+        labor_rate: Number(r.labor_rate) || 0,
+        sku: r.sku || "",
+        manufacturer: r.manufacturer || "",
+        style: r.style || "",
+        color: r.color || "",
+        notes: r.notes || "",
+        ...(parseCoverage(r.name) ?? {}),
+      };
+    });
   if (!items.length) return 0;
 
   // Preferred: bulk RPC (insert new, update existing by name when do_update).

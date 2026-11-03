@@ -3882,7 +3882,8 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).not.toMatch(/defaultCategory="lvp"/);
 
     const picker = readFileSync(join(root, "src/app/(app)/estimates/product-picker.tsx"), "utf8");
-    expect(picker).toMatch(/initialCategory \|\| ""/);
+    // Blank stays blank. Labor is not a product, so it is not planted as the category either.
+    expect(picker).toMatch(/isCatalogProductCategory\(initialCategory\) \? initialCategory : ""/);
     expect(picker).not.toMatch(/initialCategory \|\| "lvp"/);
   });
 

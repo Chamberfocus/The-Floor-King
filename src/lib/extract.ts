@@ -247,7 +247,7 @@ const PRICE_SCHEMA = `Return ONLY a JSON object — no prose, no code fences:
   "style": string|null,        // collection / pattern / style NAME (a name, not a number)
   "color": string|null,        // color / colorway NAME
   "sku": string|null,          // item / style / SKU number or code
-  "category": "carpet"|"lvp"|"hardwood"|"laminate"|"tile"|"vinyl"|"underlayment"|"trim"|"labor"|"other",
+  "category": "carpet"|"lvp"|"hardwood"|"laminate"|"tile"|"vinyl"|"underlayment"|"trim"|"other",
   "unit": "sqft"|"sqyd"|"lnft"|"each",
   "material_rate": number|null, // OUR per-unit cost (see PRICE rules), digits only — no $, no commas
   "labor_rate": number|null,    // only if the list separates labor; else null
@@ -273,9 +273,9 @@ NAME & FIELDS — separate signal from codes:
 - If the sheet has a COLOR NUMBER (color code) separate from the color name, keep the name in "color" and start "notes" with "Color # <that number>" so it can be searched. Do not drop the number.
 - Use null for anything not present. NEVER invent a brand, color, style, or price.
 
-CATEGORY — infer from the product: LVP/LVT/SPC/WPC/rigid core → lvp; broadloom → carpet; engineered/solid wood → hardwood; ceramic/porcelain → tile; sheet vinyl → vinyl; pad/cushion/underlayment → underlayment; molding/transition/base/reducer → trim; install/labor → labor; otherwise other.
+CATEGORY — infer from the product: LVP/LVT/SPC/WPC/rigid core → lvp; broadloom → carpet; engineered/solid wood → hardwood; ceramic/porcelain → tile; sheet vinyl → vinyl; pad/cushion/underlayment → underlayment; molding/transition/base/reducer → trim; otherwise other. Install and labor are not products — omit those rows.
 
-IGNORE non-products: page/column headers, section titles, totals, legends, freight/fuel/terms notes, addresses, page numbers, and blank lines. (A product marked "discontinued" is still a product — include it and note it.)
+IGNORE non-products: page/column headers, section titles, totals, legends, freight/fuel/terms notes, addresses, page numbers, install/labor charges, and blank lines. (A product marked "discontinued" is still a product — include it and note it.)
 
 Be exhaustive and precise. Return every real product row.`;
 

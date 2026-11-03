@@ -31,7 +31,7 @@ export default async function NewProductPage() {
       </Link>
       <PageHeader
         title="Add product"
-        description="A reusable material or labor line you can drop into any estimate."
+        description="A flooring material you can drop into any estimate. Labor stays on the estimate, not in the catalog."
       />
       <Card>
         <CardContent className="pt-6">
