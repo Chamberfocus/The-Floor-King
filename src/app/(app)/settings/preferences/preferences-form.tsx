@@ -136,7 +136,7 @@ export function PreferencesForm({ prefs }: { prefs: UserPreferences }) {
 
       <OrderedToggleList
         title="Quick actions — customer file"
-        hint="Buttons on the Quick Actions bar at the top of a customer's page. Uncheck to hide, use the arrows to reorder."
+        hint="Stage, owner, and scheduling on the customer file. Uncheck to hide, use the arrows to reorder."
         items={qa}
         labels={QUICK_ACTION_LABELS}
         onChange={setQa}
@@ -152,7 +152,7 @@ export function PreferencesForm({ prefs }: { prefs: UserPreferences }) {
 
       <OrderedToggleList
         title="Customer file tabs"
-        hint="Which tabs appear on a customer's page, and in what order. Overview shows everything at once."
+        hint="Which sections appear on a customer file, and in what order. Overview is the snapshot. Each other tab opens one section."
         items={tabs}
         labels={TAB_LABELS}
         onChange={setTabs}

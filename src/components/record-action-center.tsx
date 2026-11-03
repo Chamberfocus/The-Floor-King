@@ -13,26 +13,36 @@ function Chip({ chip }: { chip: ActionChip }) {
   );
 }
 
-export function RecordActionCenter({ model }: { model: RecordActionCenterModel }) {
+export function RecordActionCenter({
+  model,
+  embedded = false,
+}: {
+  model: RecordActionCenterModel;
+  /** Sit inside the customer file header instead of drawing a second card. */
+  embedded?: boolean;
+}) {
   const view = presentRecordAction(model);
+  const frame = embedded
+    ? "border-t px-3 py-3 sm:px-4"
+    : "mb-3 rounded-lg border bg-card px-3 py-3 sm:px-4";
   const quietOnly = !!view.quiet && !view.headline && !view.warning && view.chips.length === 0 && !view.note;
   if (quietOnly && view.history.length === 0) {
     return (
-      <p className="mb-3 rounded-lg border bg-card px-3 py-2.5 text-sm" role="status">
+      <p className={embedded ? "border-t px-3 py-2.5 text-sm sm:px-4" : "mb-3 rounded-lg border bg-card px-3 py-2.5 text-sm"} role="status">
         {view.quiet}
       </p>
     );
   }
+  const sparse = !view.warning && view.chips.length === 0 && !view.note && !(view.quiet && !view.headline);
   return (
-    <section aria-labelledby="record-action-heading" className="mb-3 rounded-lg border bg-card px-3 py-3 sm:px-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+    <section aria-labelledby="record-action-heading" className={frame}>
+      <div className={sparse
+        ? "flex flex-wrap items-center justify-between gap-3"
+        : "flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"}>
         <div className="min-w-0">
           <h2 id="record-action-heading" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             What to do
           </h2>
-          {view.headline ? (
-            <p className="mt-1 text-lg font-semibold leading-tight">{view.headline}</p>
-          ) : null}
           {view.warning ? (
             <p className="mt-1 flex items-start gap-1.5 text-sm">
               <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />

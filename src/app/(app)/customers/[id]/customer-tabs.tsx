@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, Fragment, useContext, useEffect, useRef, useState } from "react";
 import {
   LayoutGrid,
   User,
@@ -12,11 +12,12 @@ import {
   Paperclip,
   MessageSquare,
   History,
+  ScrollText,
   ChevronRight,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { TAB_ORDER, type CustomerTab } from "@/lib/preferences";
+import { TAB_GROUP, TAB_LABELS, TAB_ORDER, type CustomerTab } from "@/lib/preferences";
 
 /**
  * Hybrid tabs for a customer file. "Overview" shows the whole record (the full
@@ -47,17 +48,17 @@ const TABS: {
   icon: LucideIcon;
   count?: keyof TabCounts;
 }[] = [
-  { key: "overview", label: "Overview", icon: LayoutGrid },
-  { key: "contact", label: "Contact", icon: User },
-  { key: "estimates", label: "Estimates", icon: FileText, count: "estimates" },
-  { key: "jobs", label: "Jobs", icon: Wrench, count: "jobs" },
-  { key: "costing", label: "Job Costing", icon: Scale },
-  { key: "history", label: "History", icon: History },
-  { key: "invoices", label: "Invoices", icon: Receipt, count: "invoices" },
-  { key: "materials", label: "Materials & POs", icon: Package, count: "materials" },
-  { key: "files", label: "Files", icon: Paperclip, count: "files" },
-  { key: "messages", label: "Messages", icon: MessageSquare, count: "messages" },
-  { key: "activity", label: "Activity", icon: History },
+  { key: "overview", label: TAB_LABELS.overview, icon: LayoutGrid },
+  { key: "contact", label: TAB_LABELS.contact, icon: User },
+  { key: "estimates", label: TAB_LABELS.estimates, icon: FileText, count: "estimates" },
+  { key: "jobs", label: TAB_LABELS.jobs, icon: Wrench, count: "jobs" },
+  { key: "materials", label: TAB_LABELS.materials, icon: Package, count: "materials" },
+  { key: "invoices", label: TAB_LABELS.invoices, icon: Receipt, count: "invoices" },
+  { key: "costing", label: TAB_LABELS.costing, icon: Scale },
+  { key: "history", label: TAB_LABELS.history, icon: History },
+  { key: "files", label: TAB_LABELS.files, icon: Paperclip, count: "files" },
+  { key: "messages", label: TAB_LABELS.messages, icon: MessageSquare, count: "messages" },
+  { key: "activity", label: TAB_LABELS.activity, icon: ScrollText },
 ];
 
 export function CustomerTabs({
@@ -112,13 +113,18 @@ export function CustomerTabs({
         className="sticky top-0 z-20 mb-4 flex items-center gap-1 rounded-xl border bg-background/90 p-1.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/70"
       >
         <div className="flex flex-1 items-center gap-1 overflow-x-auto sm:flex-wrap sm:overflow-visible [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {visible.map((t) => {
+          {visible.map((t, i) => {
             const Icon = t.icon;
             const n = t.count ? counts[t.count] : 0;
             const on = active === t.key;
+            const prev = i > 0 ? visible[i - 1] : null;
+            const split = !!prev && TAB_GROUP[prev.key] !== TAB_GROUP[t.key];
             return (
+              <Fragment key={t.key}>
+              {split ? (
+                <span aria-hidden className="mx-1 hidden h-5 w-px shrink-0 self-center bg-border sm:block" />
+              ) : null}
               <button
-                key={t.key}
                 type="button"
                 onClick={() => pick(t.key)}
                 aria-current={on ? "page" : undefined}
@@ -142,6 +148,7 @@ export function CustomerTabs({
                   </span>
                 ) : null}
               </button>
+              </Fragment>
             );
           })}
         </div>

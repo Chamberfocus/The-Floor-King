@@ -16,12 +16,15 @@ export function CustomerNextActionCard({
   stuck,
   tasks,
   canSnooze,
+  embedded = false,
 }: {
   customerId: string;
   nextActionDue: string | null;
   stuck: boolean;
   tasks: OfficeTaskRow[];
   canSnooze: boolean;
+  /** One line inside the customer file header, not a second card. */
+  embedded?: boolean;
 }) {
   const [pending, start] = useTransition();
 
@@ -54,12 +57,19 @@ export function CustomerNextActionCard({
 
   return (
     <div
-      className={`rounded-lg border bg-card p-3 shadow-none ${
-        stuck ? "border-amber-300" : ""
-      }`}
+      className={
+        embedded
+          ? `border-t px-3 py-3 sm:px-4 ${stuck ? "bg-amber-50/70 dark:bg-amber-950/20" : ""}`
+          : `rounded-lg border bg-card p-3 shadow-none ${stuck ? "border-amber-300" : ""}`
+      }
     >
-      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <div className={embedded ? "flex flex-wrap items-center gap-x-3 gap-y-2" : ""}>
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         Follow-up reminder
+      </p>
+      <p className={`${embedded ? "" : "mt-1"} text-xs ${stuck ? "font-medium text-destructive" : "text-muted-foreground"}`}>
+        Due {formatDateTime(nextActionDue)}
+        {stuck ? " · overdue" : ""}
       </p>
       <details className="text-xs text-muted-foreground">
         <summary className="cursor-pointer">About snooze</summary>
@@ -67,12 +77,8 @@ export function CustomerNextActionCard({
           Snooze only moves this reminder. It does not clear a deposit, a material hold, or an install date.
         </p>
       </details>
-      <p className={`mt-1 text-xs ${stuck ? "font-medium text-destructive" : "text-muted-foreground"}`}>
-        Due {formatDateTime(nextActionDue)}
-        {stuck ? " · overdue" : ""}
-      </p>
       {canSnooze ? (
-        <div className="mt-3 flex flex-wrap gap-1.5">
+        <div className={embedded ? "flex flex-wrap gap-1.5" : "mt-3 flex flex-wrap gap-1.5"}>
           {ALLOWED_SNOOZE_DAYS.map((d) => (
             <Button
               key={d}
@@ -88,6 +94,7 @@ export function CustomerNextActionCard({
           ))}
         </div>
       ) : null}
+      </div>
       {tasks.length ? (
         <ul className="mt-4 space-y-2 border-t pt-3">
           {tasks.map((t) => (
