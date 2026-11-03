@@ -158,20 +158,25 @@ export async function placeInStockOrdersOnCustomerInvoices(
   createdBy: string | null,
   onlyCustomerId?: string | null,
 ): Promise<void> {
-  const { data: unlinked } = await db
-    .from("orders")
-    .select(
-      "id, customer_id, contact_name, contact_phone, contact_email, invoice_id, stock_status",
-    )
-    .in("status", ["submitted", "approved"])
-    .is("customer_id", null)
-    .order("created_at", { ascending: false })
-    .limit(20);
-  for (const raw of (unlinked ?? []) as OrderContactRow[]) {
-    try {
-      await attachOrderToMatchedCustomer(db, raw);
-    } catch {
-      // One contact match must not stop the rest.
+  // Matching every unlinked order scans the customer book. The dashboard and
+  // the orders page still do that. Opening one customer only invoices the
+  // orders already on that customer.
+  if (!onlyCustomerId) {
+    const { data: unlinked } = await db
+      .from("orders")
+      .select(
+        "id, customer_id, contact_name, contact_phone, contact_email, invoice_id, stock_status",
+      )
+      .in("status", ["submitted", "approved"])
+      .is("customer_id", null)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    for (const raw of (unlinked ?? []) as OrderContactRow[]) {
+      try {
+        await attachOrderToMatchedCustomer(db, raw);
+      } catch {
+        // One contact match must not stop the rest.
+      }
     }
   }
 

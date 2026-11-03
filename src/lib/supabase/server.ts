@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { getSupabaseEnv } from "@/lib/env";
@@ -6,8 +7,11 @@ import { getSupabaseEnv } from "@/lib/env";
  * Supabase client for Server Components, Server Actions, and Route Handlers.
  * Reads/writes the auth session via Next.js cookies. `cookies()` is async in
  * Next.js 16, so this helper is async too.
+ *
+ * One client per request. A customer page used to build a new client for every
+ * query, and each build waited on cookies() again.
  */
-export async function createClient() {
+export const createClient = cache(async function createClient() {
   const { url, anonKey } = getSupabaseEnv();
   const cookieStore = await cookies();
 
@@ -28,4 +32,4 @@ export async function createClient() {
       },
     },
   });
-}
+});

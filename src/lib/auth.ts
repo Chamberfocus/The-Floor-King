@@ -1,22 +1,21 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile, UserRole } from "@/lib/types";
 
 /** Returns the signed-in auth user, or null. Safe to call anywhere on the server. */
-export async function getUser() {
+export const getUser = cache(async function getUser() {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   return user;
-}
+});
 
 /** Returns the current user's profile row (with role), or null if not signed in. */
-export async function getProfile(): Promise<Profile | null> {
+export const getProfile = cache(async function getProfile(): Promise<Profile | null> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getUser();
   if (!user) return null;
 
   const { data } = await supabase
@@ -26,7 +25,7 @@ export async function getProfile(): Promise<Profile | null> {
     .single();
 
   return (data as Profile) ?? null;
-}
+});
 
 /**
  * Use in a protected page/layout: returns the profile, or redirects to /login.

@@ -234,64 +234,25 @@ export default async function CustomerPage({
   // happens to contain it.
   const openScheduler =
     sp.schedule === "estimate" || sp.schedule === "install" ? sp.schedule : null;
-  const profile = await requireProfile();
-  const prefs = await getUserPreferences();
-  const customer = await getCustomer(id);
+  const [profile, prefs, customer] = await Promise.all([
+    requireProfile(),
+    getUserPreferences(),
+    getCustomer(id),
+  ]);
   if (!customer) notFound();
   const canDelete = profile.role === "admin";
-  const leadSources = await listLeadSources({ activeOnly: true });
-  // Whether the lead source (+ its required sub-detail) is recorded — gates
-  // estimate creation with an inline prompt rather than a redirect.
-  const _src = leadSources.find((s) => s.id === customer.source_id);
-  const sourceOk =
-    !!customer.source_id &&
-    (!_src?.detail_required ||
-      (_src.detail_mode === "referrer"
-        ? !!(customer.source_detail_text || customer.referred_by_customer_id)
-        : !!(customer.source_detail_id || customer.source_detail_text)));
-
   const seesMoney = customerSeesCustomerMoney(profile.role);
-  if (profile.role === "admin" || profile.role === "office") {
-    const db = await createClient();
-    await placeInStockOrdersOnCustomerInvoices(db, profile.id, id).catch(
-      () => undefined,
-    );
-  }
-  const activities = await listActivities(id);
-  const estimates = seesMoney
-    ? await listEstimatesForCustomer(id)
-    : await listEstimateScheduleFacts(id);
-  const estimateSignals = await listEstimateClientSignals(estimates.map((e) => e.id));
-  const jobs = seesMoney
-    ? await listJobsForCustomer(id)
-    : await listSchedulingJobsForCustomer(id);
-  const invoices = seesMoney ? await listInvoicesForCustomer(id) : [];
-  const pickupOrders = await listOrdersForCustomer(id).catch(() => []);
-  const installJobs = jobs.filter((j) => !isCashCarryJob(j));
-  const cashCarryJobs = jobs.filter((j) => isCashCarryJob(j));
-  const cashCarryJobIds = new Set(cashCarryJobs.map((j) => j.id));
-  const portalUser = await getPortalUser(id);
-  const messages = await listCustomerMessages(id);
   const canCustomerFiles = (
     DOCUMENTS_STORAGE_JWT_ROLES as readonly string[]
   ).includes(profile.role);
-  const documents = canCustomerFiles ? await listCustomerDocuments(id) : [];
-  const customerAreas = await listCustomerAreas(id);
-  const [sampleCheckouts, bizSettings, stockPulls, serviceAddresses, attributedPoLines, orgSettings] =
-    await Promise.all([
-      listCustomerCheckouts(id),
-      getBusinessSettings(),
-      getCustomerStockPulls(id),
-      listServiceAddresses(id),
-      listAttributedPoItemsForCustomer(id),
-      getOrgSettings(),
-    ]);
-  const customerPOs = seesMoney ? await listPurchaseOrdersForCustomer(id) : [];
   const canWriteOrders = profile.role === "admin" || profile.role === "office";
-  const paperworkSuppliers = canWriteOrders ? await listActiveSuppliers() : [];
-  const stages = await listWorkflowStages();
-  const openTasks = await listOpenOfficeTasksForCustomer(id).catch(() => []);
-  const handoffMembers = await listHandoffMembers();
+  // In-stock orders on this customer become a draft invoice before the invoice
+  // list is read. Everything else loads at the same time.
+  const invoiceGate = canWriteOrders
+    ? createClient().then((db) =>
+        placeInStockOrdersOnCustomerInvoices(db, profile.id, id).catch(() => undefined),
+      )
+    : Promise.resolve();
   const emptyCosting: CustomerCosting = {
     rows: [],
     summary: {
@@ -302,6 +263,16 @@ export default async function CustomerPage({
       totalVariance: 0,
       avgVariancePct: null,
     },
+  };
+  const noCredit: Awaited<ReturnType<typeof getCustomerCreditSummary>> = {
+    available: 0,
+    memos: [],
+  };
+  const noDeposit: Awaited<ReturnType<typeof getCustomerDepositSummary>> = {
+    available: 0,
+    applied: 0,
+    voided: 0,
+    deposits: [],
   };
   const emptyHistory: CustomerHistory = {
     events: [],
@@ -317,18 +288,151 @@ export default async function CustomerPage({
       lastSeen: null,
     },
   };
-  // Money roles only. A scheduler does not load costing or the payment history.
-  const costing = seesMoney ? await getCustomerJobCosting(id) : emptyCosting;
-  const history = seesMoney ? await getCustomerHistory(id) : emptyHistory;
-
+  const [
+    leadSources,
+    activities,
+    estimates,
+    jobs,
+    invoices,
+    pickupOrders,
+    portalUser,
+    messages,
+    documents,
+    customerAreas,
+    sampleCheckouts,
+    bizSettings,
+    stockPulls,
+    serviceAddresses,
+    attributedPoLines,
+    orgSettings,
+    customerPOs,
+    paperworkSuppliers,
+    stages,
+    openTasks,
+    handoffMembers,
+    costing,
+    history,
+    checklistRows,
+    cancelReasons,
+    qualifyingQuestions,
+  ] = await Promise.all([
+    listLeadSources({ activeOnly: true }),
+    listActivities(id),
+    seesMoney ? listEstimatesForCustomer(id) : listEstimateScheduleFacts(id),
+    seesMoney ? listJobsForCustomer(id) : listSchedulingJobsForCustomer(id),
+    invoiceGate.then(() => (seesMoney ? listInvoicesForCustomer(id) : [])),
+    listOrdersForCustomer(id).catch(() => []),
+    getPortalUser(id),
+    listCustomerMessages(id),
+    canCustomerFiles ? listCustomerDocuments(id) : [],
+    listCustomerAreas(id),
+    listCustomerCheckouts(id),
+    getBusinessSettings(),
+    getCustomerStockPulls(id),
+    listServiceAddresses(id),
+    listAttributedPoItemsForCustomer(id),
+    getOrgSettings(),
+    seesMoney ? listPurchaseOrdersForCustomer(id) : [],
+    canWriteOrders ? listActiveSuppliers() : [],
+    listWorkflowStages(),
+    listOpenOfficeTasksForCustomer(id).catch(() => []),
+    listHandoffMembers(),
+    seesMoney ? getCustomerJobCosting(id) : emptyCosting,
+    seesMoney ? getCustomerHistory(id) : emptyHistory,
+    getCustomerChecklists(id),
+    listCancelReasons({ activeOnly: true }),
+    listQualifyingQuestions({ activeOnly: true }),
+  ]);
+  // Whether the lead source (+ its required sub-detail) is recorded — gates
+  // estimate creation with an inline prompt rather than a redirect.
+  const _src = leadSources.find((s) => s.id === customer.source_id);
+  const sourceOk =
+    !!customer.source_id &&
+    (!_src?.detail_required ||
+      (_src.detail_mode === "referrer"
+        ? !!(customer.source_detail_text || customer.referred_by_customer_id)
+        : !!(customer.source_detail_id || customer.source_detail_text)));
+  const installJobs = jobs.filter((j) => !isCashCarryJob(j));
+  const cashCarryJobs = jobs.filter((j) => isCashCarryJob(j));
+  const cashCarryJobIds = new Set(cashCarryJobs.map((j) => j.id));
+  const jobChecklists = checklistRows.filter(
+    (j) => !j.jobId || !cashCarryJobIds.has(j.jobId),
+  );
+  // Canonical install target — strip, quick-action, and hidden job_id must agree.
+  // Pass installJobs (not jobs) so a pickup/cash-carry row cannot steal the strip.
+  const installJob = resolveCustomerInstallScheduleTarget(installJobs);
+  const schedulableJob = installJob;
+  const guidedActiveJob =
+    installJobs.find((j) => j.status !== "completed" && j.status !== "cancelled") ??
+    installJobs[0] ??
+    null;
+  const jobOptionIds = [...new Set(jobs.map((j) => j.option_id).filter(Boolean) as string[])];
+  const [
+    estimateSignals,
+    names,
+    estimateAppointment,
+    schedulingSettings,
+    creditSummary,
+    depositSummary,
+    recordFacts,
+    profitRows,
+    guidedSatisfaction,
+    installScheduleProps,
+    jobLineResult,
+  ] = await Promise.all([
+    listEstimateClientSignals(estimates.map((e) => e.id)),
+    getProfileNames([
+      ...activities.map((a) => a.user_id ?? ""),
+      ...jobs.map((j) => j.assigned_to ?? ""),
+      customer.assigned_to ?? "",
+      customer.created_by ?? "",
+      customer.workflow_owner_id ?? "",
+      installJob?.assigned_to ?? "",
+      schedulableJob?.assigned_to ?? "",
+    ]),
+    getCustomerEstimateAppointment(id),
+    getSchedulingSettings(),
+    seesMoney ? getCustomerCreditSummary(id).catch(() => noCredit) : noCredit,
+    seesMoney ? getCustomerDepositSummary(id).catch(() => noDeposit) : null,
+    loadCustomerRecordFacts(id, jobs.map((job) => job.id)).catch(() => ({
+      materialJobs: new Set<string>(),
+      callbacks: [] as {
+        id: string;
+        job_id: string | null;
+        status: string;
+        follow_up_at: string | null;
+        reported_at: string | null;
+      }[],
+    })),
+    profile.role === "admin" && costing.rows.length
+      ? getJobProfitability({ customerId: id })
+      : Promise.resolve([]),
+    guidedActiveJob && canCustomerFiles
+      ? getJobSatisfaction(guidedActiveJob.id)
+      : Promise.resolve(null),
+    schedulableJob ? buildInstallScheduleProps(schedulableJob.id, id) : Promise.resolve(null),
+    seesMoney && jobOptionIds.length
+      ? createClient().then((supabase) =>
+          supabase
+            .from("estimate_line_items")
+            .select("*")
+            .in("option_id", jobOptionIds)
+            .order("position", { ascending: true }),
+        )
+      : Promise.resolve({ data: null }),
+  ]);
+  const arrivalWindows = parseArrivalWindows(schedulingSettings.arrival_windows);
+  const currentStage =
+    stages.find((s) => s.id === customer.workflow_stage_id) ?? null;
   // Owner-only real profit breakdown (revenue − material/labor/other + the
   // internal fuel/car/commission), keyed by job for the "cost vs profit" popup.
   // Uses the ONE source of truth (getJobProfitability) so it matches the
-  // dashboard/scorecard exactly. Never computed for non-owners.
+  // dashboard/scorecard exactly. Never computed for non-owners. Scoped to this
+  // customer so opening the file does not load every job in the company.
   const jobProfit: Record<string, JobProfitLite> = {};
   if (profile.role === "admin" && costing.rows.length) {
     const ids = new Set(costing.rows.map((r) => r.jobId));
-    for (const jp of await getJobProfitability()) {
+    for (const jp of profitRows) {
       if (!ids.has(jp.jobId)) continue;
       jobProfit[jp.jobId] = {
         revenue: jp.revenue,
@@ -347,28 +451,6 @@ export default async function CustomerPage({
       };
     }
   }
-  // Manageable cancellation reasons for the Cancel dialog.
-  const cancelReasons = await listCancelReasons({ activeOnly: true });
-  const qualifyingQuestions = await listQualifyingQuestions({ activeOnly: true });
-  // Canonical install target — strip, quick-action, and hidden job_id must agree.
-  // Pass installJobs (not jobs) so a pickup/cash-carry row cannot steal the strip.
-  const installJob = resolveCustomerInstallScheduleTarget(installJobs);
-  const schedulableJob = installJob;
-  const names = await getProfileNames([
-    ...activities.map((a) => a.user_id ?? ""),
-    ...jobs.map((j) => j.assigned_to ?? ""),
-    customer.assigned_to ?? "",
-    customer.created_by ?? "",
-    customer.workflow_owner_id ?? "",
-    installJob?.assigned_to ?? "",
-    schedulableJob?.assigned_to ?? "",
-  ]);
-  const currentStage =
-    stages.find((s) => s.id === customer.workflow_stage_id) ?? null;
-  const estimateAppointment = await getCustomerEstimateAppointment(id);
-  const arrivalWindows = parseArrivalWindows(
-    (await getSchedulingSettings()).arrival_windows,
-  );
 
   // Money status for the command center (void invoices excluded; credits reduce due).
   const money = invoices.reduce(
@@ -384,33 +466,6 @@ export default async function CustomerPage({
     },
     { invoiced: 0, paid: 0, credited: 0, balance: 0 },
   );
-  const creditSummary = seesMoney
-    ? await getCustomerCreditSummary(id).catch(() => ({
-        available: 0,
-        memos: [],
-      }))
-    : { available: 0, memos: [] };
-  const depositSummary = seesMoney
-    ? await getCustomerDepositSummary(id).catch(() => ({
-        available: 0,
-        applied: 0,
-        voided: 0,
-        deposits: [],
-      }))
-    : null;
-  const recordFacts = await loadCustomerRecordFacts(
-    id,
-    jobs.map((job) => job.id),
-  ).catch(() => ({
-    materialJobs: new Set<string>(),
-    callbacks: [] as {
-      id: string;
-      job_id: string | null;
-      status: string;
-      follow_up_at: string | null;
-      reported_at: string | null;
-    }[],
-  }));
   const jobTitle = new Map(jobs.map((job) => [job.id, job.title]));
   const customerAction = buildCustomerActionCenter({
     now: new Date(),
@@ -528,27 +583,6 @@ export default async function CustomerPage({
   const canCloseOut = ["admin", "office", "sales_manager"].includes(
     profile.role,
   );
-  // The job the guided spine acts on (its satisfaction sign-off feeds the
-  // follow-up stage). Mirrors GuidedFlow's own active-job pick.
-  const guidedActiveJob =
-    installJobs.find((j) => j.status !== "completed" && j.status !== "cancelled") ??
-    installJobs[0] ??
-    null;
-  const guidedSatisfaction =
-    guidedActiveJob && canCustomerFiles
-      ? await getJobSatisfaction(guidedActiveJob.id)
-      : null;
-  /**
-   * One checklist PER JOB.
-   *
-   * This page used to build a single checklist and pick "the" job for it — the
-   * oldest unfinished one. With one job that's invisible; with two it silently
-   * tracks the wrong one. The account is the account; the work is the job.
-   * Every step, and the tools to do it, now live on the job page.
-   */
-  const jobChecklists = (await getCustomerChecklists(id)).filter(
-    (j) => !j.jobId || !cashCarryJobIds.has(j.jobId),
-  );
   /**
    * Each job's OWN stage name. The account badge is the pre-job position and is
    * simply wrong once there are two jobs — a finished kitchen and an unmeasured
@@ -631,15 +665,6 @@ export default async function CustomerPage({
   };
 
 
-  // Install smart-scheduler for the SAME job shown in the schedule strip.
-  let installScheduleProps: Parameters<typeof InstallSchedule>[0] | null = null;
-  if (schedulableJob) {
-    installScheduleProps = await buildInstallScheduleProps(
-      schedulableJob.id,
-      id,
-    );
-  }
-
   // Identity-band bits: address for the maps chip, owner initials, sub line.
   const addressText = [
     customer.street,
@@ -680,19 +705,10 @@ export default async function CustomerPage({
   // the estimate isn't in this customer's list), so the inline installation
   // scope is never wrongly empty.
   const optionLines = new Map<string, EstimateLineItem[]>();
-  const jobOptionIds = [...new Set(jobs.map((j) => j.option_id).filter(Boolean) as string[])];
-  if (seesMoney && jobOptionIds.length) {
-    const supabase = await createClient();
-    const { data: jobLines } = await supabase
-      .from("estimate_line_items")
-      .select("*")
-      .in("option_id", jobOptionIds)
-      .order("position", { ascending: true });
-    for (const l of (jobLines ?? []) as EstimateLineItem[]) {
-      const arr = optionLines.get(l.option_id) ?? [];
-      arr.push(l);
-      optionLines.set(l.option_id, arr);
-    }
+  for (const l of (jobLineResult.data ?? []) as EstimateLineItem[]) {
+    const arr = optionLines.get(l.option_id) ?? [];
+    arr.push(l);
+    optionLines.set(l.option_id, arr);
   }
 
   /**

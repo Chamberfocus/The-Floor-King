@@ -1,4 +1,6 @@
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { getUser } from "@/lib/auth";
 import {
   resolvePreferences,
   DEFAULT_PREFERENCES,
@@ -11,12 +13,10 @@ import {
  * `user_preferences` table doesn't exist (migration 0067 not run), it quietly
  * returns the defaults — the pages must never break over a missing preference.
  */
-export async function getUserPreferences(): Promise<UserPreferences> {
+export const getUserPreferences = cache(async function getUserPreferences(): Promise<UserPreferences> {
   try {
     const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const user = await getUser();
     if (!user) return { ...DEFAULT_PREFERENCES };
 
     const { data, error } = await supabase
@@ -29,4 +29,4 @@ export async function getUserPreferences(): Promise<UserPreferences> {
   } catch {
     return { ...DEFAULT_PREFERENCES };
   }
-}
+});
