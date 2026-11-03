@@ -73,6 +73,7 @@ import { ServiceAddressesCard } from "./service-addresses-card";
 import { listServiceAddresses } from "@/lib/data/service-addresses";
 import { listCustomerAreas } from "@/lib/data/customer-areas";
 import { CustomerAreasCard } from "./areas-card";
+import { canTakeoffDrawing } from "@/lib/drawing-takeoff";
 import {
   listPurchaseOrdersForCustomer,
   listAttributedPoItemsForCustomer,
@@ -1859,7 +1860,11 @@ export default async function CustomerPage({
               )}
               {/* Measurements belong with the work — moved here so it stops
                   leaking onto every tab. */}
-              <CustomerAreasCard customerId={customer.id} areas={customerAreas} />
+              <CustomerAreasCard
+                customerId={customer.id}
+                areas={customerAreas}
+                canTakeoff={canTakeoffDrawing(profile.role)}
+              />
             </CardContent>
           </Card>
           <div className="mt-4">
