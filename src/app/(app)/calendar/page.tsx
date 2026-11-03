@@ -94,23 +94,21 @@ export default async function CalendarPage({
     const rangeEnd = `${addDays(days[days.length - 1], 1)}T00:00:00+00`;
 
     // The Agenda view runs from today forward rather than over the visible
-    // range, so it fetches its own rows (and the rep names it prints).
-    const upcoming =
-      view === "agenda" ? await listUpcomingAppointments() : [];
-    const agendaRepNames =
-      view === "agenda"
-        ? await getProfileNames(
-            upcoming.map((a) => a.salespersonId ?? "").filter(Boolean),
-          )
-        : {};
-
-    const [appointments, types, staff, pending, settings] = await Promise.all([
+    // range, so it fetches its own rows while the week grid loads.
+    const [upcoming, appointments, types, staff, pending, settings] = await Promise.all([
+      view === "agenda" ? listUpcomingAppointments() : Promise.resolve([]),
       listAppointmentsRange(rangeStart, rangeEnd),
       listAppointmentTypes({ activeOnly: true }),
       listBookingStaff(),
       listPendingRequests(),
       getShowroomSettings(),
     ]);
+    const agendaRepNames =
+      view === "agenda"
+        ? await getProfileNames(
+            upcoming.map((a) => a.salespersonId ?? "").filter(Boolean),
+          )
+        : {};
 
     return (
       <div>

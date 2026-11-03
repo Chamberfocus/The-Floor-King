@@ -47,33 +47,51 @@ export const dynamic = "force-dynamic";
 export default async function DashboardPage() {
   const profile = await requireProfile();
   if (!["admin", "office", "sales_manager"].includes(profile.role)) redirect("/");
-  if (profile.role === "admin" || profile.role === "office") {
-    const db = await createClient();
-    await placeInStockOrdersOnCustomerInvoices(db, profile.id).catch(() => undefined);
-  }
-  const counts = await getDashboardCounts();
-  const activeJobs = await getActiveJobCount();
-  const outstanding = await getOutstandingInvoiceCount();
-  const queue = await listMyQueue(profile.id);
-  const todayTasks = await getTodayTasks();
-  const opsQueues = await getOpsTodayQueues().catch(() => []);
-  const officeTaskBuckets = await listMyOfficeTasks(profile.id).catch(() => ({
-    overdue: [],
-    dueToday: [],
-    upcoming: [],
-    completed: [],
-  }));
-  const taskAssignees = (await listAssignableUsers())
+  // In-stock orders become invoices before the open-invoice count. The rest of
+  // the board loads at the same time and does not wait its turn.
+  const stockGate =
+    profile.role === "admin" || profile.role === "office"
+      ? createClient().then((db) =>
+          placeInStockOrdersOnCustomerInvoices(db, profile.id).catch(() => undefined),
+        )
+      : Promise.resolve(undefined);
+  const [
+    counts,
+    activeJobs,
+    outstanding,
+    queue,
+    todayTasks,
+    opsQueues,
+    officeTaskBuckets,
+    assignableUsers,
+    myStops,
+    activeInstalls,
+  ] = await Promise.all([
+    getDashboardCounts(),
+    getActiveJobCount(),
+    stockGate.then(() => getOutstandingInvoiceCount()),
+    listMyQueue(profile.id),
+    getTodayTasks(),
+    getOpsTodayQueues().catch(() => []),
+    listMyOfficeTasks(profile.id).catch(() => ({
+      overdue: [],
+      dueToday: [],
+      upcoming: [],
+      completed: [],
+    })),
+    listAssignableUsers(),
+    myStopsToday(),
+    listActiveInstallJobs(),
+  ]);
+  const taskAssignees = assignableUsers
     .filter((u) =>
       ["admin", "office", "sales_manager", "salesman", "scheduler", "warehouse"].includes(
         u.role,
       ),
     )
     .map((u) => ({ id: u.id, name: u.name }));
-  const myStops = await myStopsToday();
-  const activeInstalls = await listActiveInstallJobs();
   const installerOptions = activeInstalls.length
-    ? (await listAssignableUsers())
+    ? assignableUsers
         .filter((u) => u.role === "crew")
         .map((u) => ({ id: u.id, name: u.name }))
     : [];

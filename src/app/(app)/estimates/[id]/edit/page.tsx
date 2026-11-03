@@ -22,16 +22,6 @@ export default async function EditEstimatePage({
   const estimate = await getEstimate(id);
   if (!estimate) notFound();
 
-  const customer = await getCustomer(estimate.customer_id);
-  const org = await getOrgSettings();
-  const biz = await getBusinessSettings();
-  const suggestions = await listLineSuggestions();
-  const addonCatalog = await listAddonCatalog();
-  const autoPrint = (await searchParams).print === "1";
-  // Unsaved in-progress edits (auto-saved as you type) — restored so you return
-  // exactly where you left off. Null when nothing is pending.
-  const builderDraft = await getEstimateBuilderDraft(id);
-
   // The catalog unit of each linked product — so the builder can flag a line
   // that's priced by area when its product is really sold by the each/bag.
   const productIds = [
@@ -42,6 +32,35 @@ export default async function EditEstimatePage({
         .filter(Boolean) as string[],
     ),
   ];
+  // The property this estimate is for — printed on the customer's copy from
+  // inside the builder too, not just from the estimate page.
+  const svcId =
+    (estimate as { service_address_id?: string | null }).service_address_id ?? null;
+  const supabase = await createClient();
+  const [customer, org, biz, suggestions, addonCatalog, sp, builderDraft, productResult, addressResult] =
+    await Promise.all([
+      getCustomer(estimate.customer_id),
+      getOrgSettings(),
+      getBusinessSettings(),
+      listLineSuggestions(),
+      listAddonCatalog(),
+      searchParams,
+      getEstimateBuilderDraft(id),
+      productIds.length
+        ? supabase
+            .from("products")
+            .select("id, unit, material_rate, labor_rate, category, sqft_per_box")
+            .in("id", productIds)
+        : Promise.resolve({ data: [] as { id: string; unit: string | null; material_rate: number | null; labor_rate: number | null; category: string | null; sqft_per_box: number | string | null }[] }),
+      svcId
+        ? supabase
+            .from("service_addresses")
+            .select("label, street, city, state, zip")
+            .eq("id", svcId)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
+  const autoPrint = sp.print === "1";
   const productUnits: Record<string, string> = {};
   const productDefaults: Record<
     string,
@@ -53,38 +72,18 @@ export default async function EditEstimatePage({
       sqft_per_box?: number | string | null;
     }
   > = {};
-  if (productIds.length) {
-    const supabase = await createClient();
-    const { data: prods } = await supabase
-      .from("products")
-      .select("id, unit, material_rate, labor_rate, category, sqft_per_box")
-      .in("id", productIds);
-    for (const p of prods ?? []) {
-      const unit = (p.unit as string) ?? "";
-      productUnits[p.id as string] = unit;
-      productDefaults[p.id as string] = {
-        material_rate: Number(p.material_rate) || 0,
-        labor_rate: Number(p.labor_rate) || 0,
-        unit,
-        category: (p.category as string) ?? null,
-        sqft_per_box: p.sqft_per_box,
-      };
-    }
+  for (const p of productResult.data ?? []) {
+    const unit = (p.unit as string) ?? "";
+    productUnits[p.id as string] = unit;
+    productDefaults[p.id as string] = {
+      material_rate: Number(p.material_rate) || 0,
+      labor_rate: Number(p.labor_rate) || 0,
+      unit,
+      category: (p.category as string) ?? null,
+      sqft_per_box: p.sqft_per_box,
+    };
   }
-
-  // The property this estimate is for — printed on the customer's copy from
-  // inside the builder too, not just from the estimate page.
-  const svcId =
-    (estimate as { service_address_id?: string | null }).service_address_id ?? null;
-  const sa = svcId
-    ? (
-        await (await createClient())
-          .from("service_addresses")
-          .select("label, street, city, state, zip")
-          .eq("id", svcId)
-          .maybeSingle()
-      ).data
-    : null;
+  const sa = addressResult.data;
   const siteAddress = sa
     ? [
         sa.label,
