@@ -751,3 +751,89 @@ export async function extractClients(opts: {
     }))
     .filter((c) => c.full_name || c.company || c.email || c.phone);
 }
+
+// ===========================================================================
+// JOB DRAWING — rooms and dimensions only. Square footage and carpet cuts
+// are computed in drawing-takeoff, not by the model.
+// ===========================================================================
+
+export interface ExtractedDrawingRoom {
+  name: string;
+  width_ft: number;
+  width_in: number;
+  length_ft: number;
+  length_in: number;
+  sqft: number | null;
+  floor: string;
+  stairs: number | null;
+  note: string | null;
+}
+
+const DRAWING_SYSTEM = `You read a flooring salesperson's hand-drawn measure sheet for Cleveland Floor King. Copy only what is written: room names, dimensions, flooring type, stair counts, and short notes. Do not invent a room, a dimension, or a flooring type.`;
+
+const DRAWING_SCHEMA = `Return ONLY a JSON object (no prose, no code fences):
+{ "rooms": [ {
+  "name": string,
+  "width_ft": number, "width_in": number,
+  "length_ft": number, "length_in": number,
+  "sqft": number|null,
+  "floor": "carpet"|"lvp"|"hardwood"|"laminate"|"tile"|"vinyl"|"",
+  "stairs": number|null,
+  "note": string|null
+} ] }
+Rules:
+- Width is the first dimension. Length is the second. If the drawing labels W and L, follow the labels.
+- Inches are the small number: 12'6" is width_ft 12 and width_in 6. A decimal foot 15.5 is 15 ft 6 in.
+- sqft only when a square-footage total is written for that room. Otherwise null.
+- floor is "" when the drawing does not say what is going in the room.
+- A stairs or steps count is stairs, not a room square footage.
+- A sheet total is not a room.
+- note is any other mark on that room (closet, seam, transition). Do not guess.`;
+
+/** Read a photo or the writing on a job drawing into rooms. Math is separate. */
+export async function extractDrawing(opts: {
+  text?: string;
+  base64?: string;
+  mediaType?: string;
+}): Promise<ExtractedDrawingRoom[] | null> {
+  lastExtractError = null;
+  if (!process.env.ANTHROPIC_API_KEY) {
+    lastExtractError = "No AI key set (ANTHROPIC_API_KEY).";
+    return null;
+  }
+  const content: unknown[] = [];
+  const block = fileBlock(opts);
+  if (block) {
+    content.push(block);
+    content.push({ type: "text", text: DRAWING_SCHEMA });
+  } else if (opts.text) {
+    content.push({ type: "text", text: `${DRAWING_SCHEMA}\n\nDRAWING:\n${opts.text}` });
+  } else {
+    return null;
+  }
+  const text = await callModel({ system: DRAWING_SYSTEM, content, maxTokens: 4000 });
+  if (!text) return null;
+  const whole = parseWholeObject(text);
+  const raw = whole && Array.isArray(whole.rooms) ? (whole.rooms as unknown[]) : extractRows(text, "rooms");
+  const rooms = raw
+    .map((it) => {
+      const o = (it ?? {}) as Record<string, unknown>;
+      return {
+        name: coerceStr(o.name) ?? "",
+        width_ft: coerceNum(o.width_ft) ?? 0,
+        width_in: coerceNum(o.width_in) ?? 0,
+        length_ft: coerceNum(o.length_ft) ?? 0,
+        length_in: coerceNum(o.length_in) ?? 0,
+        sqft: coerceNum(o.sqft),
+        floor: coerceStr(o.floor) ?? "",
+        stairs: coerceNum(o.stairs),
+        note: coerceStr(o.note),
+      } satisfies ExtractedDrawingRoom;
+    })
+    .filter((r) => r.name);
+  if (!rooms.length) {
+    if (!lastExtractError) lastExtractError = "Couldn't read rooms on that drawing.";
+    return null;
+  }
+  return rooms;
+}

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import type { CustomerArea } from "@/lib/types";
 import { CustomerAreaMeasureFields, MeasureAreaReadout, MeasureAreaUnitToggle } from "@/components/measure-area-unit";
 import { saveCustomerArea, deleteCustomerArea, moveCustomerArea } from "./area-actions";
+import { DrawingTakeoff } from "./drawing-review";
 
 /**
  * Areas & measurements for a customer — the sq ft calculator's list, editable
@@ -15,9 +16,11 @@ import { saveCustomerArea, deleteCustomerArea, moveCustomerArea } from "./area-a
 export function CustomerAreasCard({
   customerId,
   areas,
+  canTakeoff = false,
 }: {
   customerId: string;
   areas: CustomerArea[];
+  canTakeoff?: boolean;
 }) {
   const total = areas.reduce((s, a) => s + (Number(a.sqft) || 0), 0);
 
@@ -34,6 +37,7 @@ export function CustomerAreasCard({
         widthIn={a?.width_in ?? null}
         sqft={a?.sqft ?? null}
       />
+      <Input name="note" defaultValue={a?.note ?? ""} placeholder="Note" className="h-9 min-w-[10rem] flex-1" />
       <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <input type="checkbox" name="differs" defaultChecked={a?.differs} className="size-4" /> diff. prep
       </label>
@@ -59,9 +63,12 @@ export function CustomerAreasCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-2">
+        {canTakeoff ? <DrawingTakeoff customerId={customerId} /> : null}
         {areas.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No saved areas yet. Add rooms here, or they&apos;ll be saved when you build an estimate.
+            {canTakeoff
+              ? "No saved areas yet. Read the drawing above, or add a room here."
+              : "No saved areas yet. Add rooms here, or they'll be saved when you build an estimate."}
           </p>
         ) : (
           areas.map((a, i) => (

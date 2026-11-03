@@ -96,6 +96,16 @@ export async function replaceCustomerAreas(
 ): Promise<void> {
   if (!customerId) return;
   const supabase = await createClient();
+  const { data: existing } = await supabase
+    .from("customer_areas")
+    .select("name, note")
+    .eq("customer_id", customerId)
+    .order("position", { ascending: true });
+  const notes = new Map<string, string>();
+  for (const area of (existing ?? []) as { name: string | null; note: string | null }[]) {
+    const name = (area.name ?? "").trim().toLowerCase();
+    if (name && area.note && !notes.has(name)) notes.set(name, area.note);
+  }
   await supabase.from("customer_areas").delete().eq("customer_id", customerId);
   const rows = rooms
     .filter((r) => (r.sqft ?? 0) > 0 || r.name.trim())
@@ -106,6 +116,7 @@ export async function replaceCustomerAreas(
       length_in: r.length_in,
       width_in: r.width_in,
       sqft: r.sqft,
+      note: notes.get((r.name || "").trim().toLowerCase()) ?? null,
       differs: r.differs,
     }));
   if (rows.length) await supabase.from("customer_areas").insert(rows);
