@@ -169,7 +169,9 @@ export async function enrichCatalogProducts(
  * billed material the job never bought — and would sweep labor into supplier
  * price feeds that match on SKU.
  *
- * Labor rates live in Settings → Pricing. Pass includeLabor to see them here.
+ * Labor rates live on the estimate line (and in Settings → Pricing). The
+ * includeLabor flag is only for a direct lookup of leftover rows. The catalog
+ * UI, the picker, and import never treat those rows as products.
  */
 export async function listProducts(
   opts: { activeOnly?: boolean; includeLabor?: boolean } = {},
@@ -433,6 +435,7 @@ export async function searchCatalogWith(
         const seen = new Set<string>();
         const merged: Product[] = [];
         for (const p of byText.data as Product[]) {
+          if (!opts.includeLabor && p.category === "labor") continue;
           if (seen.has(p.id)) continue;
           seen.add(p.id);
           merged.push(p);

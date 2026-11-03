@@ -9,7 +9,7 @@ import {
   getLastExtractError,
   type PriceRow,
 } from "@/lib/extract";
-import { PRODUCT_CATEGORY_ORDER, type ProductCategory } from "@/lib/types";
+import { catalogProductCategory } from "@/lib/types";
 import { chunkText } from "@/lib/pdf-client";
 import { parseStructuredRows } from "@/lib/catalog-csv";
 import { triggerImportProcessing } from "@/lib/import-worker";
@@ -379,13 +379,20 @@ export async function importProducts(
     if (!profile || profile.role === "customer")
       return { error: "You don't have permission to import products." };
 
-    const cats = new Set<string>(PRODUCT_CATEGORY_ORDER);
     // A price is REQUIRED. A row with no parseable material rate AND no labor
     // rate has no usable price — it is held back and counted, NEVER stored as $0
     // (a silent $0 is the catastrophic failure this importer exists to prevent).
+    // Labor is not a product: those rows are held back, never filed as Other.
     let skipped = 0;
+    let laborSkipped = 0;
     const items = valid
       .map((r) => {
+        const category = catalogProductCategory(r.category);
+        if (!category) {
+          skipped += 1;
+          laborSkipped += 1;
+          return null;
+        }
         const mat = numOrNull(r.material_rate);
         const lab = numOrNull(r.labor_rate);
         const hasPrice = (mat != null && mat > 0) || (lab != null && lab > 0);
@@ -396,10 +403,10 @@ export async function importProducts(
         const cov = parseCoverage(r.name);
         return {
           name: r.name.trim(),
-          category: (cats.has(r.category) ? r.category : "other") as ProductCategory,
+          category,
           // Trust a parsed unit; otherwise infer (container → each, flooring →
           // area) instead of blindly defaulting to square feet.
-          unit: inferUnit(r.name, r.unit, cats.has(r.category) ? r.category : "other"),
+          unit: inferUnit(r.name, r.unit, category),
           material_rate: mat ?? 0,
           labor_rate: lab ?? 0,
           sku: r.sku || "",
@@ -416,7 +423,10 @@ export async function importProducts(
 
     if (!items.length)
       return {
-        error: `No products had a usable price — all ${skipped} row${skipped === 1 ? "" : "s"} were held back. Check the price column mapping.`,
+        error:
+          laborSkipped > 0 && laborSkipped === skipped
+            ? "Labor is not a product, so those rows were not imported."
+            : `No products had a usable price — all ${skipped} row${skipped === 1 ? "" : "s"} were held back. Check the price column mapping.`,
         skipped,
       };
 

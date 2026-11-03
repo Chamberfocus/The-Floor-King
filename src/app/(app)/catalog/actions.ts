@@ -20,7 +20,13 @@ import { catalogToLineMeasure, redactCatalogCost, roleMaySeeCatalogSell, hydrate
 import { boxedCartonAreaTakeoffAllowed, familyFromCatalogCategory, type InstallSystem } from "@/lib/flooring-knowledge";
 import { getProfile } from "@/lib/auth";
 import { catalogUnitFactor, pickedProductUnit } from "@/lib/units";
-import type { Product, ProductCategory } from "@/lib/types";
+import {
+  catalogProductCategory,
+  isLaborCategory,
+  LABOR_NOT_A_PRODUCT,
+  type Product,
+  type ProductCategory,
+} from "@/lib/types";
 import { reorderAlertsFor, type ReorderAlert } from "@/lib/data/stock-rolls";
 
 /** Live catalog search for the estimate material picker. Includes inactive
@@ -89,10 +95,14 @@ function readFields(formData: FormData) {
   const labor = money(formData.get("labor_rate"));
   if (!material.ok) return { error: material.error } as const;
   if (!labor.ok) return { error: labor.error } as const;
+  const rawCategory = str(formData.get("category"));
+  if (isLaborCategory(rawCategory)) return { error: LABOR_NOT_A_PRODUCT } as const;
+  const category = catalogProductCategory(rawCategory);
+  if (!category) return { error: LABOR_NOT_A_PRODUCT } as const;
   return {
     error: null as string | null,
     name: str(formData.get("name")),
-    category: (str(formData.get("category")) || "other") as ProductCategory,
+    category: category as ProductCategory,
     unit: pickedProductUnit(str(formData.get("unit")), str(formData.get("category"))),
     material_rate: material.value,
     labor_rate: labor.value,
@@ -250,6 +260,9 @@ export async function createProductInline(input: {
 }): Promise<{ error: string | null; product?: Product }> {
   const name = input.name?.trim();
   if (!name) return { error: "A product name is required." };
+  if (isLaborCategory(input.category)) return { error: LABOR_NOT_A_PRODUCT };
+  const category = catalogProductCategory(input.category);
+  if (!category) return { error: LABOR_NOT_A_PRODUCT };
 
   // Salespeople build estimates and must be able to add an off-catalog product
   // on the fly — but the catalog is read-only for them under RLS. Verify the
@@ -281,7 +294,7 @@ export async function createProductInline(input: {
   }
   const row = {
     name,
-    category: (input.category || "other") as ProductCategory,
+    category,
     unit: pickedProductUnit(input.unit, input.category),
     material_rate: numOr0(input.material_rate),
     labor_rate: numOr0(input.labor_rate),

@@ -83,7 +83,7 @@ export default async function CatalogPage({
         <EmptyState
           icon={Package}
           title="No products yet"
-          description="Add your common flooring materials and labor rates so estimates build themselves."
+          description="Add your flooring materials so estimates build themselves. Labor is a line on the estimate, not a product."
           action={
             <Link href="/catalog/new" className={buttonVariants({})}>
               <Plus className="size-4" /> Add product

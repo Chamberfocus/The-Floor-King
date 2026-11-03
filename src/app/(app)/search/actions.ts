@@ -324,7 +324,9 @@ export async function quickSearch(qRaw: string, limit = 6): Promise<QuickResults
         href: `/jobs/${r.id}`,
       };
     }),
-    product: (prodRes.data ?? []).map((p: Row) => ({
+    product: (prodRes.data ?? [])
+      .filter((p: Row) => p.category !== "labor")
+      .map((p: Row) => ({
       type: "product",
       id: p.id as string,
       title: (p.name as string) || "Product",

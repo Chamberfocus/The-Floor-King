@@ -29,8 +29,9 @@ import {
   type CatalogPricePurpose,
 } from "@/lib/catalog-pricing";
 import {
+  CATALOG_PRODUCT_CATEGORIES,
+  isCatalogProductCategory,
   PRODUCT_CATEGORY_LABELS,
-  PRODUCT_CATEGORY_ORDER,
   type Product,
   type UserRole,
 } from "@/lib/types";
@@ -927,8 +928,10 @@ function AddProductForm({
     manufacturer: "",
     style: "",
     color: "",
-    category: initialCategory || "",
-    unit: defaultUnitForCategory(initialCategory),
+    category: isCatalogProductCategory(initialCategory) ? initialCategory : "",
+    unit: defaultUnitForCategory(
+      isCatalogProductCategory(initialCategory) ? initialCategory : "",
+    ),
     sku: "",
     material_rate: "",
     labor_rate: "",
@@ -940,7 +943,8 @@ function AddProductForm({
   const set = (patch: Partial<typeof f>) => setF((p) => ({ ...p, ...patch }));
   // Changing the category re-suggests the unit — until the user picks one
   // themselves, at which point their choice sticks.
-  const setCategory = (category: string) =>
+  const setCategory = (category: string) => {
+    if (!isCatalogProductCategory(category)) return;
     setF((p) => ({
       ...p,
       category,
@@ -950,6 +954,7 @@ function AddProductForm({
       // plank — the fields disappear from the form but the values don't.
       specs: {},
     }));
+  };
   const pickUnit = (unit: string) => {
     setUnitTouched(true);
     set({ unit });
@@ -959,6 +964,10 @@ function AddProductForm({
     startSave(async () => {
       if (!f.name.trim()) {
         toast.error("Give the product a name.");
+        return;
+      }
+      if (!isCatalogProductCategory(f.category)) {
+        toast.error("Pick a material category. Labor is not a product.");
         return;
       }
       const res = await createProductInline(f);
@@ -1045,7 +1054,7 @@ function AddProductForm({
           size="sm"
           value={f.category}
           onChange={setCategory}
-          options={PRODUCT_CATEGORY_ORDER.map((c) => ({
+          options={CATALOG_PRODUCT_CATEGORIES.map((c) => ({
             value: c,
             label: PRODUCT_CATEGORY_LABELS[c],
           }))}
@@ -1139,7 +1148,7 @@ function AddProductForm({
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-muted-foreground">
-            Labor ({rateLbl}) — optional
+            Install rate ({rateLbl}) — optional
           </label>
           <Input
             type="number"
@@ -1148,7 +1157,7 @@ function AddProductForm({
             inputMode="decimal"
             value={f.labor_rate}
             onChange={(e) => set({ labor_rate: e.target.value })}
-            placeholder="labor"
+            placeholder="install"
             className="h-10"
           />
         </div>

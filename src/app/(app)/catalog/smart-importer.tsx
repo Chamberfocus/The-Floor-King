@@ -37,6 +37,9 @@ import {
   normUnit,
 } from "@/lib/catalog-csv";
 import {
+  CATALOG_PRODUCT_CATEGORIES,
+  isCatalogProductCategory,
+  isLaborCategory,
   PRODUCT_CATEGORY_LABELS,
   PRODUCT_CATEGORY_ORDER,
 } from "@/lib/types";
@@ -46,6 +49,11 @@ import {
   importProducts,
   extractStoragePdfText,
 } from "./import-actions";
+
+const CATALOG_CATEGORY_OPTIONS = CATALOG_PRODUCT_CATEGORIES.map((c) => ({
+  value: c,
+  label: PRODUCT_CATEGORY_LABELS[c],
+}));
 
 const inputSm =
   "h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -87,6 +95,12 @@ export type RowStatus = { level: "ok" | "flag"; reason: string };
  */
 export function validateRow(r: PriceRow): RowStatus {
   if (!r.name?.trim()) return { level: "flag", reason: "no product name" };
+  if (isLaborCategory(r.category)) {
+    return {
+      level: "flag",
+      reason: "Labor is not a product — it stays on the estimate",
+    };
+  }
   if (r.material_rate == null)
     return { level: "flag", reason: "price didn't parse — fix it or map a different price column" };
   const p = Number(r.material_rate);
@@ -495,7 +509,7 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
       );
       if (heldTotal > 0) {
         toast.warning(
-          `${heldTotal} row${heldTotal === 1 ? "" : "s"} held back (bad or missing price/unit) — not imported.`,
+          `${heldTotal} row${heldTotal === 1 ? "" : "s"} held back — not imported.`,
         );
       }
       setDone(res.count ?? okOnly.length);
@@ -521,7 +535,9 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
   const allRows = rows ?? [];
   // A row's effective category (unknown values count as "other").
   const catOf = (r: PriceRow) =>
-    PRODUCT_CATEGORY_ORDER.includes(r.category as never) ? r.category : "other";
+    isLaborCategory(r.category) || isCatalogProductCategory(r.category)
+      ? r.category
+      : "other";
   // How many rows sit in each category right now — drives the "change all" picker.
   const catCounts = new Map<string, number>();
   for (const r of allRows) catCounts.set(catOf(r), (catCounts.get(catOf(r)) ?? 0) + 1);
@@ -529,7 +545,7 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
   // Reclassify EVERY row of one type into another, in a single move.
   const bulkRecategorize = () => {
     const from = catCounts.has(fromCat) ? fromCat : presentCats[0];
-    if (!from || from === toCat) return;
+    if (!from || from === toCat || !isCatalogProductCategory(toCat)) return;
     const count = allRows.filter((r) => catOf(r) === from).length;
     if (!count) {
       toast.error(`No ${PRODUCT_CATEGORY_LABELS[from as never] ?? from} items to change.`);
@@ -557,7 +573,7 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
         : new Set(allRows.map((_, i) => i)),
     );
   const bulkSetCategory = (cat: string) => {
-    if (!selected.size) return;
+    if (!selected.size || !isCatalogProductCategory(cat)) return;
     setRows((prev) =>
       prev ? prev.map((r, j) => (selected.has(j) ? { ...r, category: cat } : r)) : prev,
     );
@@ -760,8 +776,10 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
                   <SegmentedField
                     size="sm"
                     value={defCategory}
-                    onChange={setDefCategory}
-                    options={PRODUCT_CATEGORY_ORDER.map((c) => ({ value: c, label: PRODUCT_CATEGORY_LABELS[c] }))}
+                    onChange={(v) => {
+                      if (isCatalogProductCategory(v)) setDefCategory(v);
+                    }}
+                    options={CATALOG_CATEGORY_OPTIONS}
                   />
                 </div>
                 <div className="flex items-center gap-2">
@@ -797,10 +815,7 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
                     className="w-36"
                     value={bulkCat}
                     onChange={setBulkCat}
-                    options={PRODUCT_CATEGORY_ORDER.map((c) => ({
-                      value: c,
-                      label: PRODUCT_CATEGORY_LABELS[c],
-                    }))}
+                    options={CATALOG_CATEGORY_OPTIONS}
                   />
                   <Button type="button" size="sm" onClick={() => bulkSetCategory(bulkCat)}>
                     Apply
@@ -847,10 +862,7 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
                     className="w-36"
                     value={toCat}
                     onChange={setToCat}
-                    options={PRODUCT_CATEGORY_ORDER.map((c) => ({
-                      value: c,
-                      label: PRODUCT_CATEGORY_LABELS[c],
-                    }))}
+                    options={CATALOG_CATEGORY_OPTIONS}
                   />
                   <Button type="button" size="sm" onClick={bulkRecategorize}>
                     Change all
@@ -948,9 +960,10 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
                           <td className="px-2 py-1">
                             <SearchPicker
                               className="w-32"
-                              value={PRODUCT_CATEGORY_ORDER.includes(r.category as never) ? r.category : "other"}
+                              value={isCatalogProductCategory(r.category) ? r.category : ""}
                               onChange={(v) => updateRow(i, { category: v })}
-                              options={PRODUCT_CATEGORY_ORDER.map((c) => ({ value: c, label: PRODUCT_CATEGORY_LABELS[c] }))}
+                              options={CATALOG_CATEGORY_OPTIONS}
+                              placeholder={isLaborCategory(r.category) ? "Pick a material" : "Category"}
                             />
                           </td>
                           <td className="px-2 py-1">

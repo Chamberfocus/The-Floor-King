@@ -75,7 +75,9 @@ export default async function QuickEstimatePage({
   const margin = Number(biz?.target_gross_margin_pct ?? 40) || 40;
   const freight = Number(org.freight_markup_pct ?? 0) || 0;
 
-  const products: (QuickProduct & { cost?: number | null })[] = (prodData ?? []).map(
+  const products: (QuickProduct & { cost?: number | null })[] = (prodData ?? [])
+    .filter((p) => p.category !== "labor")
+    .map(
     (p) => {
       const vendors = costByProduct.has(p.id as string)
         ? [

@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  CATALOG_PRODUCT_CATEGORIES,
+  isCatalogProductCategory,
   PRODUCT_CATEGORY_LABELS,
-  PRODUCT_CATEGORY_ORDER,
   type Product,
 } from "@/lib/types";
 import { SegmentedField } from "@/components/ui/segmented-field";
@@ -52,18 +53,11 @@ export function ProductForm({
   freightMarkupPct?: number;
 }) {
   const isEdit = Boolean(product);
-  /**
-   * Labor is not a product.
-   *
-   * It shares this table for convenience, but nearly every field here describes
-   * a physical thing: a SKU, a maker, a style and colour, cartons per box, roll
-   * width, bag coverage. None of it means anything for "tear-out" or "stair
-   * tread installation" — and leaving the fields on screen invites exactly the
-   * mistake already sitting in the catalog: a labor item carrying a MATERIAL
-   * rate, which then bills material the job never bought.
-   */
-  const [category, setCategory] = useState<string>(product?.category ?? "lvp");
-  const isLabor = category === "labor";
+  /** A leftover labor row has to become a material before it can be saved. */
+  const storedAsLabor = product?.category === "labor";
+  const [category, setCategory] = useState<string>(
+    storedAsLabor ? "" : (product?.category ?? "lvp"),
+  );
   const [materialRate, setMaterialRate] = useState(
     product?.material_rate != null && product.material_rate !== 0
       ? String(product.material_rate)
@@ -96,8 +90,28 @@ export function ProductForm({
     if (state.ok) toast.success("Saved");
   }, [state]);
 
+  const chooseCategory = (next: string) => {
+    if (!isCatalogProductCategory(next)) return;
+    setCategory(next);
+    if (!storedAsLabor) return;
+    // The old labor row kept its price in labor_rate and hid material cost.
+    // Moving it onto material cost is what makes the row a product.
+    setMaterialRate((cur) => {
+      const n = parseFloat(cur);
+      if (Number.isFinite(n) && n > 0) return cur;
+      return laborRate;
+    });
+    setLaborRate("");
+  };
+
   return (
-    <form action={formAction} className="space-y-5">
+    <form
+      action={formAction}
+      className="space-y-5"
+      onSubmit={(e) => {
+        if (!isCatalogProductCategory(category)) e.preventDefault();
+      }}
+    >
       {isEdit ? <input type="hidden" name="id" value={product!.id} /> : null}
 
       <div className="space-y-2">
@@ -112,14 +126,22 @@ export function ProductForm({
         />
       </div>
 
+      {storedAsLabor && !isCatalogProductCategory(category) ? (
+        <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+          This was saved as labor. Labor is not a product. Pick the material it
+          actually is, or delete the row. The cost moves onto material cost when
+          you pick a category.
+        </p>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label>Category</Label>
           <SegmentedField
             name="category"
-            defaultValue={product?.category ?? "lvp"}
-            onChange={setCategory}
-            options={PRODUCT_CATEGORY_ORDER.map((c) => ({
+            value={category}
+            onChange={chooseCategory}
+            options={CATALOG_PRODUCT_CATEGORIES.map((c) => ({
               value: c,
               label: PRODUCT_CATEGORY_LABELS[c],
             }))}
@@ -135,36 +157,26 @@ export function ProductForm({
           />
         </div>
 
-        {isLabor ? (
-          /* Labor has no material cost. Posting 0 explicitly means switching an
-             existing item to Labor CLEARS whatever material rate it carried,
-             rather than leaving it hidden but live. Two items are in exactly
-             that state today. */
-          <input type="hidden" name="material_rate" value="0" />
-        ) : (
-          <div className="space-y-2">
-            <Label htmlFor="material_rate">Material cost ($ / unit)</Label>
-            <Input
-              id="material_rate"
-              name="material_rate"
-              type="number"
-              step="0.01"
-              min="0"
-              value={materialRate}
-              onChange={(e) => setMaterialRate(e.target.value)}
-              placeholder="3.50"
-            />
-            <p className="text-xs text-muted-foreground">
-              What you pay for it — not what you sell it for. A vendor cost below
-              wins when recorded.
-            </p>
-          </div>
-        )}
         <div className="space-y-2">
-          <Label htmlFor="labor_rate">
-            {isLabor ? "Your cost ($ / unit) *" : "Labor rate ($ / unit)"}
-          </Label>
-            <Input
+          <Label htmlFor="material_rate">Material cost ($ / unit)</Label>
+          <Input
+            id="material_rate"
+            name="material_rate"
+            type="number"
+            step="0.01"
+            min="0"
+            value={materialRate}
+            onChange={(e) => setMaterialRate(e.target.value)}
+            placeholder="3.50"
+          />
+          <p className="text-xs text-muted-foreground">
+            What you pay for it — not what you sell it for. A vendor cost below
+            wins when recorded.
+          </p>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="labor_rate">Install rate ($ / unit)</Label>
+          <Input
             id="labor_rate"
             name="labor_rate"
             type="number"
@@ -172,14 +184,12 @@ export function ProductForm({
             min="0"
             value={laborRate}
             onChange={(e) => setLaborRate(e.target.value)}
-            placeholder={isLabor ? "0.12" : "2.00"}
+            placeholder="2.00"
           />
-          {isLabor ? (
-            <p className="text-xs text-muted-foreground">
-              What this work costs YOU per unit — what you pay the installer, not
-              what the customer pays. The sell price comes off your margin.
-            </p>
-          ) : null}
+          <p className="text-xs text-muted-foreground">
+            Optional install rate that rides with this material. It is not a
+            separate product.
+          </p>
         </div>
 
         <SellPreview
@@ -191,11 +201,6 @@ export function ProductForm({
           freightMarkupPct={freightMarkupPct}
         />
 
-        {/* Attributes of a physical, manufactured item. Labor has none of
-            them — and a labor row carrying a SKU would be swept into a supplier
-            price feed that matches on exactly that. */}
-        {!isLabor ? (
-          <>
         {/* ── The specs that pertain to THIS kind of product ─────────────────
             Every product was asked all of these at once, so choosing Carpet
             still showed "Sq ft / box (hard surface)" and "Coverage — SF / bag
@@ -327,8 +332,6 @@ export function ProductForm({
             placeholder="e.g. Honey Oak"
           />
         </div>
-          </>
-        ) : null}
         <div className="space-y-2 sm:col-span-2">
           <Label>Vendors (who you buy it from)</Label>
           <VendorRows vendors={vendors} rows={vendorRows} onChange={setVendorRows} />
@@ -370,7 +373,7 @@ export function ProductForm({
       ) : null}
 
       <div className="flex justify-end">
-        <Button type="submit" disabled={pending}>
+        <Button type="submit" disabled={pending || !isCatalogProductCategory(category)}>
           {pending ? "Saving…" : isEdit ? "Save changes" : "Add product"}
         </Button>
       </div>
