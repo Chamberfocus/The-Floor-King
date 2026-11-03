@@ -53,10 +53,12 @@ export default async function InvoicePage({
   const invoice = await getInvoice(id);
   if (!invoice) notFound();
 
-  const customer = await getCustomer(invoice.customer_id);
-  const org = await getOrgSettings();
-  const profile = await requireProfile();
-  const invoiceScope = await getInvoiceScope(invoice);
+  const [customer, org, profile, invoiceScope] = await Promise.all([
+    getCustomer(invoice.customer_id),
+    getOrgSettings(),
+    requireProfile(),
+    getInvoiceScope(invoice),
+  ]);
   const paid = amountPaid(invoice);
   const credited = amountCredited(invoice);
   const deposited = amountDeposited(invoice);
@@ -69,19 +71,19 @@ export default async function InvoicePage({
     appliedDeposits: deposited,
     appliedWriteOffs: writtenOff,
   });
-  const creditSummary =
+  const [creditSummary, invProfit] = await Promise.all([
     profile.role === "admin" || profile.role === "office"
-      ? await getCustomerCreditSummary(invoice.customer_id).catch(() => null)
-      : null;
+      ? getCustomerCreditSummary(invoice.customer_id).catch(() => null)
+      : Promise.resolve(null),
+    profile.role === "admin" && !preview
+      ? getInvoiceProfit(invoice)
+      : Promise.resolve(null),
+  ]);
   const availableCredits = (creditSummary?.memos ?? []).filter(
     (m) => m.status === "issued" && memoAvailable(m) > 0.005,
   );
   // Owner-only profit view (fuel + car + commission), same structure as the
   // estimate. Never computed for non-owners; never shown on the printed invoice.
-  const invProfit =
-    profile.role === "admin" && !preview
-      ? await getInvoiceProfit(invoice)
-      : null;
 
   return (
     <div className="mx-auto max-w-4xl">

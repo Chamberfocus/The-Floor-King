@@ -63,15 +63,52 @@ function Stars({ n, size = "size-4" }: { n: number; size?: string }) {
   );
 }
 
+async function loadMyInstallCalendar(profileId: string) {
+  const since = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 120);
+    return d.toISOString().slice(0, 10);
+  })();
+  const supabase = await createClient();
+  const calendarSelect =
+    "id, title, customer_id, scheduled_date, scheduled_end, arrival_window, site_city, status, install_hold, customer:customers(full_name, cancelled_at)";
+  const { data, error } = await supabase
+    .from("jobs")
+    .select(calendarSelect)
+    .eq("assigned_to", profileId)
+    .not("scheduled_date", "is", null)
+    .gte("scheduled_date", since)
+    .or("delivery_type.is.null,delivery_type.neq.cash_carry")
+    .order("scheduled_date", { ascending: true });
+  if (!error) return data;
+  const fallback = await supabase
+    .from("jobs")
+    .select(
+      "id, title, customer_id, scheduled_date, scheduled_end, arrival_window, site_city, status, customer:customers(full_name, cancelled_at)",
+    )
+    .eq("assigned_to", profileId)
+    .not("scheduled_date", "is", null)
+    .gte("scheduled_date", since)
+    .or("delivery_type.is.null,delivery_type.neq.cash_carry")
+    .order("scheduled_date", { ascending: true });
+  return fallback.data;
+}
+
 export default async function InstallerHomePage() {
   const profile = await requireProfile();
   // Installer home is for the field crew; staff have their own boards.
   if (!["crew", "admin", "office"].includes(profile.role)) redirect("/");
 
-  const settings = await getBusinessSettings();
-  const home = await getInstallerHome(profile.id, settings.installer_collects_balance);
-  const flowStages = await listWorkflowStages();
-  const myAvailability = await listMyAvailability(profile.id);
+  const settingsPromise = getBusinessSettings();
+  const [, flowStages, myAvailability, myRows, home] = await Promise.all([
+    settingsPromise,
+    listWorkflowStages(),
+    listMyAvailability(profile.id),
+    loadMyInstallCalendar(profile.id),
+    settingsPromise.then((settings) =>
+      getInstallerHome(profile.id, settings.installer_collects_balance),
+    ),
+  ]);
   const signedOff = (row: (typeof home.jobs)[number]) =>
     customerSignOffRecorded({
       signature: row.satisfaction?.signature,
@@ -84,48 +121,17 @@ export default async function InstallerHomePage() {
   );
   const openJobs = home.jobs.filter((row) => row.job.status !== "completed");
   const visible = [...awaitingSignoff, ...openJobs];
-  const priceAlerts = await loadSignoffPriceAlerts(visible.map((row) => row.job.id));
+  const [priceAlerts, extraRows] = await Promise.all([
+    loadSignoffPriceAlerts(visible.map((row) => row.job.id)),
+    Promise.all(
+      visible.map(async ({ job }) => [job.id, await listJobExtras(job.id)] as const),
+    ),
+  ]);
   const noPriceAlert: SignoffPriceAlert = signoffPriceAlert({ invoices: [], extras: [] });
-  const extrasByJob = new Map<string, Awaited<ReturnType<typeof listJobExtras>>>();
-  await Promise.all(
-    visible.map(async ({ job }) => {
-      extrasByJob.set(job.id, await listJobExtras(job.id));
-    }),
-  );
+  const extrasByJob = new Map(extraRows);
   const doneCount = home.jobs.length - visible.length;
 
   // My install calendar — only the installs assigned to me (RLS enforces this).
-  const since = (() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 120);
-    return d.toISOString().slice(0, 10);
-  })();
-  const supabase = await createClient();
-  const calendarSelect =
-    "id, title, customer_id, scheduled_date, scheduled_end, arrival_window, site_city, status, install_hold, customer:customers(full_name, cancelled_at)";
-  const calendarQuery = () =>
-    supabase
-      .from("jobs")
-      .select(calendarSelect)
-      .eq("assigned_to", profile.id)
-      .not("scheduled_date", "is", null)
-      .gte("scheduled_date", since)
-      .or("delivery_type.is.null,delivery_type.neq.cash_carry")
-      .order("scheduled_date", { ascending: true });
-  let { data: myRows, error: calendarError } = await calendarQuery();
-  if (calendarError) {
-    const fallback = await supabase
-      .from("jobs")
-      .select(
-        "id, title, customer_id, scheduled_date, scheduled_end, arrival_window, site_city, status, customer:customers(full_name, cancelled_at)",
-      )
-      .eq("assigned_to", profile.id)
-      .not("scheduled_date", "is", null)
-      .gte("scheduled_date", since)
-      .or("delivery_type.is.null,delivery_type.neq.cash_carry")
-      .order("scheduled_date", { ascending: true });
-    myRows = fallback.data as typeof myRows;
-  }
   const myEvents: CalEvent[] = ((myRows ?? []) as unknown[]).flatMap((row) => {
     const r = row as {
       id: string;

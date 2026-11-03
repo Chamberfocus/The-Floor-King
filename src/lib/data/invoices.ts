@@ -506,8 +506,18 @@ export async function listInvoicesForJob(jobId: string): Promise<Invoice[]> {
 /**
  * Dashboard count of invoices that still have open AR.
  * Archive, cancel, and a status of "paid" do not remove a real balance.
- * Void invoices are $0 in invoiceAmountDue.
+ * Void invoices are $0 in invoiceAmountDue, so they are left out of this read.
+ * listInvoices() stays the full book for screens that show every invoice.
  */
 export async function getOutstandingInvoiceCount(): Promise<number> {
-  return countInvoicesWithOpenAr(await listInvoices());
+  const supabase = await createClient();
+  const rows = await fetchAll<Invoice>((from, to) =>
+    supabase
+      .from("invoices")
+      .select("*")
+      .or("status.is.null,status.neq.void")
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
+  return countInvoicesWithOpenAr(await attach(supabase, rows));
 }

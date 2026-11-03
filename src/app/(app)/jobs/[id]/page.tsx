@@ -137,6 +137,42 @@ export async function generateMetadata({
   return { title: job?.title ?? "Job" };
 }
 
+function ready<T>(value: T): Promise<T> {
+  return Promise.resolve(value);
+}
+
+async function countOtherLiveJobs(customerId: string | null, jobId: string) {
+  if (!customerId) return 0;
+  const db = await createClient();
+  const { count } = await db
+    .from("jobs")
+    .select("id", { count: "exact", head: true })
+    .eq("customer_id", customerId)
+    .neq("status", "cancelled")
+    .neq("id", jobId);
+  return count ?? 0;
+}
+
+async function loadJobEstimateHeader(estimateId: string | null) {
+  if (!estimateId) return null;
+  const db = await createClient();
+  const { data: est } = await db
+    .from("estimates")
+    .select("id, status")
+    .eq("id", estimateId)
+    .maybeSingle();
+  if (!est) return null;
+  const { data: opts } = await db
+    .from("estimate_options")
+    .select("id")
+    .eq("estimate_id", est.id);
+  return {
+    id: est.id as string,
+    status: est.status as string,
+    optionIds: (opts ?? []).map((o) => o.id as string),
+  };
+}
+
 export default async function JobPage({
   params,
   searchParams,
@@ -172,7 +208,124 @@ export default async function JobPage({
 
   const job = await getJob(id);
   if (!job) notFound();
-  const linkedOrder = await getOrderByJobId(job.id);
+  const isDirectAssignee = job.assigned_to === profile.id;
+  const canAssignWarehouse = profile.role === "admin" || profile.role === "office";
+  const canSchedule = isStaff || profile.role === "scheduler";
+  // Prices are for staff only — installers never see estimate/job financials
+  // (the COD balance to collect is handled separately).
+  const showPrices = isStaff && !!job.show_prices;
+  const canDirectFieldActions = isStaff || isDirectAssignee;
+  // Crew membership is the only role fact that is not already on the job.
+  // Staff, the assigned installer, and sales start their reads with the rest.
+  const knownInstaller = isStaff || isDirectAssignee;
+  const knownSignoff =
+    knownInstaller ||
+    profile.role === "salesman" ||
+    profile.role === "sales_manager";
+  const productIds = (job.line_items ?? [])
+    .map((line) => line.product_id)
+    .filter((productId): productId is string => !!productId);
+
+  const [
+    linkedOrder,
+    org,
+    flowStages,
+    siblingCount,
+    users,
+    names,
+    files,
+    jobCrewForViewer,
+    applicants,
+    costAnalysis,
+    jobLabor,
+    jobMaterials,
+    measureDocs,
+    serviceAddresses,
+    ticketRolls,
+    jobExtras,
+    stageableRolls,
+    warehouseUsers,
+    bizSettings,
+    jobNotes,
+    checklist,
+    jobEstimate,
+    opsPack,
+    openCallbacks,
+    jobPos,
+    depositSummary,
+    staffCollectible,
+    installProps,
+    earlyPhotos,
+    earlySatisfaction,
+    earlySignoff,
+    earlyDocs,
+  ] = await Promise.all([
+    getOrderByJobId(job.id),
+    getOrgSettings(),
+    listWorkflowStages(),
+    countOtherLiveJobs(job.customer_id, job.id),
+    isStaff ? listAssignableUsers() : ready([] as Awaited<ReturnType<typeof listAssignableUsers>>),
+    job.assigned_to ? getProfileNames([job.assigned_to]) : ready({} as Record<string, string>),
+    listJobFiles(id),
+    getJobCrew(job.id),
+    isStaff ? getJobApplications(id) : ready([] as Awaited<ReturnType<typeof getJobApplications>>),
+    profile.role === "admin" ? getJobCostAnalysis(id) : ready(null),
+    isStaff ? listJobLabor(id) : ready([] as Awaited<ReturnType<typeof listJobLabor>>),
+    canManageMaterials ? getJobMaterials(id) : ready(null),
+    job.customer_id
+      ? getMeasurementDocuments(job.customer_id, id)
+      : ready([] as Awaited<ReturnType<typeof getMeasurementDocuments>>),
+    isStaff
+      ? listServiceAddresses(job.customer_id)
+      : ready([] as Awaited<ReturnType<typeof listServiceAddresses>>),
+    listTicketRolls(id),
+    listJobExtras(id),
+    canAssignWarehouse
+      ? listStageableRolls(productIds)
+      : ready([] as Awaited<ReturnType<typeof listStageableRolls>>),
+    canAssignWarehouse
+      ? listWarehouseUsers()
+      : ready([] as Awaited<ReturnType<typeof listWarehouseUsers>>),
+    getBusinessSettings(),
+    // The running note log — separate from jobs.notes, which is the structured
+    // scope the questionnaire writes.
+    listJobNotes(id),
+    /**
+     * The checklist for THIS job, plus the one-click actions for whichever step
+     * is next. Approve / create the work order / send to the warehouse are the
+     * three things a link can't do, and they belong where the work is.
+     */
+    getJobChecklist(job.id),
+    loadJobEstimateHeader(job.estimate_id),
+    getJobOperationalStateForJob({
+      id: job.id,
+      status: job.status ?? "unscheduled",
+      scheduled_date: job.scheduled_date,
+      warehouse_ready_at: job.warehouse_ready_at,
+      estimate_id: job.estimate_id,
+    }).catch(() => ({
+      state: null as Awaited<
+        ReturnType<typeof getJobOperationalStateForJob>
+      >["state"] | null,
+      activeHoldId: null as string | null,
+    })),
+    listOpenServiceCallbacksForJob(job.id).catch(() => []),
+    listJobPurchasingFacts(job.id).catch(() => []),
+    isStaff && job.customer_id
+      ? getCustomerDepositSummary(job.customer_id).catch(() => null)
+      : ready(null),
+    isStaff ? getJobOpenBalance(id).catch(() => null) : ready(null),
+    canDirectFieldActions && job.customer_id
+      ? buildInstallScheduleProps(job.id, job.customer_id)
+      : ready(null),
+    knownInstaller ? getJobPhotos(id) : ready([] as Awaited<ReturnType<typeof getJobPhotos>>),
+    knownSignoff ? getJobSatisfaction(id) : ready(null),
+    knownSignoff ? loadSignoffPriceAlert(id) : ready(null),
+    knownInstaller
+      ? listJobDocuments(job, { includeFinancials: isStaff })
+      : ready(null),
+  ]);
+
   const orderMaySendToWarehouse =
     !linkedOrder ||
     canStageCustomerOrder({
@@ -180,10 +333,7 @@ export default async function JobPage({
       stockStatus: linkedOrder.stock_status,
     });
   const progress = getJobProgress(job);
-
-  const org = await getOrgSettings();
   // Same flow position the customer dashboard shows — from the ONE shared source.
-  const flowStages = await listWorkflowStages();
   /**
    * THIS job's stage. It used to read the account's, so every job on a
    * multi-job account showed the same position — the badge on an unmeasured
@@ -196,95 +346,39 @@ export default async function JobPage({
     job.customer?.workflow_stage_id ??
     null;
   const flowStage = (jobStageId ? flowStages.find((s) => s.id === jobStageId) : null) ?? null;
-  // Other live work on the account — the stage dialog says what won't move.
-  const siblingCount = job.customer_id
-    ? (
-        await (await createClient())
-          .from("jobs")
-          .select("id", { count: "exact", head: true })
-          .eq("customer_id", job.customer_id)
-          .neq("status", "cancelled")
-          .neq("id", job.id)
-      ).count ?? 0
-    : 0;
-  const users = isStaff ? await listAssignableUsers() : [];
-  const names = job.assigned_to ? await getProfileNames([job.assigned_to]) : {};
   const assignedName = job.assigned_to ? names[job.assigned_to] : null;
-
-  const files = await listJobFiles(id);
   const photos = files.filter((f) => f.kind === "photo");
   const signatures = files.filter((f) => f.kind === "signature");
-
-  const jobCrewForViewer = await getJobCrew(job.id);
-  const isDirectAssignee = job.assigned_to === profile.id;
   const isCrewLinked =
     !!jobCrewForViewer?.profile_id && jobCrewForViewer.profile_id === profile.id;
   const isAssignedToMe = isDirectAssignee || isCrewLinked;
-  const applicants = isStaff ? await getJobApplications(id) : [];
-
-  // Profit/cost analysis is owner & admin only.
-  const costAnalysis =
-    profile.role === "admin" ? await getJobCostAnalysis(id) : null;
-  // Crew pay capture (real labor cost) — staff only.
-  const jobLabor = isStaff ? await listJobLabor(id) : [];
-  // Materials & sourcing (stock vs special-order) — staff only.
-  const jobMaterials = canManageMaterials ? await getJobMaterials(id) : null;
-  // Measurement diagrams (uploaded sketch + saved carpet plan) — everyone on
-  // the job, crew included, so installers can read them without digging.
-  const measureDocs = job.customer_id
-    ? await getMeasurementDocuments(job.customer_id, id)
-    : [];
-
   // Scheduling & crew assignment now live on the customer file (their home);
   // the job page shows the booked schedule read-only and links back there.
-  const canSchedule = isStaff || profile.role === "scheduler";
   const installWindowLabel = job.arrival_window
     ? job.arrival_window
         .split("-")
         .map((t) => to12(t))
         .join("–")
     : null;
-
-  const serviceAddresses = isStaff
-    ? await listServiceAddresses(job.customer_id)
-    : [];
   /** The named unit, when the job points at one — "Unit 813" identifies work on
    *  a building where every job shares a street. */
   const siteLabel =
     serviceAddresses.find((a) => a.id === job.service_address_id)?.label ?? null;
-  const canAssignWarehouse = profile.role === "admin" || profile.role === "office";
-  const ticketRolls = await listTicketRolls(id);
-  const jobExtras = await listJobExtras(id);
-  const stageableRolls = canAssignWarehouse
-    ? await listStageableRolls(
-        (job.line_items ?? [])
-          .map((line) => line.product_id)
-          .filter((productId): productId is string => !!productId),
-      )
-    : [];
   const canSignExtra =
     profile.role === "admin" ||
     profile.role === "office" ||
     profile.role === "sales_manager" ||
     profile.role === "salesman" ||
     (profile.role === "crew" && isAssignedToMe);
-  const warehouseUsers = canAssignWarehouse ? await listWarehouseUsers() : [];
-
   // Optional: the assigned installer can collect the balance on site. Per-job
   // override (null = inherit the global setting). The collection action itself
   // lives on the crew's My Work page — here we only show the balance read-only.
-  const bizSettings = await getBusinessSettings();
   const collectsBalance =
     job.installer_collects_balance ?? bizSettings.installer_collects_balance;
   const jobCrew = isStaff ? jobCrewForViewer : null;
-
-  // Completion (photos, sign-off, balance) is captured by the crew on their My
-  // Work page; the job page shows it read-only.
-  // Prices are for staff only — installers never see estimate/job financials
-  // (the COD balance to collect is handled separately).
-  const showPrices = isStaff && !!job.show_prices;
   // Room-grouped scope — the same source the printed installation work order uses.
   const scope = buildJobScope(job.line_items, job.notes);
+
   const renderLine = (l: (typeof job.line_items)[number]) => {
     const spec = lineSpec(l);
     const tags = [l.manufacturer, l.style, l.color, l.item_no ? `#${l.item_no}` : null]
@@ -347,18 +441,23 @@ export default async function JobPage({
     canInstallerTools ||
     profile.role === "salesman" ||
     profile.role === "sales_manager";
-  const canDirectFieldActions = isStaff || isDirectAssignee;
-  const jobPhotos = canInstallerTools ? await getJobPhotos(id) : [];
-  // The running note log — separate from jobs.notes, which is the structured
-  // scope the questionnaire writes.
-  const jobNotes = await listJobNotes(id);
-  const satisfaction = canSeeSignoff ? await getJobSatisfaction(id) : null;
-  const signoffAlert = canSeeSignoff ? await loadSignoffPriceAlert(id) : null;
+  const [jobPhotos, satisfaction, signoffAlert, balanceInfo, jobDocsFull] =
+    await Promise.all([
+      !knownInstaller && canInstallerTools ? getJobPhotos(id) : ready(earlyPhotos),
+      !knownSignoff && canSeeSignoff ? getJobSatisfaction(id) : ready(earlySatisfaction),
+      !knownSignoff && canSeeSignoff ? loadSignoffPriceAlert(id) : ready(earlySignoff),
+      collectsBalance && canInstallerTools
+        ? isStaff
+          ? ready(staffCollectible)
+          : getJobOpenBalance(id)
+        : ready(null),
+      !knownInstaller && canInstallerTools
+        ? listJobDocuments(job, { includeFinancials: isStaff })
+        : ready(earlyDocs),
+    ]);
   const signoffAlertCopy = signoffAlert ? signoffPriceAlertCopy(signoffAlert, formatMoney) : null;
-  const balanceInfo =
-    collectsBalance && canInstallerTools ? await getJobOpenBalance(id) : null;
   // Balance for the printed installation work order (shown when the installer
-  // collects on site) — reuse the one above, else fetch it.
+  // collects on site).
   const woCollectBalance =
     collectsBalance && canInstallerTools ? (balanceInfo?.balance ?? null) : null;
 
@@ -373,9 +472,6 @@ export default async function JobPage({
   // (estimates, invoices, POs, job total, balance detail) are staff-only —
   // installers get the non-financial docs (work order, staging, completion,
   // measurements). The COD balance still surfaces when they collect.
-  const jobDocsFull = canInstallerTools
-    ? await listJobDocuments(job, { includeFinancials: isStaff })
-    : null;
   const docGroups = jobDocsFull
     ? isStaff
       ? jobDocsFull.groups
@@ -403,40 +499,9 @@ export default async function JobPage({
   ];
 
   // Smart install scheduler for this job — opened from the "Schedule install"
-  // icon in the header (staff or the assigned installer).
-  const installProps =
-    canDirectFieldActions && job.customer_id
-      ? await buildInstallScheduleProps(job.id, job.customer_id)
-      : null;
-
-  /**
-   * The checklist for THIS job, plus the one-click actions for whichever step
-   * is next. Approve / create the work order / send to the warehouse are the
-   * three things a link can't do, and they belong where the work is.
-   */
-  const checklist = await getJobChecklist(job.id);
+  // icon in the header (staff or the assigned installer). installProps loaded
+  // with the rest of the job.
   const stageName = flowStage?.name ?? null;
-  // The estimate this work order came from — its send/approve buttons need it.
-  const jobEstimate = job.estimate_id
-    ? await (async () => {
-        const db = await createClient();
-        const { data: est } = await db
-          .from("estimates")
-          .select("id, status")
-          .eq("id", job.estimate_id!)
-          .maybeSingle();
-        if (!est) return null;
-        const { data: opts } = await db
-          .from("estimate_options")
-          .select("id")
-          .eq("estimate_id", est.id);
-        return {
-          id: est.id as string,
-          status: est.status as string,
-          optionIds: (opts ?? []).map((o) => o.id as string),
-        };
-      })()
-    : null;
 
   /**
    * The one-click steps, built by the SHARED helper the customer file uses, so
@@ -463,27 +528,6 @@ export default async function JobPage({
     checklistSlots.contact = <MarkContacted customerId={job.customer_id} />;
   }
 
-  const [opsPack, openCallbacks, jobPos, depositSummary, staffCollectible] =
-    await Promise.all([
-      getJobOperationalStateForJob({
-        id: job.id,
-        status: job.status ?? "unscheduled",
-        scheduled_date: job.scheduled_date,
-        warehouse_ready_at: job.warehouse_ready_at,
-        estimate_id: job.estimate_id,
-      }).catch(() => ({
-        state: null as Awaited<
-          ReturnType<typeof getJobOperationalStateForJob>
-        >["state"] | null,
-        activeHoldId: null as string | null,
-      })),
-      listOpenServiceCallbacksForJob(job.id).catch(() => []),
-      listJobPurchasingFacts(job.id).catch(() => []),
-      isStaff && job.customer_id
-        ? getCustomerDepositSummary(job.customer_id).catch(() => null)
-        : Promise.resolve(null),
-      isStaff ? getJobOpenBalance(id).catch(() => null) : Promise.resolve(null),
-    ]);
   const { state: opsState, activeHoldId } = opsPack;
   const staffBalance = staffCollectible?.balance ?? 0;
   const canManageHold =

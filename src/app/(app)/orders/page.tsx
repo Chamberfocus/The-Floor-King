@@ -93,11 +93,11 @@ export default async function OrdersPage({
   }
   const orders = queue.rows;
   const productIds = orders.flatMap((o) => (o.items ?? []).map((i) => i.product_id ?? ""));
-  const stock = await getProductStock(productIds);
-  const remnantAlerts = await reorderAlertsFor(productIds);
-  const checkerNames = await getProfileNames(
-    orders.map((o) => o.stock_checked_by ?? "").filter(Boolean),
-  );
+  const [stock, remnantAlerts, checkerNames] = await Promise.all([
+    getProductStock(productIds),
+    reorderAlertsFor(productIds),
+    getProfileNames(orders.map((o) => o.stock_checked_by ?? "").filter(Boolean)),
+  ]);
   const pending = orders.filter((o) => o.status === "submitted");
   const rest = orders.filter((o) => o.status !== "submitted");
 

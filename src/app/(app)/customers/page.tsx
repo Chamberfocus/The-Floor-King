@@ -54,9 +54,14 @@ export default async function CustomersPage({
       : undefined;
   const unassignedOnly = owner === "unassigned";
 
-  // Load stages first so we can hide "Closed" customers from the active list by
-  // default (they're still reachable by picking Closed in the stage filter).
-  const stages = await listWorkflowStages();
+  // Stages decide which rows the list hides. The handoff list, windows, and
+  // preferences do not depend on those rows, so they load with the stages.
+  const [stages, members, schedSettings, prefs] = await Promise.all([
+    listWorkflowStages(),
+    listHandoffMembers(),
+    getSchedulingSettings(),
+    getUserPreferences(),
+  ]);
   const closedStageIds = stages
     .filter((s) => /closed/i.test(s.name))
     .map((s) => s.id);
@@ -111,11 +116,8 @@ export default async function CustomersPage({
   const customers = listed.rows;
   const customerPages = Math.max(1, Math.ceil(listed.total / listed.pageSize));
 
-  // Shared data for per-row quick actions — fetched once for the whole list.
-  const [members, schedSettings, prefs, contexts, activity] = await Promise.all([
-    listHandoffMembers(),
-    getSchedulingSettings(),
-    getUserPreferences(),
+  // Per-row facts need the page of customers. The shared lists already loaded.
+  const [contexts, activity] = await Promise.all([
     getCustomerRowContexts(customers.map((c) => c.id)),
     getCustomerListActivity(customers.map((c) => c.id)),
   ]);

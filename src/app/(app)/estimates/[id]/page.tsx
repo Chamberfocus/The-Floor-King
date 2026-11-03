@@ -143,41 +143,57 @@ export default async function EstimatePage({
   const { id } = await params;
   const { print, preview: previewParam, approval_error: approvalError, invoice_error: invoiceError, job_error: jobError, delete_error: deleteError, undo, why, notify, notify_detail: notifyDetail } = await searchParams;
   const preview = previewParam === "1";
+  const profilePromise = requireProfile();
   const estimate = await getEstimate(id);
   if (!estimate) notFound();
-  const approvalSnap = await getCurrentApprovalSnapshot(id);
-
-  const customer = await getCustomer(estimate.customer_id);
   const supabase = await createClient();
-  const { data: linkedJob } = await supabase
-    .from("jobs")
-    .select("id, title, status, scheduled_date, warehouse_ready_at")
-    .eq("estimate_id", id)
-    .maybeSingle();
   // Which property this estimate is for. Only meaningful on accounts that have
   // more than one — but it has to be READABLE on all of them, or a wrong one
   // stays invisible until a crew turns up at the wrong door.
   const svcAddrId = (estimate as { service_address_id?: string | null })
     .service_address_id ?? null;
-  const siteAddress = svcAddrId
-    ? ((
-        await supabase
+  const [
+    approvalSnap,
+    customer,
+    linkedJobResult,
+    siteAddressResult,
+    org,
+    preparedBy,
+    delivery,
+    bizAll,
+    profile,
+    depositSummary,
+  ] = await Promise.all([
+    getCurrentApprovalSnapshot(id),
+    getCustomer(estimate.customer_id),
+    supabase
+      .from("jobs")
+      .select("id, title, status, scheduled_date, warehouse_ready_at")
+      .eq("estimate_id", id)
+      .maybeSingle(),
+    svcAddrId
+      ? supabase
           .from("service_addresses")
           .select("id, label, street, city, state, zip")
           .eq("id", svcAddrId)
           .maybeSingle()
-      ).data as {
-        id: string; label: string | null; street: string | null;
-        city: string | null; state: string | null; zip: string | null;
-      } | null)
-    : null;
-  const org = await getOrgSettings();
-  const preparedBy = await getEstimatorName(estimate.created_by);
-  const delivery = await getEstimateDelivery(id);
+      : Promise.resolve({ data: null }),
+    getOrgSettings(),
+    getEstimatorName(estimate.created_by),
+    getEstimateDelivery(id),
+    getBusinessSettings(),
+    profilePromise,
+    estimate.customer_id
+      ? getCustomerDepositSummary(estimate.customer_id).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+  const linkedJob = linkedJobResult.data;
+  const siteAddress = (siteAddressResult.data ?? null) as {
+    id: string; label: string | null; street: string | null;
+    city: string | null; state: string | null; zip: string | null;
+  } | null;
   const options = estimate.options ?? [];
   const detailed = estimate.presentation === "detailed";
-
-  const bizAll = await getBusinessSettings();
   const billSettings = {
     fuelCharge: bizAll.job_fuel_charge,
     salespersonGas: bizAll.job_fuel_fee,
@@ -209,7 +225,6 @@ export default async function EstimatePage({
   // Owner-only internal profit: canonical jobProfit (same as builder / invoice).
   // Never shown to the customer (this whole page is staff-facing; the customer's
   // copy is EstimatePrintDoc above).
-  const profile = await requireProfile();
   const linked = linkedJob as {
     id: string;
     title: string | null;
@@ -224,9 +239,6 @@ export default async function EstimatePage({
         hasMaterialNeed: materialNeed,
       }).ready
     : false;
-  const depositSummary = estimate.customer_id
-    ? await getCustomerDepositSummary(estimate.customer_id).catch(() => null)
-    : null;
   const estimateAction = buildEstimateActionCenter({
     now: new Date(),
     role: profile.role,

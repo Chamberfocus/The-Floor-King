@@ -125,10 +125,30 @@ export default async function WarehousePage({
     listError = queueFailureMessage(error);
   }
   const jobsRaw = board.rows;
-  const flowStages = await listWorkflowStages();
-  const remnantsToShelve = await newRemnants(wh);
+  const [
+    flowStages,
+    remnantsToShelve,
+    sourcedArr,
+    org,
+    stockChecks,
+    incomingResult,
+    warehouseNotes,
+  ] = await Promise.all([
+    listWorkflowStages(),
+    newRemnants(wh),
+    Promise.all(jobsRaw.map((j) => getJobMaterials(j.id, wh))),
+    getOrgSettings(),
+    listWarehouseStockCheckOrders(wh),
+    Promise.all([
+      listIncomingPos(parseListPage(sp.deliveries), "ordered"),
+      listIncomingPos(parseListPage(sp.received), "received"),
+    ]).then(
+      (pair) => ({ pair, error: null as string | null }),
+      (error: unknown) => ({ pair: null, error: queueFailureMessage(error) }),
+    ),
+    listWarehouseNotes(),
+  ]);
   // The real sourcing (pull-from-stock vs order, with cut sizes) per job.
-  const sourcedArr = await Promise.all(jobsRaw.map((j) => getJobMaterials(j.id, wh)));
   const sourced = new Map(jobsRaw.map((j, i) => [j.id, sourcedArr[i]]));
   const stagedSet = new Set(["staged", "out_for_delivery", "delivered", "picked_up"]);
   const jobs = jobsRaw;
@@ -142,36 +162,25 @@ export default async function WarehousePage({
     };
     return m.lengthIn && m.widthIn ? `✂ ${ft(m.widthIn)} × ${ft(m.lengthIn)}` : "";
   };
-  const org = await getOrgSettings();
-  const stockChecks = await listWarehouseStockCheckOrders(wh);
   // What we actually have of each ordered product, so "in stock?" is answered
   // from the shelf count rather than from memory. Operational catalog facts only.
-  const orderStock = await getWarehouseCatalogFacts(
-    stockChecks.flatMap((o) => (o.items ?? []).map((i) => i.product_id ?? "")),
-    wh,
+  const orderedProductIds = stockChecks.flatMap((o) =>
+    (o.items ?? []).map((i) => i.product_id ?? ""),
   );
-  const remnantAlerts = await reorderAlertsFor(
-    stockChecks.flatMap((o) => (o.items ?? []).map((i) => i.product_id ?? "")),
-    wh,
-  );
+  const [orderStock, remnantAlerts] = await Promise.all([
+    getWarehouseCatalogFacts(orderedProductIds, wh),
+    reorderAlertsFor(orderedProductIds, wh),
+  ]);
 
   // Purchase orders the warehouse should be expecting. Ordered and received
   // are separate pages so a long received history cannot hide open orders.
   const emptyIncoming = { rows: [] as IncomingPo[], total: 0, page: 1, pageSize: 40 };
-  let orderedIncoming = emptyIncoming;
-  let receivedIncoming = emptyIncoming;
-  let incomingError: string | null = null;
-  try {
-    [orderedIncoming, receivedIncoming] = await Promise.all([
-      listIncomingPos(parseListPage(sp.deliveries), "ordered"),
-      listIncomingPos(parseListPage(sp.received), "received"),
-    ]);
-  } catch (error) {
-    incomingError = queueFailureMessage(error);
-  }
+  const incomingError = incomingResult.error;
+  const [orderedIncoming, receivedIncoming] = incomingResult.pair ?? [
+    emptyIncoming,
+    emptyIncoming,
+  ];
   const incoming: IncomingPo[] = [...orderedIncoming.rows, ...receivedIncoming.rows];
-  // Everything aimed at the shop — job notes, order notes, and shop-wide ones.
-  const warehouseNotes = await listWarehouseNotes();
 
   // One print-ready staging sheet per job (hidden until its button is clicked).
   const sheets = jobs.map((j) => ({
