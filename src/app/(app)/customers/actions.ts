@@ -8,7 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { employeeDbError } from "@/lib/employee-error";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
-import { leadAcceptanceForAssignment } from "@/lib/lead-acceptance";
+import { isSalesBookRole, leadAcceptanceForAssignment, seesEveryLead } from "@/lib/lead-acceptance";
 import {
   notifyOwnerLeadDeclined,
   notifySalespersonOfLead,
@@ -199,6 +199,35 @@ export async function createCustomer(
 
   const stage = (str(formData.get("stage")) || "new") as LeadStage;
   const source = await legacyEnumFor(supabase, fields.source_id);
+  const requestedAssignee = nullable(formData.get("assigned_to"));
+
+  let assignedTo = profile.id;
+  let assigneeEmail: string | null = null;
+  let assigneePhone: string | null = null;
+  let assigneeName: string | null = null;
+  let acceptance: ReturnType<typeof leadAcceptanceForAssignment> = null;
+  if (
+    requestedAssignee &&
+    requestedAssignee !== profile.id &&
+    seesEveryLead(profile.role)
+  ) {
+    const { data: assignee } = await supabase
+      .from("profiles")
+      .select("full_name, email, phone, role")
+      .eq("id", requestedAssignee)
+      .maybeSingle();
+    if (assignee && isSalesBookRole(assignee.role as string)) {
+      assignedTo = requestedAssignee;
+      assigneeEmail = (assignee.email as string | null) ?? null;
+      assigneePhone = (assignee.phone as string | null) ?? null;
+      assigneeName = (assignee.full_name as string | null) ?? null;
+      acceptance = leadAcceptanceForAssignment({
+        actorId: profile.id,
+        assigneeId: assignedTo,
+        assigneeIsSales: true,
+      });
+    }
+  }
 
   const matchInput = {
     fullName: fields.full_name,
@@ -214,7 +243,9 @@ export async function createCustomer(
     source,
     stage,
     created_by: profile.id,
-    assigned_to: profile.id,
+    assigned_to: assignedTo,
+    ...(assignedTo !== profile.id ? { workflow_owner_id: assignedTo } : {}),
+    ...(acceptance ?? {}),
   };
 
   const resolved = await resolveOrCreateCustomer({
@@ -229,7 +260,29 @@ export async function createCustomer(
   if (resolved.action === "error") return { error: resolved.error };
 
   const id = resolved.customerId;
-  if (resolved.action === "created" && (profile.role === "salesman" || profile.role === "sales_manager")) {
+  if (
+    resolved.action === "created" &&
+    acceptance?.lead_acceptance === "pending" &&
+    assignedTo !== profile.id
+  ) {
+    try {
+      const delivery = await notifySalespersonOfLead({
+        toEmail: assigneeEmail,
+        toPhone: assigneePhone,
+        customerName: fields.full_name,
+        customerId: id,
+      });
+      await supabase.from("activities").insert({
+        customer_id: id,
+        user_id: profile.id,
+        type: "system",
+        body: `Assigned to ${assigneeName ?? "a salesperson"}. They need to accept the lead. ${delivery}`,
+      });
+    } catch {
+      /* the customer is saved; the assignment notice can be sent from the customer page */
+    }
+  }
+  if (resolved.action === "created" && (profile.role === "salesman" || profile.role === "sales_manager") && assignedTo === profile.id) {
     await supabase
       .from("customers")
       .update({

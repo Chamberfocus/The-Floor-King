@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Plus, Search, Upload, AlertTriangle, Users } from "lucide-react";
+import { ClipboardPaste, Plus, Search, Upload, AlertTriangle, Users } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/page-header";
@@ -217,12 +217,18 @@ export default async function CustomersPage({
               : "Your leads and customers."
         }
       >
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Link
             href="/customers/import"
             className={buttonVariants({ size: "lg", variant: "outline" })}
           >
             <Upload className="size-4" /> Import customers
+          </Link>
+          <Link
+            href="/customers/new#paste"
+            className={buttonVariants({ size: "lg", variant: "outline" })}
+          >
+            <ClipboardPaste className="size-4" /> Paste a lead
           </Link>
           <Link
             href="/customers/new"

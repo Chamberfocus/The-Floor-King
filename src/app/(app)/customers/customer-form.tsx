@@ -17,22 +17,45 @@ import {
 } from "@/lib/types";
 import { createCustomer, updateCustomer, type CustomerFormState } from "./actions";
 import { SegmentedField } from "@/components/ui/segmented-field";
+import { SearchPicker } from "@/components/ui/search-picker";
 import { SourceFields } from "./source-fields";
+
+export interface CustomerPrefill {
+  full_name?: string;
+  company?: string;
+  email?: string;
+  phone?: string;
+  street?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  notes?: string;
+  source_id?: string;
+  source_detail_id?: string;
+  source_detail_text?: string;
+}
 
 const initialState: CustomerFormState = { error: null };
 
 export function CustomerForm({
   customer,
+  prefill,
+  assignees = [],
   onSaved,
   sources = [],
   referrerCustomers = [],
 }: {
   customer?: Customer;
+  /** Filled from a pasted lead. Ignored while editing an existing customer. */
+  prefill?: CustomerPrefill;
+  /** Salespeople the office can assign this new lead to. */
+  assignees?: { id: string; name: string }[];
   onSaved?: () => void;
   sources?: LeadSourceRow[];
   referrerCustomers?: { id: string; full_name: string }[];
 }) {
   const isEdit = Boolean(customer);
+  const seed = isEdit ? undefined : prefill;
   const [state, formAction, pending] = useActionState(
     isEdit ? updateCustomer : createCustomer,
     initialState,
@@ -55,7 +78,7 @@ export function CustomerForm({
           <Input
             id="full_name"
             name="full_name"
-            defaultValue={customer?.full_name ?? ""}
+            defaultValue={customer?.full_name ?? seed?.full_name ?? ""}
             placeholder="Jane Homeowner"
             required
             autoFocus
@@ -67,7 +90,7 @@ export function CustomerForm({
           <PhoneInput
             id="phone"
             name="phone"
-            defaultValue={customer?.phone ?? ""}
+            defaultValue={customer?.phone ?? seed?.phone ?? ""}
             placeholder="216-555-0142"
           />
         </div>
@@ -77,7 +100,7 @@ export function CustomerForm({
             id="email"
             name="email"
             type="email"
-            defaultValue={customer?.email ?? ""}
+            defaultValue={customer?.email ?? seed?.email ?? ""}
             placeholder="jane@example.com"
           />
         </div>
@@ -87,17 +110,17 @@ export function CustomerForm({
           <Input
             id="company"
             name="company"
-            defaultValue={customer?.company ?? ""}
+            defaultValue={customer?.company ?? seed?.company ?? ""}
             placeholder="For commercial / builder accounts"
           />
         </div>
 
         <AddressFields
           defaults={{
-            street: customer?.street,
-            city: customer?.city,
-            state: customer?.state,
-            zip: customer?.zip,
+            street: customer?.street ?? seed?.street,
+            city: customer?.city ?? seed?.city,
+            state: customer?.state ?? seed?.state,
+            zip: customer?.zip ?? seed?.zip,
           }}
         />
 
@@ -105,12 +128,27 @@ export function CustomerForm({
           sources={sources}
           customers={referrerCustomers}
           initial={{
-            source_id: customer?.source_id,
-            source_detail_id: customer?.source_detail_id,
-            source_detail_text: customer?.source_detail_text,
+            source_id: customer?.source_id ?? seed?.source_id,
+            source_detail_id: customer?.source_detail_id ?? seed?.source_detail_id,
+            source_detail_text: customer?.source_detail_text ?? seed?.source_detail_text,
             referred_by_customer_id: customer?.referred_by_customer_id,
           }}
         />
+
+        {!isEdit && assignees.length ? (
+          <div className="space-y-2 sm:col-span-2">
+            <Label>Assign to</Label>
+            <SearchPicker
+              name="assigned_to"
+              allowClear
+              placeholder="Choose a salesperson"
+              options={assignees.map((m) => ({ value: m.id, label: m.name }))}
+            />
+            <p className="text-xs text-muted-foreground">
+              They accept the lead before they write the estimate.
+            </p>
+          </div>
+        ) : null}
 
         {!isEdit ? (
           <div className="space-y-2">
@@ -131,7 +169,7 @@ export function CustomerForm({
           <textarea
             id="notes"
             name="notes"
-            defaultValue={customer?.notes ?? ""}
+            defaultValue={customer?.notes ?? seed?.notes ?? ""}
             rows={3}
             placeholder="What flooring are they interested in? Rooms, square footage, timeline…"
             className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

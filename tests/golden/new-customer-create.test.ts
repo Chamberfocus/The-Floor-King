@@ -403,4 +403,37 @@ describe("POST /customers/new createCustomer", () => {
     expect(harness.store.tables.jobs).toHaveLength(0);
     expect(harness.store.tables.office_tasks).toHaveLength(0);
   });
+
+  it("assigns a pasted lead to a salesperson and marks it waiting for acceptance", async () => {
+    harness.store.tables.profiles = [
+      {
+        id: "rep-1",
+        full_name: "Sam Seller",
+        email: "sam@floorking.test",
+        phone: "2165550100",
+        role: "salesman",
+      },
+    ];
+    const result = await submit({
+      full_name: "Jane Smith",
+      email: "jane.smith@gmail.com",
+      phone: "216-555-0142",
+      street: "1847 Euclid Avenue",
+      city: "Cleveland",
+      state: "OH",
+      zip: "44115",
+      source_id: SOURCE,
+      notes: "Living room and hallway",
+      assigned_to: "rep-1",
+    });
+    expect(result.redirect).toBe("/customers/cust-1?new=1");
+    expect(harness.store.tables.customers[0]).toMatchObject({
+      full_name: "Jane Smith",
+      assigned_to: "rep-1",
+      workflow_owner_id: "rep-1",
+      lead_acceptance: "pending",
+      lead_assigned_by: "staff-1",
+    });
+    expect(harness.store.tables.activities?.[0]?.body).toMatch(/Sam Seller/);
+  });
 });
