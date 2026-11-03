@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import {
   nextFreeWindow,
@@ -68,7 +69,7 @@ export function defaultOrigin(settings: SchedulingSettings): string {
   return settings.default_origin?.trim() || storeAddress();
 }
 
-export async function getSchedulingSettings(): Promise<SchedulingSettings> {
+export const getSchedulingSettings = cache(async function getSchedulingSettings(): Promise<SchedulingSettings> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("scheduling_settings")
@@ -76,7 +77,7 @@ export async function getSchedulingSettings(): Promise<SchedulingSettings> {
     .eq("id", "default")
     .maybeSingle();
   return { ...SCHEDULING_DEFAULTS, ...(data ?? {}) } as SchedulingSettings;
-}
+});
 
 export interface InstallerProfile {
   id: string;

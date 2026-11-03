@@ -38,15 +38,15 @@ describe("customer record least privilege", () => {
   });
 
   it("does not call financial loaders unless the viewer can see money", () => {
-    expect(page).toContain("seesMoney ? await listInvoicesForCustomer(id) : []");
-    expect(page).toContain("seesMoney ? await listPurchaseOrdersForCustomer(id) : []");
-    expect(page).toContain("seesMoney ? await getCustomerJobCosting(id) : emptyCosting");
-    expect(page).toContain("seesMoney ? await getCustomerHistory(id) : emptyHistory");
-    expect(page).toContain("seesMoney\n    ? await getCustomerCreditSummary");
-    expect(page).toContain("seesMoney\n    ? await getCustomerDepositSummary");
-    expect(page).toContain("seesMoney\n    ? await listEstimatesForCustomer(id)\n    : await listEstimateScheduleFacts(id)");
-    expect(page).toContain("if (seesMoney && jobOptionIds.length)");
-    expect(page).toContain("seesMoney\n    ? await listJobsForCustomer(id)\n    : await listSchedulingJobsForCustomer(id)");
+    expect(page).toContain("seesMoney ? listInvoicesForCustomer(id) : []");
+    expect(page).toContain("seesMoney ? listPurchaseOrdersForCustomer(id) : []");
+    expect(page).toContain("seesMoney ? getCustomerJobCosting(id) : emptyCosting");
+    expect(page).toContain("seesMoney ? getCustomerHistory(id) : emptyHistory");
+    expect(page).toContain("seesMoney ? getCustomerCreditSummary(id)");
+    expect(page).toContain("seesMoney ? getCustomerDepositSummary(id)");
+    expect(page).toContain("seesMoney ? listEstimatesForCustomer(id) : listEstimateScheduleFacts(id)");
+    expect(page).toContain("seesMoney && jobOptionIds.length");
+    expect(page).toContain("seesMoney ? listJobsForCustomer(id) : listSchedulingJobsForCustomer(id)");
     expect(page).toContain("loadCustomerRecordFacts");
     expect(page).toContain('showInstallerBill: profile.role === "admin" || profile.role === "office"');
     const forbidden = [

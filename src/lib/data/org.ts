@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { COMPANY_NAME } from "@/lib/nav";
 import type { OrgSettings } from "@/lib/types";
@@ -21,7 +22,7 @@ const DEFAULTS: OrgSettings = {
   updated_at: "",
 };
 
-export async function getOrgSettings(): Promise<OrgSettings> {
+export const getOrgSettings = cache(async function getOrgSettings(): Promise<OrgSettings> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("org_settings")
@@ -29,4 +30,4 @@ export async function getOrgSettings(): Promise<OrgSettings> {
     .eq("id", "default")
     .maybeSingle();
   return { ...DEFAULTS, ...(data ?? {}) } as OrgSettings;
-}
+});

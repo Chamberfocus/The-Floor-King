@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import type { BusinessSettings } from "@/lib/types";
 
@@ -19,7 +20,7 @@ export const BUSINESS_SETTING_DEFAULTS: BusinessSettings = {
   updated_at: "",
 };
 
-export async function getBusinessSettings(): Promise<BusinessSettings> {
+export const getBusinessSettings = cache(async function getBusinessSettings(): Promise<BusinessSettings> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("business_settings")
@@ -27,4 +28,4 @@ export async function getBusinessSettings(): Promise<BusinessSettings> {
     .eq("id", "default")
     .maybeSingle();
   return { ...BUSINESS_SETTING_DEFAULTS, ...((data as Partial<BusinessSettings>) ?? {}) };
-}
+});

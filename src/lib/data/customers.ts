@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { phoneSearchPattern } from "@/lib/search-query";
 import { readQueueWindow } from "@/lib/data/queue-rpc";
@@ -547,7 +548,7 @@ export async function listCustomersPage(
   };
 }
 
-export async function getCustomer(id: string): Promise<Customer | null> {
+export const getCustomer = cache(async function getCustomer(id: string): Promise<Customer | null> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("customers")
@@ -555,7 +556,7 @@ export async function getCustomer(id: string): Promise<Customer | null> {
     .eq("id", id)
     .maybeSingle();
   return (data as Customer) ?? null;
-}
+});
 
 export async function listActivities(customerId: string): Promise<Activity[]> {
   const supabase = await createClient();

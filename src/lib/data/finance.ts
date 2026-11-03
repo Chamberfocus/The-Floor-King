@@ -17,7 +17,7 @@ import { estimatedDirectCostFromScope } from "@/lib/job-costing";
 import { loadOperationalJobLines } from "@/lib/data/job-operational-lines";
 import { sumCommittedPoSpendExcludingBilled } from "@/lib/finance-cost";
 import type { CalcLine } from "@/lib/estimate-calc";
-import type { Expense, LineType } from "@/lib/types";
+import type { Expense, Invoice, InvoiceItem, LineType, Payment, PoItem } from "@/lib/types";
 
 export interface PeriodSummary {
   collected: number;
@@ -286,48 +286,186 @@ export interface JobProfit {
   salesman: string | null;
 }
 
-export async function getJobProfitability(): Promise<JobProfit[]> {
+type ProfitJob = Awaited<ReturnType<typeof listJobs>>[number];
+type ProfitLine = {
+  option_id: string;
+  sqft: number | null;
+  length_in: number | null;
+  width_in: number | null;
+  measure_unit: "sqft" | "sqyd";
+  material_rate: number | null;
+  labor_rate: number | null;
+  installed_rate: number | null;
+  flat_amount: number | null;
+  line_type: LineType;
+  material_cost: number | null;
+  labor_cost: number | null;
+  waste_pct: number | null;
+  quantity: number | null;
+};
+
+function profitJob(row: ProfitJob): boolean {
+  // Carry-over jobs are excluded from profit analytics — their costs live in
+  // the old system, so any "profit" would be fiction. They still show on the
+  // job board and their balances still show in AR. A cancelled JOB is excluded
+  // by status. The customer's archive flag is not a profit filter.
+  return !!row.option_id && !row.migrated && row.status !== "cancelled";
+}
+
+/** Company-wide jobs, or one customer's jobs. Same pickup exclusion and order. */
+async function loadProfitJobs(customerId?: string): Promise<ProfitJob[]> {
+  if (!customerId) return (await listJobs()).filter(profitJob);
   const supabase = await createClient();
-  const freightMult = freightMultiplier((await getOrgSettings()).freight_markup_pct);
-  const biz = await getBusinessSettings();
+  const { data } = await supabase
+    .from("jobs")
+    .select("*, customer:customers(full_name, phone)")
+    .eq("customer_id", customerId)
+    .or("delivery_type.is.null,delivery_type.neq.cash_carry")
+    .order("created_at", { ascending: false });
+  return ((data ?? []) as (ProfitJob & {
+    customer?: { full_name: string | null; phone: string | null } | null;
+  })[])
+    .map((row) => ({
+      ...row,
+      customer_name: row.customer?.full_name ?? null,
+      customer_phone: row.customer?.phone ?? null,
+    }))
+    .filter(profitJob);
+}
+
+async function loadProfitPurchases(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  customerId: string | undefined,
+  estimateIds: string[],
+) {
+  if (!customerId) {
+    const pos = await listPurchaseOrders();
+    const { data: allBilledPos } = await supabase
+      .from("bills")
+      .select("po_id, ap_lifecycle")
+      .not("po_id", "is", null);
+    return { pos, bills: allBilledPos ?? [] };
+  }
+  if (!estimateIds.length) return { pos: [], bills: [] as { po_id: string | null; ap_lifecycle: string | null }[] };
+  const { data } = await supabase
+    .from("purchase_orders")
+    .select("*")
+    .in("estimate_id", estimateIds);
+  const pos = ((data ?? []) as (Awaited<ReturnType<typeof listPurchaseOrders>>[number])[]).map((po) => ({
+    ...po,
+    customer_name: null,
+    job_title: null,
+    job_city: null,
+    items: [] as PoItem[],
+  }));
+  const poIds = pos.map((po) => po.id);
+  if (!poIds.length) return { pos, bills: [] as { po_id: string | null; ap_lifecycle: string | null }[] };
+  const [items, billRes] = await Promise.all([
+    fetchAll<PoItem>((from, to) =>
+      supabase.from("po_items").select("*").in("po_id", poIds).order("position", { ascending: true }).range(from, to),
+    ),
+    supabase.from("bills").select("po_id, ap_lifecycle").in("po_id", poIds),
+  ]);
+  const byPo = new Map<string, PoItem[]>();
+  for (const item of items) {
+    const arr = byPo.get(item.po_id) ?? [];
+    arr.push(item);
+    byPo.set(item.po_id, arr);
+  }
+  for (const po of pos) po.items = byPo.get(po.id) ?? [];
+  return { pos, bills: billRes.data ?? [] };
+}
+
+async function loadProfitInvoices(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  customerId: string | undefined,
+  jobIds: string[],
+): Promise<Invoice[]> {
+  if (!customerId) return listInvoices();
+  if (!jobIds.length) return [];
+  const { data } = await supabase.from("invoices").select("*").in("job_id", jobIds);
+  const invoices = (data ?? []) as Invoice[];
+  const ids = invoices.map((invoice) => invoice.id);
+  if (!ids.length) return invoices;
+  const [items, pays] = await Promise.all([
+    fetchAll<InvoiceItem>((from, to) =>
+      supabase.from("invoice_items").select("*").in("invoice_id", ids).order("position", { ascending: true }).range(from, to),
+    ),
+    fetchAll<Payment>((from, to) =>
+      supabase.from("payments").select("*").in("invoice_id", ids).range(from, to),
+    ),
+  ]);
+  const itemsBy = new Map<string, InvoiceItem[]>();
+  for (const item of items) {
+    const arr = itemsBy.get(item.invoice_id) ?? [];
+    arr.push(item);
+    itemsBy.set(item.invoice_id, arr);
+  }
+  const paysBy = new Map<string, Payment[]>();
+  for (const pay of pays) {
+    const arr = paysBy.get(pay.invoice_id) ?? [];
+    arr.push(pay);
+    paysBy.set(pay.invoice_id, arr);
+  }
+  for (const invoice of invoices) {
+    invoice.items = itemsBy.get(invoice.id) ?? [];
+    invoice.payments = paysBy.get(invoice.id) ?? [];
+  }
+  return invoices;
+}
+
+export async function getJobProfitability(scope?: { customerId?: string }): Promise<JobProfit[]> {
+  const supabase = await createClient();
+  const [org, biz] = await Promise.all([getOrgSettings(), getBusinessSettings()]);
+  const freightMult = freightMultiplier(org.freight_markup_pct);
   const jobFuelCharge = Number(biz.job_fuel_charge) || 0;
   const jobFuel = Number(biz.job_fuel_fee) || 0;
   const jobCar = Number(biz.job_car_allowance) || 0;
   const jobCommPct = Number(biz.job_commission_pct) || 0;
-  const jobs = (await listJobs()).filter(
-    // Carry-over jobs are excluded from profit analytics — their costs live in
-    // the old system, so any "profit" would be fiction. They still show on the
-    // job board and their balances still show in AR. A cancelled JOB is excluded
-    // by status. The customer's archive flag is not a profit filter.
-    (j) => j.option_id && !j.migrated && j.status !== "cancelled",
-  );
+  const jobs = await loadProfitJobs(scope?.customerId);
   if (!jobs.length) return [];
 
   const optionIds = [...new Set(jobs.map((j) => j.option_id))] as string[];
-  const lines = await fetchAll<{
-    option_id: string;
-    sqft: number | null;
-    length_in: number | null;
-    width_in: number | null;
-    measure_unit: "sqft" | "sqyd";
-    material_rate: number | null;
-    labor_rate: number | null;
-    installed_rate: number | null;
-    flat_amount: number | null;
-    line_type: LineType;
-    material_cost: number | null;
-    labor_cost: number | null;
-    waste_pct: number | null;
-    quantity: number | null;
-  }>((from, to) =>
-    supabase
-      .from("estimate_line_items")
-      .select(
-        "option_id, sqft, length_in, width_in, measure_unit, material_rate, labor_rate, installed_rate, flat_amount, line_type, material_cost, labor_cost, waste_pct, quantity",
-      )
-      .in("option_id", optionIds)
-      .range(from, to),
-  );
+  const estimateIds = [
+    ...new Set(
+      jobs.map((j) => (j as { estimate_id?: string | null }).estimate_id).filter(Boolean),
+    ),
+  ] as string[];
+  const jobIds = jobs.map((j) => j.id);
+  const [lines, estRows, purchaseContext, expData, laborByJob, pullData, invoices] = await Promise.all([
+    fetchAll<ProfitLine>((from, to) =>
+      supabase
+        .from("estimate_line_items")
+        .select(
+          "option_id, sqft, length_in, width_in, measure_unit, material_rate, labor_rate, installed_rate, flat_amount, line_type, material_cost, labor_cost, waste_pct, quantity",
+        )
+        .in("option_id", optionIds)
+        .range(from, to),
+    ),
+    estimateIds.length
+      ? supabase
+          .from("estimates")
+          .select(
+            "id, created_by, discount_kind, discount_value, commission_override_pct, commission_override_amount",
+          )
+          .in("id", estimateIds)
+          .then((res) => res.data ?? [])
+      : Promise.resolve([]),
+    loadProfitPurchases(supabase, scope?.customerId, estimateIds),
+    fetchAll<{ job_id: string | null; amount: number }>((from, to) =>
+      supabase.from("expenses").select("job_id, amount").in("job_id", jobIds).range(from, to),
+    ),
+    installerLaborActualByJob(jobIds),
+    fetchAll<{ job_id: string | null; qty: number; unit_cost: number | null }>((from, to) =>
+      supabase
+        .from("stock_movements")
+        .select("job_id, qty, unit_cost")
+        .eq("kind", "pull")
+        .in("job_id", jobIds)
+        .range(from, to),
+    ),
+    loadProfitInvoices(supabase, scope?.customerId, jobIds),
+  ]);
   const subtotalByOption = new Map<string, number>();
   const estCostByOption = new Map<string, number>();
   const grouped = new Map<string, typeof lines>();
@@ -344,11 +482,6 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
   }
 
   // Who quoted each job — the estimate's author (the "salesman" on the hook).
-  const estimateIds = [
-    ...new Set(
-      jobs.map((j) => (j as { estimate_id?: string | null }).estimate_id).filter(Boolean),
-    ),
-  ] as string[];
   const authorByEstimate = new Map<string, string | null>();
   // The estimate's discount — the customer approved the DISCOUNTED price, so
   // quoted revenue / estimated profit must reflect it (not the pre-discount sub).
@@ -357,40 +490,28 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
     string,
     { overridePct: number | null; overrideAmount: number | null }
   >();
-  if (estimateIds.length) {
-    const { data: estRows } = await supabase
-      .from("estimates")
-      .select(
-        "id, created_by, discount_kind, discount_value, commission_override_pct, commission_override_amount",
-      )
-      .in("id", estimateIds);
-    for (const e of estRows ?? []) {
-      authorByEstimate.set(e.id as string, (e.created_by as string | null) ?? null);
-      discountByEstimate.set(e.id as string, {
-        kind: (e.discount_kind as string | null) ?? null,
-        value: (e.discount_value as number | null) ?? null,
-      });
-      commissionByEstimate.set(e.id as string, {
-        overridePct:
-          (e as { commission_override_pct?: number | null }).commission_override_pct ??
-          null,
-        overrideAmount:
-          (e as { commission_override_amount?: number | null })
-            .commission_override_amount ?? null,
-      });
-    }
+  for (const e of estRows) {
+    authorByEstimate.set(e.id as string, (e.created_by as string | null) ?? null);
+    discountByEstimate.set(e.id as string, {
+      kind: (e.discount_kind as string | null) ?? null,
+      value: (e.discount_value as number | null) ?? null,
+    });
+    commissionByEstimate.set(e.id as string, {
+      overridePct:
+        (e as { commission_override_pct?: number | null }).commission_override_pct ??
+        null,
+      overrideAmount:
+        (e as { commission_override_amount?: number | null }).commission_override_amount ??
+        null,
+    });
   }
   const salesNames = await getProfileNames(
     [...authorByEstimate.values()].filter(Boolean) as string[],
   );
 
-  const pos = await listPurchaseOrders();
-  const { data: allBilledPos } = await supabase
-    .from("bills")
-    .select("po_id, ap_lifecycle")
-    .not("po_id", "is", null);
+  const pos = purchaseContext.pos;
   const billedPoIdsGlobal = new Set(
-    (allBilledPos ?? [])
+    purchaseContext.bills
       .filter((b) => ((b.ap_lifecycle as string | null) ?? "open") === "open")
       .map((b) => b.po_id as string | null)
       .filter((id): id is string => !!id),
@@ -416,15 +537,6 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
     if (eid && !poJobForEstimate.has(eid)) poJobForEstimate.set(eid, j.id);
   }
 
-  const jobIds = jobs.map((j) => j.id);
-  const expData = await fetchAll<{ job_id: string | null; amount: number }>(
-    (from, to) =>
-      supabase
-        .from("expenses")
-        .select("job_id, amount")
-        .in("job_id", jobIds)
-        .range(from, to),
-  );
   const expByJob = new Map<string, number>();
   for (const e of expData) {
     if (e.job_id) {
@@ -435,22 +547,7 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
     }
   }
 
-  // Real labor cost: subcontractor payouts recorded against each job.
-  const laborByJob = await installerLaborActualByJob(jobs.map((j) => j.id));
-
   // Material pulled from our own stock — cost it to the job (was $0 before).
-  const pullData = await fetchAll<{
-    job_id: string | null;
-    qty: number;
-    unit_cost: number | null;
-  }>((from, to) =>
-    supabase
-      .from("stock_movements")
-      .select("job_id, qty, unit_cost")
-      .eq("kind", "pull")
-      .in("job_id", jobIds)
-      .range(from, to),
-  );
   const stockCostByJob = new Map<string, number>();
   for (const m of pullData) {
     if (!m.job_id) continue;
@@ -462,7 +559,6 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
   }
 
   // Actual revenue from invoices (pre-tax billed + cash collected), per job.
-  const invoices = await listInvoices();
   const billedByJob = new Map<string, number>();
   const collectedByJob = new Map<string, number>();
   for (const inv of invoices) {
