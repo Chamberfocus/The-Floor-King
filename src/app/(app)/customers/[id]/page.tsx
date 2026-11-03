@@ -65,6 +65,9 @@ import { ProcessCardButton } from "./process-card-button";
 import { SamplesCard } from "./samples-card";
 import { PropertyCard } from "./property-card";
 import { CustomerOrdersCard } from "./customer-orders-card";
+import { PaperworkIntake } from "./paperwork-intake";
+import { listActiveSuppliers } from "@/lib/data/suppliers";
+import { poTotal } from "@/lib/po-calc";
 import { CashCarryCard } from "./cash-carry-card";
 import { ServiceAddressesCard } from "./service-addresses-card";
 import { listServiceAddresses } from "@/lib/data/service-addresses";
@@ -283,6 +286,8 @@ export default async function CustomerPage({
       getOrgSettings(),
     ]);
   const customerPOs = seesMoney ? await listPurchaseOrdersForCustomer(id) : [];
+  const canWriteOrders = profile.role === "admin" || profile.role === "office";
+  const paperworkSuppliers = canWriteOrders ? await listActiveSuppliers() : [];
   const stages = await listWorkflowStages();
   const openTasks = await listOpenOfficeTasksForCustomer(id).catch(() => []);
   const handoffMembers = await listHandoffMembers();
@@ -1909,6 +1914,24 @@ export default async function CustomerPage({
 
           {/* Materials & Orders — POs + stock for this customer */}
           <TabSection tab="materials" overview={false}>
+            {canWriteOrders && !customer.cancelled_at ? (
+              <PaperworkIntake
+                customerId={customer.id}
+                customerName={customer.full_name}
+                suppliers={paperworkSuppliers.map((s) => ({ id: s.id, name: s.name }))}
+                jobs={jobs
+                  .filter((j) => j.status !== "cancelled")
+                  .map((j) => ({ id: j.id, title: j.title || "Job" }))}
+                purchaseOrders={customerPOs
+                  .filter((po) => po.status !== "void" && po.status !== "cancelled")
+                  .map((po) => ({
+                    id: po.id,
+                    label: `${po.supplier || "Purchase order"}${po.po_number ? ` #${po.po_number}` : ""}`,
+                    supplierId: po.supplier_id,
+                    total: poTotal(po.items ?? []),
+                  }))}
+              />
+            ) : null}
             <CustomerOrdersCard
               customerId={customer.id}
               pos={customerPOs}
