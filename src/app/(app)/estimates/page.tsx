@@ -139,7 +139,7 @@ export default async function EstimatesPage({
         <EmptyState
           icon={FileText}
           title={estimateQueueEmpty(view, !!q)}
-          description="Find the customer, then pick how to build it: the guided questionnaire, a quick few lines, or straight into the builder."
+          description="Find the customer, then pick how to build it: the guided questionnaire, a quick few lines, or a short quote you build yourself."
           action={
             <Link href="/estimates/start" className={buttonVariants({})}>
               <Plus className="size-4" /> New estimate

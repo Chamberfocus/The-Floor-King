@@ -33,6 +33,7 @@ export function QuickEstimateForm({
   targetMargin,
   freightMarkupPct = 0,
   presetCustomerId,
+  serviceAddressId = null,
   fuelCharge = 0,
   salespersonGas = 0,
   carAllowance = 0,
@@ -45,6 +46,8 @@ export function QuickEstimateForm({
   /** Org freight & fees % — applied to catalog material cost for margin. */
   freightMarkupPct?: number;
   presetCustomerId?: string;
+  /** Property chosen before this form opened. The job inherits it. */
+  serviceAddressId?: string | null;
   fuelCharge?: number;
   salespersonGas?: number;
   carAllowance?: number;
@@ -117,6 +120,7 @@ export function QuickEstimateForm({
         taxRate,
         notes,
         markSent,
+        serviceAddressId,
       });
       if (res.matches?.length) {
         setMatches(res.matches);
