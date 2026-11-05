@@ -38,10 +38,10 @@ export default async function PortalInvoicePage({
   return (
     <div>
       <Link
-        href="/portal"
+        href="/portal/invoices"
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft className="size-4" /> Back
+        <ArrowLeft className="size-4" /> Invoices
       </Link>
 
       <div className="mb-6 flex items-center gap-3">

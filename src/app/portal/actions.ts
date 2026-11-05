@@ -96,6 +96,7 @@ export async function portalSendMessage(formData: FormData): Promise<void> {
   });
 
   revalidatePath("/portal");
+  revalidatePath("/portal/messages");
   revalidatePath(`/customers/${customerId}`);
 }
 
