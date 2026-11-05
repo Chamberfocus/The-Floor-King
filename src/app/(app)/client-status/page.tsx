@@ -9,9 +9,9 @@ import { listCustomers, getProfileNames } from "@/lib/data/customers";
 import { listOpenJobsForPipeline } from "@/lib/data/jobs";
 import { workUnitsFor, type WorkUnit } from "@/lib/work-stage";
 import { listWorkflowStages } from "@/lib/data/workflow";
+import { CLIENT_STATUS_LANES, clientStatusLane, type ClientLane } from "@/lib/client-status-lanes";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { stageIsLost } from "@/lib/customer-lifecycle";
 
 export const metadata: Metadata = { title: "Client status" };
 export const dynamic = "force-dynamic";
@@ -34,44 +34,6 @@ export const dynamic = "force-dynamic";
  * So it lists WORK: one card per live job, or one for the account itself while
  * it has no job. src/lib/work-stage.ts is the rule; this just renders it.
  */
-
-type LaneKey = "new" | "quoting" | "out" | "won" | "onsite" | "paying";
-
-const LANES: {
-  key: LaneKey;
-  title: string;
-  hint: string;
-  accent: string;
-  /** What you do next for anyone sitting here. */
-  next: string;
-}[] = [
-  { key: "new", title: "New", hint: "Nothing booked yet", accent: "border-slate-400", next: "Call and book the measure" },
-  { key: "quoting", title: "To quote", hint: "Measure booked or in hand", accent: "border-amber-400", next: "Build and send the estimate" },
-  { key: "out", title: "Quote out", hint: "Waiting on the customer", accent: "border-blue-400", next: "Follow it up" },
-  { key: "won", title: "Won — getting ready", hint: "Deposit, materials, scheduling", accent: "border-violet-400", next: "Order material and book the install" },
-  { key: "onsite", title: "On site", hint: "Installing now", accent: "border-emerald-400", next: "Finish and get sign-off" },
-  { key: "paying", title: "Getting paid", hint: "Work done, money outstanding", accent: "border-rose-400", next: "Collect the balance" },
-];
-
-/**
- * The thirteen stages fold into six lanes by POSITION, so a renamed stage or a
- * new one inserted in the middle lands in the right lane without a code change.
- * Lost is the stable outcome. "Closed" is still a display-name filter.
- */
-function laneFor(stage: {
-  name: string;
-  position: number;
-  outcome?: "active" | "won" | "lost" | "parked" | null;
-}): LaneKey | null {
-  if (stageIsLost(stage)) return null;
-  if (/closed/i.test(stage.name)) return null;
-  if (stage.position < 30) return "new";
-  if (stage.position < 50) return "quoting";
-  if (stage.position < 65) return "out";
-  if (stage.position < 105) return "won";
-  if (stage.position < 110) return "onsite";
-  return "paying";
-}
 
 /** Past due = the next step's due date has already gone by. Shared so the
  *  "?overdue=1" filter and the "Stuck" badge can never disagree. */
@@ -127,7 +89,7 @@ export default async function ClientStatusPage({
   const ownerIds = [...new Set(work.map((u) => u.ownerId).filter(Boolean))] as string[];
   const owners = ownerIds.length ? await getProfileNames(ownerIds) : {};
 
-  const byLane = new Map<LaneKey, typeof work>();
+  const byLane = new Map<ClientLane, typeof work>();
   let closed = 0;
   let unstaged = 0;
   for (const u of work) {
@@ -136,7 +98,7 @@ export default async function ClientStatusPage({
       unstaged++;
       continue;
     }
-    const lane = laneFor(st);
+    const lane = clientStatusLane(st);
     if (!lane) {
       closed++;
       continue;
@@ -195,7 +157,7 @@ export default async function ClientStatusPage({
     );
   };
 
-  const live = LANES.reduce((n, l) => n + (byLane.get(l.key)?.length ?? 0), 0);
+  const live = CLIENT_STATUS_LANES.reduce((n, l) => n + (byLane.get(l.key)?.length ?? 0), 0);
 
   return (
     <div>
@@ -272,7 +234,7 @@ export default async function ClientStatusPage({
         />
       ) : (
         <div className="space-y-6">
-          {LANES.map((lane) => {
+          {CLIENT_STATUS_LANES.map((lane) => {
             const items = byLane.get(lane.key) ?? [];
             if (!items.length) return null;
             return (

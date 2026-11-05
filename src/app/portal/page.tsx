@@ -1,43 +1,30 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { FileText, Wrench, Receipt, MessageSquare, ShoppingBag } from "lucide-react";
-import { Button, buttonVariants } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { EstimateStatusBadge } from "@/components/estimate-status-badge";
-import { JobStatusBadge } from "@/components/job-status-badge";
-import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
+import { ShoppingBag } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireProfile } from "@/lib/auth";
 import {
   listPortalCompletionDays,
   listPortalEstimates,
   listPortalInstallHolds,
-  listPortalJobs,
   listPortalInstallerNames,
+  listPortalJobs,
 } from "@/lib/data/portal-commercial";
+import { listPortalProjects } from "@/lib/data/portal-projects";
 import { listInvoicesForCustomer, invoiceDisplayTotals } from "@/lib/data/invoices";
 import { listCustomerCheckouts } from "@/lib/data/samples";
-import { listClientThread } from "@/lib/data/messages";
-import { RealtimeRefresh } from "@/components/realtime-refresh";
-import { portalSendMessage } from "./actions";
-import { optionTotals } from "@/lib/estimate-calc";
-import { formatDate, formatDateTime, formatMoney, to12 } from "@/lib/format";
+import { formatDate, formatMoney, to12 } from "@/lib/format";
 import {
   getInstallAvailability,
   listInstallPreferences,
 } from "@/lib/data/install-availability";
 import { InstallPreferencePicker } from "./install-preference-picker";
 import { portalInstallScheduleCopy } from "@/lib/install-closeout";
-import {
-  customerToldInstallIsLocked,
-  portalInstallHoldCopy,
-} from "@/lib/install-hold";
+import { customerToldInstallIsLocked, portalInstallHoldCopy } from "@/lib/install-hold";
+import { PortalProjectCard } from "./project-card";
 
-export const metadata: Metadata = { title: "My account" };
+export const metadata: Metadata = { title: "Your project" };
 
 export default async function PortalHome() {
   const profile = await requireProfile();
@@ -54,21 +41,23 @@ export default async function PortalHome() {
     );
   }
 
-  const [estimates, jobs, invoices, thread, sampleCheckouts] = await Promise.all([
-    listPortalEstimates(profile.customer_id),
-    listPortalJobs(profile.customer_id),
-    listInvoicesForCustomer(profile.customer_id),
-    listClientThread(profile.customer_id),
-    listCustomerCheckouts(profile.customer_id),
+  const customerId = profile.customer_id;
+  const [projects, estimates, jobs, invoices, sampleCheckouts] = await Promise.all([
+    listPortalProjects(customerId),
+    listPortalEstimates(customerId),
+    listPortalJobs(customerId),
+    listInvoicesForCustomer(customerId),
+    listCustomerCheckouts(customerId),
   ]);
   const samplesOut = sampleCheckouts.filter((c) => c.status === "out");
-
-  // Install scheduling: for active jobs with no confirmed date, load real
-  // availability + any preferences the client already submitted. For confirmed
-  // jobs, resolve the installer's name (they get to see it once we book it).
-  const activeJobs = jobs.filter(
-    (j) => j.status !== "completed" && j.status !== "cancelled",
+  const needsEstimate = estimates.filter(
+    (e) => e.status === "sent" || e.status === "changes_requested" || e.discussion_requested_at,
   );
+  const openInvoices = invoices
+    .map((inv) => ({ inv, totals: invoiceDisplayTotals(inv) }))
+    .filter((row) => row.totals.balance > 0);
+
+  const activeJobs = jobs.filter((j) => j.status !== "completed" && j.status !== "cancelled");
   const schedByJob = new Map<
     string,
     { days: number; availableStarts: string[]; existing: string[] }
@@ -83,33 +72,23 @@ export default async function PortalHome() {
       existing,
     });
   }
-  const installerNameByJobId = profile.customer_id
-    ? await listPortalInstallerNames(profile.customer_id, activeJobs)
-    : new Map<string, string>();
-  const installHolds = profile.customer_id
-    ? await listPortalInstallHolds(
-        profile.customer_id,
-        jobs.map((j) => j.id),
-      )
-    : new Map<string, string | null>();
+  const installerNameByJobId = await listPortalInstallerNames(customerId, activeJobs);
+  const installHolds = await listPortalInstallHolds(
+    customerId,
+    jobs.map((j) => j.id),
+  );
   const completedIds = jobs.filter((j) => j.status === "completed").map((j) => j.id);
-  const completedOnByJobId = profile.customer_id
-    ? await listPortalCompletionDays(profile.customer_id, completedIds)
-    : new Map<string, string>();
+  const completedOnByJobId = await listPortalCompletionDays(customerId, completedIds);
 
   return (
     <div className="space-y-6">
-      <RealtimeRefresh
-        table="messages"
-        filter={`customer_id=eq.${profile.customer_id}`}
-      />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight sm:text-[1.75rem]">
             Welcome, {firstName}
           </h1>
           <p className="text-sm text-muted-foreground">
-            Your estimates, project schedule, and invoices in one place.
+            This is the same stage we see in the store. It updates when we move your project.
           </p>
         </div>
         <Link href="/portal/order" className={buttonVariants({ size: "lg" })}>
@@ -117,7 +96,42 @@ export default async function PortalHome() {
         </Link>
       </div>
 
-      {/* Samples you have out */}
+      <div className="space-y-3">
+        {projects.map((project) => (
+          <PortalProjectCard key={`${project.kind}-${project.id}`} project={project} />
+        ))}
+      </div>
+
+      {needsEstimate.length || openInvoices.length ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Waiting on you</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            {needsEstimate.map((e) => (
+              <Link
+                key={e.id}
+                href={`/portal/estimates/${e.id}`}
+                className="block rounded-md border px-3 py-2 font-medium hover:border-primary"
+              >
+                {e.discussion_requested_at
+                  ? `You asked to discuss ${e.title || "your estimate"}`
+                  : `Review ${e.title || "your estimate"}`}
+              </Link>
+            ))}
+            {openInvoices.map(({ inv, totals }) => (
+              <Link
+                key={inv.id}
+                href={`/portal/invoices/${inv.id}`}
+                className="block rounded-md border px-3 py-2 font-medium hover:border-primary"
+              >
+                {inv.number || "Invoice"} · {formatMoney(totals.balance)} due
+              </Link>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
       {samplesOut.length > 0 ? (
         <Card>
           <CardHeader>
@@ -148,118 +162,12 @@ export default async function PortalHome() {
         </Card>
       ) : null}
 
-      {/* Messages */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <MessageSquare className="size-4" /> Messages with us
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {thread.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No messages yet. Send us a note below — we&apos;re happy to help.
-            </p>
-          ) : (
-            <div className="max-h-72 space-y-3 overflow-y-auto">
-              {thread.map((m) => (
-                <div key={m.id}>
-                  <div className="text-xs text-muted-foreground">
-                    {m.author_id === profile.id ? "You" : "Cleveland Floor King"}{" "}
-                    · {formatDateTime(m.created_at)}
-                  </div>
-                  <p className="whitespace-pre-wrap text-sm">{m.body}</p>
-                </div>
-              ))}
-            </div>
-          )}
-          <form
-            action={portalSendMessage}
-            className="space-y-2 border-t pt-3"
-          >
-            <textarea
-              name="body"
-              rows={2}
-              required
-              placeholder="Write a message…"
-              className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-            <Button type="submit">Send</Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      {/* Estimates */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <FileText className="size-4" /> Your estimates
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {estimates.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No estimates yet.</p>
-          ) : (
-            <ul className="divide-y text-sm">
-              {estimates.map((e) => {
-                const opts = e.options ?? [];
-                const opt =
-                  (e.accepted_option_id &&
-                    opts.find((o) => o.id === e.accepted_option_id)) ||
-                  opts[0];
-                const total = opt
-                  ? optionTotals(opt.line_items ?? [], e.tax_rate).total
-                  : 0;
-                const needsResponse =
-                  e.status === "sent" || e.status === "changes_requested";
-                const discussing = !!e.discussion_requested_at;
-                return (
-                  <li
-                    key={e.id}
-                    className="flex items-center justify-between gap-3 py-3"
-                  >
-                    <Link
-                      href={`/portal/estimates/${e.id}`}
-                      className="min-w-0 hover:underline"
-                    >
-                      <div className="truncate font-medium">
-                        {e.title || "Estimate"}
-                      </div>
-                      {discussing ? (
-                        <div className="text-xs font-medium text-sky-700">
-                          You asked to discuss this
-                        </div>
-                      ) : needsResponse ? (
-                        <div className="text-xs font-medium text-blue-600">
-                          Action needed — approve, decline, or discuss
-                        </div>
-                      ) : null}
-                    </Link>
-                    <div className="flex shrink-0 items-center gap-3">
-                      <EstimateStatusBadge status={e.status} />
-                      <span className="font-medium">{formatMoney(total)}</span>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Jobs */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Wrench className="size-4" /> Your project schedule
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {jobs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Nothing scheduled yet.
-            </p>
-          ) : (
+      {jobs.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Installation</CardTitle>
+          </CardHeader>
+          <CardContent>
             <ul className="divide-y">
               {jobs.map((j) => {
                 const sched = schedByJob.get(j.id);
@@ -275,29 +183,36 @@ export default async function PortalHome() {
                   installHolds.get(j.id),
                   !!j.scheduled_date,
                 );
-                const scheduleCopy = !locked && dateLabel && j.status !== "completed" && j.status !== "cancelled"
-                  ? portalInstallHoldCopy(dateLabel)
-                  : j.status === "completed" || j.status === "cancelled" || locked
-                    ? portalInstallScheduleCopy({
-                        status: j.status,
-                        scheduledDateLabel: dateLabel,
-                        windowLabel: locked ? window : null,
-                        installerName: locked ? installer : null,
-                        completedOnLabel: completedOnByJobId.get(j.id) ?? null,
-                      })
-                    : null;
+                const scheduleCopy =
+                  !locked && dateLabel && j.status !== "completed" && j.status !== "cancelled"
+                    ? portalInstallHoldCopy(dateLabel)
+                    : j.status === "completed" || j.status === "cancelled" || locked
+                      ? portalInstallScheduleCopy({
+                          status: j.status,
+                          scheduledDateLabel: dateLabel,
+                          windowLabel: locked ? window : null,
+                          installerName: locked ? installer : null,
+                          completedOnLabel: completedOnByJobId.get(j.id) ?? null,
+                        })
+                      : null;
                 return (
                   <li key={j.id} className="space-y-3 py-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="font-medium">{j.title || "Your installation"}</span>
-                      <JobStatusBadge status={j.status} />
-                    </div>
-
+                    <div className="font-medium">{j.title || "Your installation"}</div>
                     {scheduleCopy ? (
-                      <div className={locked
-                        ? "rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-sm dark:border-emerald-900/50 dark:bg-emerald-950/20"
-                        : "rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-900/60 dark:bg-amber-950/20"}>
-                        <div className={locked ? "font-semibold text-emerald-800 dark:text-emerald-300" : "font-semibold"}>
+                      <div
+                        className={
+                          locked
+                            ? "rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-sm dark:border-emerald-900/50 dark:bg-emerald-950/20"
+                            : "rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-900/60 dark:bg-amber-950/20"
+                        }
+                      >
+                        <div
+                          className={
+                            locked
+                              ? "font-semibold text-emerald-800 dark:text-emerald-300"
+                              : "font-semibold"
+                          }
+                        >
                           {scheduleCopy.title}
                         </div>
                         {scheduleCopy.detail ? (
@@ -318,48 +233,9 @@ export default async function PortalHome() {
                 );
               })}
             </ul>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Invoices */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Receipt className="size-4" /> Your invoices
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {invoices.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No invoices yet.</p>
-          ) : (
-            <ul className="divide-y text-sm">
-              {invoices.map((inv) => {
-                const t = invoiceDisplayTotals(inv);
-                return (
-                  <li
-                    key={inv.id}
-                    className="flex items-center justify-between gap-3 py-3"
-                  >
-                    <Link
-                      href={`/portal/invoices/${inv.id}`}
-                      className="font-medium hover:underline"
-                    >
-                      {inv.number || "Invoice"}
-                    </Link>
-                    <div className="flex shrink-0 items-center gap-3">
-                      <InvoiceStatusBadge status={inv.status} />
-                      <span className="font-medium">
-                        {formatMoney(t.balance)} due
-                      </span>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

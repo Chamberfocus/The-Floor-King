@@ -279,10 +279,10 @@ export default async function PortalEstimatePage({
     <div>
       <EstimateViewBeacon estimateId={id} />
       <Link
-        href="/portal"
+        href="/portal/estimates"
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft className="size-4" /> Back
+        <ArrowLeft className="size-4" /> Estimates
       </Link>
 
       <div className="mb-2 flex items-center gap-3">
