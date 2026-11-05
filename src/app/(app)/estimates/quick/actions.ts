@@ -8,24 +8,15 @@ import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
 import { advanceFromAutoAction } from "@/lib/workflow-engine";
 import { onEstimateSentOps } from "@/lib/data/ops-automation";
 import { leadEstimateBlock } from "@/lib/lead-acceptance-guard";
-import { quickEstimateCustomerNotes, quickEstimateLineRow } from "@/lib/quick-estimate";
+import {
+  quickEstimateCustomerNotes,
+  quickEstimateLineRow,
+  type QuickEstimateLineInput,
+} from "@/lib/quick-estimate";
 
 const OFFICE = ["admin", "office", "sales_manager", "salesman"] as const;
 
-export interface QuickEstimateLine {
-  description: string;
-  quantity: string | number;
-  unit: string;
-  /** Sell price per unit. */
-  rate: string | number;
-  /** Our cost per unit, so the margin is real from the start. */
-  cost?: string | number | null;
-  productId?: string | null;
-  category?: string | null;
-  manufacturer?: string | null;
-  style?: string | null;
-  color?: string | null;
-}
+export type QuickEstimateLine = QuickEstimateLineInput;
 
 export interface QuickEstimateInput {
   customerId: string | null;
@@ -39,6 +30,8 @@ export interface QuickEstimateInput {
   notes: string;
   /** Send it straight away rather than leaving it as a draft. */
   markSent: boolean;
+  /** Property chosen in the new-estimate dialog. The job inherits it. */
+  serviceAddressId?: string | null;
 }
 
 const n = (v: string | number | null | undefined): number => {
@@ -105,6 +98,7 @@ export async function createQuickEstimate(input: QuickEstimateInput): Promise<{
   const leadBlock = await leadEstimateBlock(customerId);
   if (leadBlock) return { error: leadBlock };
 
+  const serviceAddressId = input.serviceAddressId?.trim() || null;
   const { data: estimate, error } = await supabase
     .from("estimates")
     .insert({
@@ -119,6 +113,7 @@ export async function createQuickEstimate(input: QuickEstimateInput): Promise<{
       notes: quickEstimateCustomerNotes(input.notes),
       job_description: quickEstimateCustomerNotes(input.notes),
       created_by: user?.id ?? null,
+      ...(serviceAddressId ? { service_address_id: serviceAddressId } : {}),
     })
     .select("id")
     .single();

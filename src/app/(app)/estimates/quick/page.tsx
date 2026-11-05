@@ -16,10 +16,10 @@ export const dynamic = "force-dynamic";
 export default async function QuickEstimatePage({
   searchParams,
 }: {
-  searchParams: Promise<{ customer?: string }>;
+  searchParams: Promise<{ customer?: string; site?: string }>;
 }) {
   await requireRole(["admin", "office", "sales_manager", "salesman"]);
-  const { customer } = await searchParams;
+  const { customer, site } = await searchParams;
   const supabase = await createClient();
 
   const [{ data: custData }, { data: prodData }, { data: lastEst }, biz, org] =
@@ -137,6 +137,7 @@ export default async function QuickEstimatePage({
         targetMargin={margin}
         freightMarkupPct={freight}
         presetCustomerId={customer}
+        serviceAddressId={site?.trim() || null}
         fuelCharge={Number(biz.job_fuel_charge) || 0}
         salespersonGas={Number(biz.job_fuel_fee) || 0}
         carAllowance={Number(biz.job_car_allowance) || 0}

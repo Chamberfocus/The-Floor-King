@@ -16,7 +16,6 @@ import {
 } from "@/components/ui/dialog";
 import { formatDate } from "@/lib/format";
 import {
-  createEstimate,
   customerWorkContext,
   duplicateEstimateToCustomer,
 } from "@/app/(app)/estimates/actions";
@@ -30,7 +29,7 @@ type Ctx = Awaited<ReturnType<typeof customerWorkContext>>;
  * The one way to start an estimate.
  *
  * There were four tools — the guided questionnaire, a quick few-lines estimate,
- * the raw builder, and copying a previous quote — and three different launchers,
+ * a short quote you build yourself, and copying a previous quote — and three different launchers,
  * each offering a DIFFERENT SUBSET of them. The customer's own file, which is
  * where you're standing when they ring, offered two of the four; it couldn't
  * copy their last quote even though repeat work is the whole point of a repeat
@@ -40,7 +39,7 @@ type Ctx = Awaited<ReturnType<typeof customerWorkContext>>;
  * One button, one dialog, all four, everywhere. Copy only appears when there is
  * something to copy.
  *
- * The lead-source gate survives intact: createEstimate refuses a customer with
+ * The lead-source gate survives intact: an estimate refuses a customer with
  * no recorded source, so if it's missing this captures it inline and carries on
  * rather than bouncing you to their file with no explanation.
  */
@@ -93,8 +92,8 @@ export function NewEstimate({
     else setAskSource(() => go);
   };
 
-  // The chosen property rides along, so the questionnaire and the quick form
-  // start out knowing which address they're quoting.
+  // The chosen property rides along, so the questionnaire, the quick form, and
+  // build-it-myself start out knowing which address they're quoting.
   const site = addrId ? `&site=${addrId}` : "";
 
   const goGuided = gated(() => {
@@ -105,14 +104,11 @@ export function NewEstimate({
     router.push(`/estimates/quick?customer=${customerId}${site}`);
   });
 
-  const goBuilder = gated(() =>
-    start(async () => {
-      const fd = new FormData();
-      fd.set("customer_id", customerId);
-      if (addrId) fd.set("service_address_id", addrId);
-      await createEstimate(fd); // redirects into the builder on success
-    }),
-  );
+  const goBuilder = gated(() => {
+    const q = new URLSearchParams({ customer: customerId });
+    if (addrId) q.set("site", addrId);
+    router.push(`/estimates/build?${q.toString()}`);
+  });
 
   const copy = (estimateId: string) =>
     start(async () => {
@@ -221,7 +217,7 @@ export function NewEstimate({
             {option(
               <Sparkles className="size-4" />,
               "Build it myself",
-              "Straight into the builder with an empty draft.",
+              "Search a product, type how many, and name the room. The purchase order and work order use these lines.",
               goBuilder,
             )}
           </div>

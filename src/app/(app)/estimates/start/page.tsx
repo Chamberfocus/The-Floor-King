@@ -21,7 +21,7 @@ export default async function StartEstimatePage() {
       </Link>
       <PageHeader
         title="New estimate"
-        description="Find the customer, then start it — guided questionnaire, straight into the builder, or a copy of what you quoted them before."
+        description="Find the customer, then start it — guided questionnaire, a short quote you build yourself, or a copy of what you quoted them before."
       />
       <Card>
         <CardContent className="pt-6">
