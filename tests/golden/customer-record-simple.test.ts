@@ -39,6 +39,8 @@ describe("customer record simplification", () => {
     expect(tabs).toContain("hashchange");
     expect(tabs).toContain("aria-current");
     expect(tabs).toContain("min-h-11");
+    expect(tabs).toContain("overflow-x-auto");
+    expect(tabs).not.toContain("sm:flex-wrap");
     expect(page).not.toContain("Next required action");
     expect(page).not.toContain("Schedule this job");
   });

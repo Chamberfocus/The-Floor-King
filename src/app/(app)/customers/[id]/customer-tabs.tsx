@@ -12,11 +12,12 @@ import {
   Paperclip,
   MessageSquare,
   History,
+  Clock,
   ChevronRight,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { TAB_ORDER, type CustomerTab } from "@/lib/preferences";
+import { TAB_LABELS, TAB_ORDER, type CustomerTab } from "@/lib/preferences";
 
 /**
  * Hybrid tabs for a customer file. "Overview" shows the whole record (the full
@@ -43,21 +44,20 @@ const TabCtx = createContext<CustomerTab>("overview");
 
 const TABS: {
   key: CustomerTab;
-  label: string;
   icon: LucideIcon;
   count?: keyof TabCounts;
 }[] = [
-  { key: "overview", label: "Overview", icon: LayoutGrid },
-  { key: "contact", label: "Contact", icon: User },
-  { key: "estimates", label: "Estimates", icon: FileText, count: "estimates" },
-  { key: "jobs", label: "Jobs", icon: Wrench, count: "jobs" },
-  { key: "costing", label: "Job Costing", icon: Scale },
-  { key: "history", label: "History", icon: History },
-  { key: "invoices", label: "Invoices", icon: Receipt, count: "invoices" },
-  { key: "materials", label: "Materials & POs", icon: Package, count: "materials" },
-  { key: "files", label: "Files", icon: Paperclip, count: "files" },
-  { key: "messages", label: "Messages", icon: MessageSquare, count: "messages" },
-  { key: "activity", label: "Activity", icon: History },
+  { key: "overview", icon: LayoutGrid },
+  { key: "contact", icon: User },
+  { key: "estimates", icon: FileText, count: "estimates" },
+  { key: "jobs", icon: Wrench, count: "jobs" },
+  { key: "costing", icon: Scale },
+  { key: "history", icon: History },
+  { key: "invoices", icon: Receipt, count: "invoices" },
+  { key: "materials", icon: Package, count: "materials" },
+  { key: "files", icon: Paperclip, count: "files" },
+  { key: "messages", icon: MessageSquare, count: "messages" },
+  { key: "activity", icon: Clock },
 ];
 
 export function CustomerTabs({
@@ -84,6 +84,7 @@ export function CustomerTabs({
     : (tabs[0] ?? "overview");
   const [active, setActive] = useState<CustomerTab>(initial);
   const navRef = useRef<HTMLElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
 
   // Deep-link / jump support: a #tab in the URL (from a snapshot link or a
   // post-action redirect like #jobs) focuses that tab. Keeps everything in the
@@ -98,10 +99,23 @@ export function CustomerTabs({
     return () => window.removeEventListener("hashchange", applyHash);
   }, [tabs]);
 
+  // Keep the chosen section in view inside the single scrolling row.
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    const current = scroller?.querySelector<HTMLElement>("[aria-current='page']");
+    if (!scroller || !current) return;
+    const left =
+      current.offsetLeft - scroller.clientWidth / 2 + current.offsetWidth / 2;
+    scroller.scrollTo({ left: Math.max(0, left), behavior: "smooth" });
+  }, [active]);
+
   const pick = (key: CustomerTab) => {
     setActive(key);
-    // Start the newly-focused view from the top so nothing looks "half-scrolled".
-    navRef.current?.closest("main")?.scrollTo({ top: 0, behavior: "smooth" });
+    const next = `${window.location.pathname}${window.location.search}#${key}`;
+    window.history.replaceState(null, "", next);
+    // Pin the section row to the top of the file so the chosen part is next,
+    // instead of jumping back to the name.
+    navRef.current?.scrollIntoView({ block: "start" });
   };
 
   return (
@@ -111,7 +125,10 @@ export function CustomerTabs({
         aria-label="Customer file sections"
         className="sticky top-0 z-20 mb-4 flex items-center gap-1 rounded-xl border bg-background/90 p-1.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/70"
       >
-        <div className="flex flex-1 items-center gap-1 overflow-x-auto sm:flex-wrap sm:overflow-visible [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div
+          ref={scrollerRef}
+          className="relative flex flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:thin]"
+        >
           {visible.map((t) => {
             const Icon = t.icon;
             const n = t.count ? counts[t.count] : 0;
@@ -130,7 +147,7 @@ export function CustomerTabs({
                 )}
               >
                 <Icon className="size-3.5" />
-                {t.label}
+                {TAB_LABELS[t.key]}
                 {n > 0 ? (
                   <span
                     className={cn(
