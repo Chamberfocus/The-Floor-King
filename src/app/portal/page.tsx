@@ -23,6 +23,7 @@ import { InstallPreferencePicker } from "./install-preference-picker";
 import { portalInstallScheduleCopy } from "@/lib/install-closeout";
 import { customerToldInstallIsLocked, portalInstallHoldCopy } from "@/lib/install-hold";
 import { PortalProjectCard } from "./project-card";
+import type { JobStatus } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Your project" };
 
@@ -79,27 +80,20 @@ export default async function PortalHome() {
   );
   const completedIds = jobs.filter((j) => j.status === "completed").map((j) => j.id);
   const completedOnByJobId = await listPortalCompletionDays(customerId, completedIds);
+  const jobById = new Map(jobs.map((job) => [job.id, job]));
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight sm:text-[1.75rem]">
             Welcome, {firstName}
           </h1>
-          <p className="text-sm text-muted-foreground">
-            This is the same stage we see in the store. It updates when we move your project.
-          </p>
+          <p className="text-sm text-muted-foreground">Where your project stands.</p>
         </div>
-        <Link href="/portal/order" className={buttonVariants({ size: "lg" })}>
+        <Link href="/portal/order" className={buttonVariants({ variant: "outline" })}>
           <ShoppingBag className="size-4" /> Place an order
         </Link>
-      </div>
-
-      <div className="space-y-3">
-        {projects.map((project) => (
-          <PortalProjectCard key={`${project.kind}-${project.id}`} project={project} />
-        ))}
       </div>
 
       {needsEstimate.length || openInvoices.length ? (
@@ -132,6 +126,43 @@ export default async function PortalHome() {
         </Card>
       ) : null}
 
+      <div className="space-y-3">
+        {projects.map((project) => {
+          const job = project.kind === "job" ? jobById.get(project.id) : undefined;
+          return (
+            <PortalProjectCard key={`${project.kind}-${project.id}`} project={project}>
+              {job ? (
+                <ProjectSchedule
+                  job={job}
+                  sched={schedByJob.get(job.id)}
+                  installer={installerNameByJobId.get(job.id) ?? null}
+                  hold={installHolds.get(job.id)}
+                  completedOn={completedOnByJobId.get(job.id) ?? null}
+                />
+              ) : null}
+            </PortalProjectCard>
+          );
+        })}
+      </div>
+
+      {jobs.some(
+        (job) =>
+          job.status === "cancelled" &&
+          !projects.some((project) => project.kind === "job" && project.id === job.id),
+      ) ? (
+        <div className="space-y-1 text-sm text-muted-foreground">
+          {jobs
+            .filter(
+              (job) =>
+                job.status === "cancelled" &&
+                !projects.some((project) => project.kind === "job" && project.id === job.id),
+            )
+            .map((job) => (
+              <p key={job.id}>{job.title || "Installation"} is cancelled.</p>
+            ))}
+        </div>
+      ) : null}
+
       {samplesOut.length > 0 ? (
         <Card>
           <CardHeader>
@@ -162,80 +193,78 @@ export default async function PortalHome() {
         </Card>
       ) : null}
 
-      {jobs.length > 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Installation</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="divide-y">
-              {jobs.map((j) => {
-                const sched = schedByJob.get(j.id);
-                const window = j.arrival_window
-                  ? j.arrival_window
-                      .split("-")
-                      .map((t) => to12(t.trim()))
-                      .join("–")
-                  : null;
-                const installer = installerNameByJobId.get(j.id) ?? null;
-                const dateLabel = j.scheduled_date ? formatDate(j.scheduled_date) : null;
-                const locked = customerToldInstallIsLocked(
-                  installHolds.get(j.id),
-                  !!j.scheduled_date,
-                );
-                const scheduleCopy =
-                  !locked && dateLabel && j.status !== "completed" && j.status !== "cancelled"
-                    ? portalInstallHoldCopy(dateLabel)
-                    : j.status === "completed" || j.status === "cancelled" || locked
-                      ? portalInstallScheduleCopy({
-                          status: j.status,
-                          scheduledDateLabel: dateLabel,
-                          windowLabel: locked ? window : null,
-                          installerName: locked ? installer : null,
-                          completedOnLabel: completedOnByJobId.get(j.id) ?? null,
-                        })
-                      : null;
-                return (
-                  <li key={j.id} className="space-y-3 py-4">
-                    <div className="font-medium">{j.title || "Your installation"}</div>
-                    {scheduleCopy ? (
-                      <div
-                        className={
-                          locked
-                            ? "rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-sm dark:border-emerald-900/50 dark:bg-emerald-950/20"
-                            : "rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-900/60 dark:bg-amber-950/20"
-                        }
-                      >
-                        <div
-                          className={
-                            locked
-                              ? "font-semibold text-emerald-800 dark:text-emerald-300"
-                              : "font-semibold"
-                          }
-                        >
-                          {scheduleCopy.title}
-                        </div>
-                        {scheduleCopy.detail ? (
-                          <div className="mt-0.5">{scheduleCopy.detail}</div>
-                        ) : null}
-                      </div>
-                    ) : sched ? (
-                      <InstallPreferencePicker
-                        jobId={j.id}
-                        days={sched.days}
-                        availableStarts={sched.availableStarts}
-                        existing={sched.existing}
-                      />
-                    ) : (
-                      <p className="text-sm text-muted-foreground">To be scheduled.</p>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </CardContent>
-        </Card>
-      ) : null}
+    </div>
+  );
+}
+
+function ProjectSchedule({
+  job,
+  sched,
+  installer,
+  hold,
+  completedOn,
+}: {
+  job: {
+    id: string;
+    status: JobStatus;
+    scheduled_date: string | null;
+    arrival_window?: string | null;
+  };
+  sched?: { days: number; availableStarts: string[]; existing: string[] };
+  installer: string | null;
+  hold: string | null | undefined;
+  completedOn: string | null;
+}) {
+  const arrivalLabel = job.arrival_window
+    ? job.arrival_window
+        .split("-")
+        .map((t) => to12(t.trim()))
+        .join("–")
+    : null;
+  const dateLabel = job.scheduled_date ? formatDate(job.scheduled_date) : null;
+  const locked = customerToldInstallIsLocked(hold, !!job.scheduled_date);
+  const scheduleCopy =
+    !locked && dateLabel && job.status !== "completed" && job.status !== "cancelled"
+      ? portalInstallHoldCopy(dateLabel)
+      : job.status === "completed" || job.status === "cancelled" || locked
+        ? portalInstallScheduleCopy({
+            status: job.status,
+            scheduledDateLabel: dateLabel,
+            windowLabel: locked ? arrivalLabel : null,
+            installerName: locked ? installer : null,
+            completedOnLabel: completedOn,
+          })
+        : null;
+
+  return (
+    <div className="mt-4">
+      {scheduleCopy ? (
+        <div
+          className={
+            locked
+              ? "rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-sm dark:border-emerald-900/50 dark:bg-emerald-950/20"
+              : "rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-900/60 dark:bg-amber-950/20"
+          }
+        >
+          <div
+            className={
+              locked ? "font-semibold text-emerald-800 dark:text-emerald-300" : "font-semibold"
+            }
+          >
+            {scheduleCopy.title}
+          </div>
+          {scheduleCopy.detail ? <div className="mt-0.5">{scheduleCopy.detail}</div> : null}
+        </div>
+      ) : sched ? (
+        <InstallPreferencePicker
+          jobId={job.id}
+          days={sched.days}
+          availableStarts={sched.availableStarts}
+          existing={sched.existing}
+        />
+      ) : (
+        <p className="text-sm text-muted-foreground">To be scheduled.</p>
+      )}
     </div>
   );
 }

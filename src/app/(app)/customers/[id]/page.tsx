@@ -1132,18 +1132,18 @@ export default async function CustomerPage({
           );
         })()}
 
-        <div className={cn("mt-3 grid gap-2 border-t pt-3", seesMoney ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
-          <div className="rounded-lg bg-muted/40 px-3 py-2">
-            <div className="text-xs text-muted-foreground">Estimate visit</div>
-            <div className="text-sm font-semibold">
+        <dl className="mt-3 flex flex-wrap gap-x-5 gap-y-1 border-t pt-3 text-sm">
+          <div>
+            <dt className="inline text-muted-foreground">Estimate visit </dt>
+            <dd className="m-0 inline font-semibold">
               {estimateAppointment
                 ? `${formatDate(estimateAppointment.startsAt)} · ${formatWallTime(estimateAppointment.startsAt)}`
                 : "Not booked"}
-            </div>
+            </dd>
           </div>
-          <div className="rounded-lg bg-muted/40 px-3 py-2">
-            <div className="text-xs text-muted-foreground">Install</div>
-            <div className="text-sm font-semibold">
+          <div>
+            <dt className="inline text-muted-foreground">Install </dt>
+            <dd className="m-0 inline font-semibold">
               {quickJob?.date
                 ? `${formatDate(quickJob.date)}${
                     quickJob.endDate && quickJob.endDate !== quickJob.date
@@ -1151,22 +1151,25 @@ export default async function CustomerPage({
                       : ""
                   }${quickJob.installerName ? ` · ${quickJob.installerName}` : ""}`
                 : "Not booked"}
-            </div>
+            </dd>
           </div>
           {seesMoney ? (
-            <a href="#invoices" className="rounded-lg bg-muted/40 px-3 py-2 hover:bg-muted">
-              <div className="text-xs text-muted-foreground">Amount due</div>
-              <div
-                className={cn(
-                  "text-sm font-semibold tabular-nums",
-                  money.balance > 0.005 && "text-destructive",
-                )}
-              >
-                {formatMoney(money.balance)}
-              </div>
-            </a>
+            <div>
+              <dt className="inline text-muted-foreground">Amount due </dt>
+              <dd className="m-0 inline">
+                <a
+                  href="#invoices"
+                  className={cn(
+                    "font-semibold tabular-nums hover:underline",
+                    money.balance > 0.005 && "text-destructive",
+                  )}
+                >
+                  {formatMoney(money.balance)}
+                </a>
+              </dd>
+            </div>
           ) : null}
-        </div>
+        </dl>
 
         <div className="mt-3 border-t pt-3">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
