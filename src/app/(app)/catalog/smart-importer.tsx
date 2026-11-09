@@ -35,7 +35,7 @@ import {
   buildCatalogTemplate,
   mapCategory,
   normUnit,
-  priceAmount,
+  unitPriceCell,
 } from "@/lib/catalog-csv";
 import {
   CATALOG_PRODUCT_CATEGORIES,
@@ -109,6 +109,8 @@ export function validateRow(r: PriceRow): RowStatus {
     return { level: "flag", reason: "price didn't parse — fix it or map a different price column" };
   const p = Number(r.material_rate);
   if (!(p > 0)) return { level: "flag", reason: "price is $0" };
+  if (p >= 200)
+    return { level: "flag", reason: `$${p} looks like a roll size, not the unit price` };
   const u = r.unit;
   if (r.category === "carpet") {
     // Carpet is always sq yd here. A plausible sq ft price was already
@@ -422,7 +424,9 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
       const unitCell = cell(row, "unit");
       const rawCategory = catCell ? mapCategory(catCell) : defCategory;
       const rawUnit = unitCell ? normUnit(unitCell) : defUnit;
-      const rawMat = priceAmount(cell(row, "material_rate"));
+      const priceHeader =
+        map.material_rate >= 0 ? (grid.headers[map.material_rate] ?? "") : "";
+      const rawMat = unitPriceCell(cell(row, "material_rate"), priceHeader);
       // House rule: carpet is ALWAYS quoted per square yard, hard surface per
       // square foot. A supplier sending carpet per sq ft is converted here
       // rather than left to be converted (or not) later — the same money per
@@ -1118,13 +1122,18 @@ function localLineParse(text: string): PriceRow[] {
     if (parts && parts.length > 1) {
       const cells = parts.map((p) => p.trim()).filter(Boolean);
       name = cells[0] || line;
+      let repaired: number | null = null;
       for (let k = cells.length - 1; k >= 1; k--) {
-        const n = parseFloat(cells[k].replace(/[^0-9.]/g, ""));
-        if (Number.isFinite(n) && /\d/.test(cells[k]) && /[$.\d]/.test(cells[k])) {
+        const n = unitPriceCell(cells[k], "price");
+        if (n == null) continue;
+        if (!Number.isInteger(n)) {
           rate = n;
+          repaired = null;
           break;
         }
+        if (repaired == null) repaired = n;
       }
+      if (rate == null) rate = repaired;
       const skuCell = cells
         .slice(1)
         .find((c) => /[a-z]/i.test(c) && /\d/.test(c) && c.length <= 20);
