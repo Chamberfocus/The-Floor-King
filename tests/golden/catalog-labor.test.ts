@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { mapCategory } from "@/lib/catalog-csv";
 import { validateRow } from "@/app/(app)/catalog/smart-importer";
@@ -43,5 +45,16 @@ describe("labor is not a catalog product", () => {
         notes: null,
       }).level,
     ).toBe("flag");
+  });
+
+  it("does not offer labor as a price-list column", () => {
+    const src = readFileSync(
+      join(process.cwd(), "src/app/(app)/catalog/smart-importer.tsx"),
+      "utf8",
+    );
+    expect(src).not.toContain('label: "Labor"');
+    expect(src).not.toContain(">Labor<");
+    expect(src).toContain('label: "Price"');
+    expect(src).toContain(">Price<");
   });
 });

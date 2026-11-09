@@ -35,6 +35,7 @@ import {
   buildCatalogTemplate,
   mapCategory,
   normUnit,
+  priceAmount,
 } from "@/lib/catalog-csv";
 import {
   CATALOG_PRODUCT_CATEGORIES,
@@ -63,8 +64,7 @@ const FIELDS: { key: string; label: string; syn: string[] }[] = [
   { key: "name", label: "Product name", syn: ["name", "productname", "product", "itemname", "description", "itemdescription"] },
   // Cost-first — auto-map OUR cost, NEVER auto-pick MSRP / list / retail (those
   // must be chosen deliberately). Generic "price"/"unitprice" are last resort.
-  { key: "material_rate", label: "Material / cost", syn: ["yourcost", "dealercost", "dealernet", "dealerprice", "netprice", "net", "unitcost", "cost", "materialcost", "materialrate", "material", "unitprice", "price"] },
-  { key: "labor_rate", label: "Labor", syn: ["laborrate", "labor", "labour", "install", "installrate"] },
+  { key: "material_rate", label: "Price", syn: ["yourcost", "dealercost", "dealernet", "dealerprice", "netprice", "net", "unitcost", "cost", "materialcost", "materialrate", "material", "unitprice", "price"] },
   { key: "sku", label: "SKU / item #", syn: ["sku", "style", "styleno", "stylenumber", "item", "itemno", "itemnumber", "partno", "partnumber", "productcode", "code"] },
   { key: "manufacturer", label: "Manufacturer", syn: ["manufacturer", "mfg", "mfr", "brand", "vendor", "supplier", "mill", "sellingcompanyname"] },
   { key: "style", label: "Style", syn: ["stylename", "pattern", "collection", "series", "design"] },
@@ -76,15 +76,19 @@ const FIELDS: { key: string; label: string; syn: string[] }[] = [
 ];
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
-// Strict money parse: one number only. Blank/"N/A"/ranges ("12-15") → null so
-// they're flagged in the preview, never silently turned into a wrong value.
-const toNum = (v: string): number | null => {
-  if (!v) return null;
-  const nums = v.replace(/[$,]/g, "").match(/\d+(?:\.\d+)?/g);
-  if (!nums || nums.length !== 1) return null;
-  const n = parseFloat(nums[0]);
-  return Number.isFinite(n) ? n : null;
-};
+
+// The price the store pays. Cut before a generic price, generic before roll.
+// Labor is not a price-list column.
+const PRICE_COLUMN_ORDER = [
+  "yourcost", "yourprice", "dealercost", "dealernet", "dealerprice", "dealer",
+  "netprice", "net", "unitcost", "cost", "materialcost", "materialrate", "material",
+  "cutprice", "cut", "cutorder", "cutcost",
+  "pricesy", "pricepersy", "priceperyd", "pricepersqyd", "costsy", "costpersy", "netsy",
+  "unitprice", "price",
+  "cartonprice", "carton", "ctn", "boxprice",
+  "rollprice", "roll",
+  "listprice", "list", "msrp", "retail", "retailprice",
+];
 
 export type RowStatus = { level: "ok" | "flag"; reason: string };
 /**
@@ -260,6 +264,13 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
         }
       }
     }
+    for (const name of PRICE_COLUMN_ORDER) {
+      const i = normHead.indexOf(name);
+      if (i >= 0) {
+        guess.material_rate = i;
+        break;
+      }
+    }
     setSource(src);
     setGrid({ headers, body });
     setMap(guess);
@@ -390,7 +401,7 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
   const finishRows = (r: PriceRow[], src: Source) => {
     setStatus(null);
     setSource(src);
-    setRows(r);
+    setRows(r.map((row) => ({ ...row, labor_rate: null })));
     if (r.length) toast.success(`Found ${r.length} products — review & import`);
     else toast.error("No products found. Try a clearer file, or paste the rows as text.");
   };
@@ -411,8 +422,7 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
       const unitCell = cell(row, "unit");
       const rawCategory = catCell ? mapCategory(catCell) : defCategory;
       const rawUnit = unitCell ? normUnit(unitCell) : defUnit;
-      const rawMat = toNum(cell(row, "material_rate"));
-      const rawLab = toNum(cell(row, "labor_rate"));
+      const rawMat = priceAmount(cell(row, "material_rate"));
       // House rule: carpet is ALWAYS quoted per square yard, hard surface per
       // square foot. A supplier sending carpet per sq ft is converted here
       // rather than left to be converted (or not) later — the same money per
@@ -437,7 +447,7 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
         unit: yardify ? "sqyd" : rawUnit,
         sku: cell(row, "sku") || null,
         material_rate: yardify ? x9(rawMat) : rawMat,
-        labor_rate: yardify ? x9(rawLab) : rawLab,
+        labor_rate: null,
         manufacturer: cell(row, "manufacturer") || null,
         style: cell(row, "style") || null,
         color: folded.color,
@@ -910,8 +920,7 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
                     <th className="px-2 py-2 text-left">Category</th>
                     <th className="px-2 py-2 text-left">SKU</th>
                     <th className="px-2 py-2 text-left">Mfr</th>
-                    <th className="px-2 py-2 text-right">Material</th>
-                    <th className="px-2 py-2 text-right">Labor</th>
+                    <th className="px-2 py-2 text-right">Price</th>
                     {!grid ? <th className="px-2 py-2"></th> : null}
                   </tr>
                 </thead>
@@ -939,7 +948,6 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
                                 {r.material_rate != null ? `$${r.material_rate}` : "—"}
                                 <span className="text-xs font-normal text-muted-foreground">/{r.unit}</span>
                               </td>
-                              <td className="px-2 py-1 text-right">{r.labor_rate ?? "—"}</td>
                             </>
                           );
                         })()
@@ -973,10 +981,7 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
                             <input value={defManufacturer.trim() ? defManufacturer.trim() : (r.manufacturer ?? "")} onChange={(e) => updateRow(i, { manufacturer: e.target.value })} disabled={!!defManufacturer.trim()} title={defManufacturer.trim() ? "Set by the whole-list manufacturer above — clear it to edit rows individually" : undefined} className={cn(inputSm, "w-24", defManufacturer.trim() && "opacity-70")} />
                           </td>
                           <td className="px-2 py-1">
-                            <input type="number" step="0.01" value={r.material_rate ?? ""} onChange={(e) => updateRow(i, { material_rate: e.target.value ? Number(e.target.value) : null })} className={cn(inputSm, "w-20 text-right")} />
-                          </td>
-                          <td className="px-2 py-1">
-                            <input type="number" step="0.01" value={r.labor_rate ?? ""} onChange={(e) => updateRow(i, { labor_rate: e.target.value ? Number(e.target.value) : null })} className={cn(inputSm, "w-20 text-right")} />
+                            <input type="number" step="0.01" aria-label={`Price for ${r.name || "row"}`} value={r.material_rate ?? ""} onChange={(e) => updateRow(i, { material_rate: e.target.value ? Number(e.target.value) : null })} className={cn(inputSm, "w-24 text-right")} />
                           </td>
                           <td className="px-2 py-1 text-right">
                             <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove" onClick={() => removeRow(i)}>

@@ -97,4 +97,43 @@ describe("PDF price layout", () => {
     const parsed = parseStructuredRows(text);
     expect(parsed?.map((row) => row.material_rate)).toEqual([1.25, 2.25, 3.25, 1.75, 2.75, 3.75]);
   });
+
+  it("keeps a price that sits lower in the same row", () => {
+    const text = layoutPdfPage([
+      item("Style Name", 40, 720, 80),
+      item("Cut", 400, 720, 24),
+      item("Annapolis", 40, 700, 70),
+      item("4.99", 400, 693, 28),
+      item("Harbor", 40, 684, 50),
+      item("5.10", 400, 677, 28),
+    ]);
+    expect(text).toContain("Annapolis\t4.99");
+    expect(text).toContain("Harbor\t5.10");
+    expect(parseStructuredRows(text)?.map((row) => row.material_rate)).toEqual([4.99, 5.1]);
+  });
+
+  it("pulls a price that landed on the next line back onto the product", () => {
+    const rows = parseStructuredRows(
+      ["Style Name\tColor\tCut\tRoll", "Annapolis\tLinen", "4.99\t3.25"].join("\n"),
+    );
+    expect(rows?.[0].material_rate).toBe(4.99);
+    expect(rows?.[0].name).toBe("Annapolis Linen");
+  });
+
+  it("reads the money amount when a width shares the price cell", () => {
+    const rows = parseStructuredRows(
+      ["Style Name\tCut", "Annapolis\t12 4.99"].join("\n"),
+    );
+    expect(rows?.[0].material_rate).toBe(4.99);
+  });
+
+  it("reads Price/SY as the carpet price", () => {
+    const rows = parseStructuredRows(
+      ["Style Name\tPrice/SY", "Annapolis Linen\t6.50"].join("\n"),
+    );
+    expect(rows?.[0].material_rate).toBe(6.5);
+    expect(rows?.[0].category).toBe("carpet");
+    expect(rows?.[0].unit).toBe("sqyd");
+    expect(rows?.[0].labor_rate).toBeNull();
+  });
 });

@@ -71,24 +71,39 @@ function joinRow(items: PdfTextItem[]): string {
   return line.replace(/[ \t]+$/g, "").replace(/^[ \t]+/g, "");
 }
 
+/**
+ * Prices often sit a few points lower than the product name in the same
+ * table cell. Group tight baselines first, then pull a price band up onto
+ * the product row when it is closer than the next product row.
+ */
+function clusterRows(items: PdfTextItem[]): PdfTextItem[][] {
+  const sorted = [...items].sort((a, b) => b.y - a.y || a.x - b.x);
+  const bands: { y: number; items: PdfTextItem[] }[] = [];
+  for (const it of sorted) {
+    const last = bands[bands.length - 1];
+    if (!last || last.y - it.y > 3) bands.push({ y: it.y, items: [it] });
+    else last.items.push(it);
+  }
+  const gaps: number[] = [];
+  for (let i = 1; i < bands.length; i++) gaps.push(bands[i - 1].y - bands[i].y);
+  const positive = gaps.filter((gap) => gap > 0).sort((a, b) => a - b);
+  const pitch = positive.length
+    ? positive[Math.min(positive.length - 1, Math.floor(positive.length * 0.75))]
+    : 14;
+  const mergeBelow = Math.min(Math.max(pitch * 0.55, 4), 12);
+  const merged: { y: number; items: PdfTextItem[] }[] = [];
+  for (const band of bands) {
+    const prev = merged[merged.length - 1];
+    if (prev && prev.y - band.y <= mergeBelow) prev.items.push(...band.items);
+    else merged.push({ y: band.y, items: [...band.items] });
+  }
+  return merged.map((band) => band.items);
+}
+
 function layoutColumn(items: PdfTextItem[]): string {
   if (!items.length) return "";
-  const heights = items.map((it) => it.height).sort((a, b) => a - b);
-  const median = heights[Math.floor(heights.length / 2)] || 8;
-  const tol = Math.min(6, Math.max(2, median * 0.55));
-  const sorted = [...items].sort((a, b) => b.y - a.y || a.x - b.x);
-  const rows: PdfTextItem[][] = [];
-  let current: { y: number; items: PdfTextItem[] } | null = null;
-  for (const it of sorted) {
-    if (!current || current.y - it.y > tol) {
-      current = { y: it.y, items: [it] };
-      rows.push(current.items);
-    } else {
-      current.items.push(it);
-    }
-  }
   const lines: string[] = [];
-  for (const row of rows) {
+  for (const row of clusterRows(items)) {
     const line = joinRow(row);
     if (!isFurniture(line)) lines.push(line);
   }
