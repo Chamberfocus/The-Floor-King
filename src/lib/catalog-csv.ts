@@ -118,9 +118,17 @@ export function mapCategory(v: string): string {
  * requires EXACTLY ONE number — so a blank, "N/A", or a range like "12-15" (two
  * numbers) returns null (to be flagged), never a silently-corrupted value.
  */
+/** Turn a money cell into plain digits. A comma before exactly two digits is cents (12,00 → 12.00), not a thousands separator. */
+function moneyText(v: string): string {
+  return v
+    .replace(/\$/g, "")
+    .replace(/(\d),(\d{2})(?!\d)/g, "$1.$2")
+    .replace(/,/g, "");
+}
+
 export function toNum(v: string): number | null {
   if (!v) return null;
-  const cleaned = v.replace(/[$,]/g, "");
+  const cleaned = moneyText(v);
   const nums = cleaned.match(/\d+(?:\.\d+)?/g);
   if (!nums || nums.length !== 1) return null; // blank, junk, or a range → flag
   const n = parseFloat(nums[0]);
@@ -136,7 +144,7 @@ export function priceAmount(v: string): number | null {
   const strict = toNum(v);
   if (strict != null && strict > 0) return strict;
   if (!v.trim()) return null;
-  const nums = v.replace(/[$,]/g, "").match(/\d+(?:\.\d+)?/g);
+  const nums = moneyText(v).match(/\d+(?:\.\d+)?/g);
   if (!nums) return null;
   const valued = nums
     .map((raw) => ({ raw, n: Number(raw) }))
@@ -145,6 +153,37 @@ export function priceAmount(v: string): number | null {
   if (cents.length) return cents[0].n;
   if (valued.length === 1) return valued[0].n;
   return null;
+}
+
+/**
+ * A per-unit flooring price. 1,200 is the square feet on a 12×100 roll, or
+ * $12.00 whose decimal never made it into the text — it is not the cost.
+ * On a real price header, a smashed "1200" / "899" is read as $12.00 / $8.99.
+ * A width, weight, or bare roll-size column is never the price.
+ */
+export function unitPriceCell(cell: string, header = ""): number | null {
+  const text = cell.trim();
+  if (!text) return null;
+  const shown = moneyText(text);
+  const n0 = priceAmount(shown);
+  if (n0 == null || !(n0 > 0)) return null;
+  const hasDecimal = /\d\.\d/.test(shown);
+  const h = norm(header);
+  const lumpHeader = /carton|box|ctn/.test(h);
+  const priceHeader = /price|cost|net|cut|dealer|material|carton|box|ctn/.test(h);
+  const sizeHeader = /^(roll|width|rollwidth|weight|oz|faceweight|size|sqft|sf|footage|rollsize|sqftroll|sy|sqyd)$/.test(h);
+  if (sizeHeader && !hasDecimal && n0 >= 80) return null;
+  let n = n0;
+  // 1200 / 899 on a price header is $12.00 / $8.99 with the decimal missing.
+  // Leave a real $125 carton alone, and never do this on a roll-size column.
+  if (!hasDecimal && priceHeader && !lumpHeader && !sizeHeader && Number.isInteger(n0) && n0 >= 400 && n0 <= 8000) {
+    const repaired = Math.round(n0) / 100;
+    if (repaired >= 4 && repaired <= 80) n = repaired;
+  }
+  if (!hasDecimal && !priceHeader && n >= 80) return null;
+  const cap = /carton|box|ctn/.test(h) ? 500 : 90;
+  if (n > cap) return null;
+  return Math.round(n * 100) / 100;
 }
 
 /**
@@ -412,13 +451,35 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
     let rate: number | null = null;
     let fromCarton = false;
     let idx = -1;
-    for (const cand of order) {
-      const n = priceAmount(get(cand.idx));
-      if (n != null) {
-        rate = n;
-        fromCarton = cand.fromCarton;
-        idx = cand.idx;
-        break;
+    const parsed = order.map((cand) => ({
+      ...cand,
+      raw: get(cand.idx),
+      n: unitPriceCell(get(cand.idx), H[cand.idx] ?? ""),
+    }));
+    const decimalHit = parsed.find(
+      (cand) => cand.n != null && /\d\.\d/.test(moneyText(cand.raw)),
+    );
+    const chosen = decimalHit ?? parsed.find((cand) => cand.n != null);
+    if (chosen && chosen.n != null) {
+      rate = chosen.n;
+      fromCarton = chosen.fromCarton;
+      idx = chosen.idx;
+    }
+    // The labeled price was a roll size (1200). Use another cell that is
+    // actually a unit price, and skip width / weight / roll-footage columns.
+    if (rate == null) {
+      const sizeHeader = /^(roll|width|rollwidth|weight|oz|faceweight|size|sqft|sf|footage|rollsize|sqftroll)$/;
+      for (let i = 0; i < H.length; i++) {
+        if (sizeHeader.test(H[i] ?? "")) continue;
+        const raw = get(i);
+        if (!/\d\.\d/.test(moneyText(raw))) continue;
+        const n = unitPriceCell(raw, "price");
+        if (n != null) {
+          rate = n;
+          idx = i;
+          fromCarton = false;
+          break;
+        }
       }
     }
     let note: string | null = null;
@@ -438,7 +499,8 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
   // A price that the PDF dropped onto the next line still belongs to the product.
   const moneyToken = (cell: string) => {
     const t = cell.trim();
-    return !!t && !/[a-z]/i.test(t) && priceAmount(t) != null;
+    // A bare 1200 is roll footage, not a price that slipped onto the next line.
+    return !!t && !/[a-z]/i.test(t) && unitPriceCell(t, "price") != null && /\d\.\d/.test(moneyText(t));
   };
   const stitched: string[] = [lines[0]];
   for (let i = 1; i < lines.length; i++) {

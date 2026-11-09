@@ -62,7 +62,20 @@ function joinRow(items: PdfTextItem[]): string {
       const charW = prev.width / Math.max(prev.str.length, 1);
       // Cap the column threshold so a long word does not swallow the next column.
       const columnGap = Math.max(12, Math.min(charW * 1.8, 18));
-      if (gap > columnGap) line += "\t";
+      const prevNum = prev.str.replace(/[$,]/g, "");
+      const nextNum = it.str.replace(/[$,]/g, "");
+      // Dollars and cents are often separate glyphs with the dot drawn as a
+      // graphic. "12" + "00" is $12.00, not 1200.
+      if (
+        /^\d+$/.test(prevNum) &&
+        /^\d{2}$/.test(nextNum) &&
+        !prev.str.endsWith(".") &&
+        !it.str.startsWith(".") &&
+        gap >= -1 &&
+        gap <= Math.max(charW * 0.9, 5)
+      ) {
+        line += ".";
+      } else if (gap > columnGap) line += "\t";
       else if (gap > Math.max(charW * 0.34, 1.2)) line += " ";
     }
     line += it.str;

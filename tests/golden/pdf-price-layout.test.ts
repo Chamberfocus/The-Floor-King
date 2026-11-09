@@ -127,6 +127,44 @@ describe("PDF price layout", () => {
     expect(rows?.[0].material_rate).toBe(4.99);
   });
 
+  it("joins split dollars and cents instead of making 1200", () => {
+    const text = layoutPdfPage([
+      item("Style Name", 40, 720, 80),
+      item("Cut", 340, 720, 22),
+      item("Annapolis", 40, 700, 70),
+      item("12", 340, 700, 12),
+      item("00", 354, 700, 14),
+    ]);
+    expect(text).toContain("Annapolis\t12.00");
+    expect(text).not.toContain("1200");
+    expect(parseStructuredRows(text)?.[0].material_rate).toBe(12);
+  });
+
+  it("does not use the 1,200 sq ft on a roll as the price", () => {
+    const rows = parseStructuredRows(
+      [
+        "Style Name\tRoll\tCut",
+        "Annapolis\t1200\t8.99",
+        "Harbor\t1200\t9.50",
+      ].join("\n"),
+    );
+    expect(rows?.map((row) => row.material_rate)).toEqual([8.99, 9.5]);
+  });
+
+  it("reads a missing decimal on the price column as dollars and cents", () => {
+    const rows = parseStructuredRows(
+      ["Style Name\tCut", "Annapolis\t1200", "Harbor\t899"].join("\n"),
+    );
+    expect(rows?.map((row) => row.material_rate)).toEqual([12, 8.99]);
+  });
+
+  it("reads a comma cents price as dollars", () => {
+    const rows = parseStructuredRows(
+      ["Style Name\tPrice", "Annapolis\t12,00"].join("\n"),
+    );
+    expect(rows?.[0].material_rate).toBe(12);
+  });
+
   it("reads Price/SY as the carpet price", () => {
     const rows = parseStructuredRows(
       ["Style Name\tPrice/SY", "Annapolis Linen\t6.50"].join("\n"),
