@@ -53,6 +53,12 @@ That runs, in order: golden tests → TypeScript → static migration file check
 - `scripts/smoke-step6-approval.ts` — Step 6 approval smoke against an explicitly chosen **staging/dev** project after schema changes
 - Live `scripts/verify-*.ts` that need `.env.local` + service role (headers mark them as not part of PR CI)
 
+## Cursor Cloud specific instructions
+
+- `npm ci` installs from the lockfile. Node 22 is already on the image. `node scripts/ensure-pg-dump.mjs` (also the `prebuild` hook) downloads the pinned Linux `pg_dump` into `vendor/pg_dump/linux-amd64/` (gitignored).
+- If `.env.local` is missing, create it with placeholders and do not overwrite an existing file: `NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co`, `NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder-anon-key`, and `NEXT_PUBLIC_SITE_URL=http://localhost:3000`. The word `placeholder` keeps `isSupabaseConfigured()` false so the app boots without a live Supabase project.
+- `npm run dev` listens on port 3000. `/` redirects to `/login`, which shows the unconfigured setup card. Real Supabase keys are required for signed-in CRM pages. They are not required for typecheck, the migration file check, scoped lint, or `npm run build`.
+
 ## Whole-App Integrity — applies to EVERY change
 Any change, update, or new feature must flow through the ENTIRE app. Before finishing any task:
 1. TRACE every dependent: what other pages, components, links, queries, or processes reference what I just changed? Update ALL of them.
