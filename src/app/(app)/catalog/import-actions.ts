@@ -12,6 +12,7 @@ import {
 import { catalogProductCategory } from "@/lib/types";
 import { chunkText } from "@/lib/pdf-client";
 import { parseStructuredRows } from "@/lib/catalog-csv";
+import { layoutPdfJsItems } from "@/lib/pdf-layout";
 import { triggerImportProcessing } from "@/lib/import-worker";
 import {
   listActiveImportJobs,
@@ -109,45 +110,24 @@ async function pdfTextFromStorage(storagePath: string): Promise<string> {
         str?: string;
         hasEOL?: boolean;
         transform?: number[];
+        width?: number;
+        height?: number;
       }[];
-
-      // Group text fragments into rows by their vertical (Y) position, then
-      // order each row left-to-right. Big horizontal gaps become tabs (columns).
-      const byRow = new Map<number, { x: number; s: string }[]>();
-      let usedGeometry = false;
-      let flat = "";
-      for (const it of items) {
-        const s = it.str ?? "";
-        flat += s + (it.hasEOL ? "\n" : " ");
-        if (it.transform && it.transform.length >= 6) {
-          usedGeometry = true;
-          const y = Math.round(it.transform[5]);
-          const x = it.transform[4];
-          const arr = byRow.get(y) ?? [];
-          arr.push({ x, s });
-          byRow.set(y, arr);
-        }
-      }
-
-      if (usedGeometry && byRow.size > 1) {
-        const ys = [...byRow.keys()].sort((a, b) => b - a); // top → bottom
-        for (const y of ys) {
-          const cells = byRow.get(y)!.sort((a, b) => a.x - b.x);
-          let line = "";
-          let prevX: number | null = null;
-          for (const c of cells) {
-            if (prevX !== null && c.x - prevX > 8) line += "\t";
-            line += c.s;
-            prevX = c.x + c.s.length;
-          }
-          const trimmed = line.replace(/\t{2,}/g, "\t").trim();
+      const laid = layoutPdfJsItems(items);
+      if (laid.trim()) {
+        for (const line of laid.split("\n")) {
+          const trimmed = line.trim();
           if (trimmed) lines.push(trimmed);
         }
-      } else {
-        for (const l of flat.split("\n")) {
-          const t = l.trim();
-          if (t) lines.push(t);
-        }
+        continue;
+      }
+      let flat = "";
+      for (const it of items) {
+        flat += (it.str ?? "") + (it.hasEOL ? "\n" : " ");
+      }
+      for (const line of flat.split("\n")) {
+        const trimmed = line.trim();
+        if (trimmed) lines.push(trimmed);
       }
     }
     return lines.join("\n");
