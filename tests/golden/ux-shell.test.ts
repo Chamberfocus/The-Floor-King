@@ -111,7 +111,7 @@ describe("Phase A shell destinations", () => {
 
   it("keeps crew on My Work and off money", () => {
     const hrefs = shellHrefs("crew");
-    expect(homeHrefForRole("crew")).toBe("/home");
+    expect(homeHrefForRole("crew")).toBe("/installer");
     expect(hrefs.has("/installer")).toBe(true);
     expect(hrefs.has("/jobs")).toBe(true);
     expect(hrefs.has("/board")).toBe(true);
@@ -309,10 +309,10 @@ describe("Phase A mobile tabs and + New", () => {
       "/calendar",
     ]);
     expect(mobileTabsForRole("crew").map((tab) => tab.label)).toEqual([
-      "Talk",
       "My Work",
-      "Jobs",
       "Board",
+      "Jobs",
+      "Talk",
     ]);
     expect(mobileTabsForRole("warehouse").map((tab) => tab.href)).toEqual([
       "/shop-talk",

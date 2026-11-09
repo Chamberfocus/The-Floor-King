@@ -1,6 +1,7 @@
 import { CalendarOff, Lock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDate } from "@/lib/format";
+import { availabilityKindLabel, officeAvailabilityLabel } from "@/lib/crew-availability";
 import type { OfficeAvailabilityBlock } from "@/lib/data/crew-availability";
 
 function fmtRange(b: OfficeAvailabilityBlock): string {
@@ -54,7 +55,7 @@ export function CrewAvailabilityBoard({
                   <span className="font-medium tabular-nums">{fmtRange(b)}</span>
                   <span className="text-muted-foreground">·</span>
                   <span className="min-w-0 truncate text-muted-foreground">
-                    {b.label}
+                    {officeAvailabilityLabel(b)}
                   </span>
                   {b.is_private ? (
                     <Lock className="ml-auto size-3.5 shrink-0 text-primary" />
@@ -66,7 +67,7 @@ export function CrewAvailabilityBoard({
                           : "ml-auto shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground"
                       }
                     >
-                      {b.kind === "busy" ? "Busy" : "Off"}
+                      {availabilityKindLabel(b.kind)}
                     </span>
                   )}
                 </li>

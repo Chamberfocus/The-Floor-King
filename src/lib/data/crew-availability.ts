@@ -1,4 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
+import type { AvailabilityKind } from "@/lib/crew-availability";
+
+export type { AvailabilityKind };
 
 /**
  * Installer-owned availability blocks. Crew post when they're off / busy so the
@@ -7,8 +10,6 @@ import { createClient } from "@/lib/supabase/server";
  * the office reads through installer_availability_office(), which redacts the
  * note on private rows down to "Unavailable".
  */
-
-export type AvailabilityKind = "off" | "busy";
 
 /** A block as its OWNER (the crew member) sees it — full detail. */
 export interface MyAvailabilityBlock {
