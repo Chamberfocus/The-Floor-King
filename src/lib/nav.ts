@@ -26,6 +26,7 @@ import {
   Wrench,
   ListTodo,
   MessageSquare,
+  Landmark,
   type LucideIcon,
 } from "lucide-react";
 import { SHOP_TALK_ROLES } from "@/lib/shop-talk";
@@ -177,6 +178,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Money",
     icon: Wallet,
     items: [
+      { label: "Office", href: "/office", icon: Landmark, roles: OFFICE_PLUS },
       { label: "Invoices", href: "/invoices", icon: Receipt, roles: SALES },
       { label: "True-up", href: "/commissions", icon: BarChart3, roles: OFFICE_PLUS },
       { label: "My commission", href: "/commissions/statement", icon: Receipt, roles: ["salesman"] },
@@ -212,9 +214,11 @@ export const SETTINGS_ITEM: NavItem = {
 /**
  * Role-first ordering: the group most central to each role floats to the top of
  * that role's sidebar (they still see every group — just ordered for them).
- * Owner/office run everything, so they keep the default order.
+ * The owner keeps the default order and still opens every screen. Office
+ * starts on money because that desk is invoices, bills, and purchase orders.
  */
 const PRIMARY_GROUP: Partial<Record<UserRole, string>> = {
+  office: "money",
   sales_manager: "sales",
   salesman: "sales",
   scheduler: "schedule",
@@ -224,16 +228,21 @@ const PRIMARY_GROUP: Partial<Record<UserRole, string>> = {
 
 /** Pinned home tabs visible to a role. */
 export function pinnedItemsForRole(role: UserRole): NavItem[] {
-  return PINNED_ITEMS.filter((item) => item.roles.includes(role));
+  const pins = PINNED_ITEMS.filter((item) => item.roles.includes(role));
+  if (role !== "admin") return pins;
+  const office = NAV_GROUPS.flatMap((group) => group.items).find((item) => item.href === "/office");
+  return office ? [...pins, office] : pins;
 }
 
 /**
- * Where the Home button lands. Staff open the day's work list. Customers open
- * the portal. Crew and warehouse still have their own first screen from the
- * root route, and Home remains a working link for them.
+ * Where the logo and the sign-in redirect land. Office opens the financial
+ * desk. Other staff open the day's work list. Customers open the portal.
+ * Crew and warehouse still have their own first screen from the root route,
+ * and Home remains a working link for them.
  */
 export function homeHrefForRole(role: UserRole): string {
   if (role === "customer") return "/portal";
+  if (role === "office") return "/office";
   return "/home";
 }
 
@@ -375,6 +384,7 @@ const SHELL_BLUEPRINT: {
     id: "money",
     label: "Money",
     items: [
+      { href: "/office", label: "Office" },
       { href: "/invoices" },
       { href: "/bills", label: "Bills" },
       { href: "/commissions/statement", label: "My commission" },
@@ -500,7 +510,7 @@ export function activeShellSection(
  */
 const MOBILE_TABS: Record<UserRole, string[]> = {
   admin: ["/shop-talk", "/customers", "/jobs", "/invoices"],
-  office: ["/shop-talk", "/customers", "/jobs", "/invoices"],
+  office: ["/office", "/invoices", "/purchase-orders", "/customers"],
   sales_manager: ["/shop-talk", "/customers", "/estimates", "/calendar"],
   salesman: ["/shop-talk", "/customers", "/estimates", "/calendar"],
   scheduler: ["/shop-talk", "/install-scheduler", "/jobs", "/calendar"],
@@ -517,7 +527,9 @@ const MOBILE_LABEL: Record<string, string> = {
   "/board": "Board",
   "/calendar": "Measures",
   "/install-scheduler": "Installs",
+  "/office": "Office",
   "/invoices": "Invoices",
+  "/purchase-orders": "POs",
   "/installer": "My Work",
   "/warehouse": "Warehouse",
   "/inventory": "Inventory",
