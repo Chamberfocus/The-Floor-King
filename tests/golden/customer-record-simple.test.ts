@@ -19,6 +19,10 @@ describe("customer record simplification", () => {
     expect(page).toContain("Handle this customer");
     expect(page).toContain("plainLabels");
     expect(page).toContain("New job");
+    expect(page.indexOf("Handle this customer")).toBeLessThan(page.indexOf("New invoice"));
+    expect(page.indexOf("New invoice")).toBeLessThan(page.indexOf("More actions"));
+    expect(page).toContain("New PO");
+    expect(page).toContain("Check out samples");
     expect(rollup).toContain("Job progress");
     expect(rollup).toContain("of {only.total} recorded");
     expect(rollup).not.toContain(">Next<");

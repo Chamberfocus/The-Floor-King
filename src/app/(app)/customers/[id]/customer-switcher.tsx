@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Search, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { searchCustomers } from "../actions";
 
 type Hit = { id: string; name: string; hint: string | null };
@@ -12,7 +13,13 @@ type Hit = { id: string; name: string; hint: string | null };
  * Jump straight to another customer's file without going back to the list —
  * type a name/phone/email and pick. Skips the current customer in results.
  */
-export function CustomerSwitcher({ currentId }: { currentId: string }) {
+export function CustomerSwitcher({
+  currentId,
+  className,
+}: {
+  currentId: string;
+  className?: string;
+}) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
@@ -48,7 +55,7 @@ export function CustomerSwitcher({ currentId }: { currentId: string }) {
   };
 
   return (
-    <div ref={boxRef} className="relative w-full sm:w-64">
+    <div ref={boxRef} className={cn("relative w-full sm:w-64", className)}>
       <div className="relative">
         {pending ? (
           <Loader2 className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />

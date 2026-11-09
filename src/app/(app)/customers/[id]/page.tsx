@@ -18,6 +18,8 @@ import {
   Receipt,
   Sparkles,
   ClipboardList,
+  ChevronDown,
+  Package,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -68,6 +70,7 @@ import { CustomerOrdersCard } from "./customer-orders-card";
 import { PaperworkIntake } from "./paperwork-intake";
 import { listActiveSuppliers } from "@/lib/data/suppliers";
 import { poTotal } from "@/lib/po-calc";
+import { createBlankPO } from "@/app/(app)/purchase-orders/actions";
 import { CashCarryCard } from "./cash-carry-card";
 import { ServiceAddressesCard } from "./service-addresses-card";
 import { listServiceAddresses } from "@/lib/data/service-addresses";
@@ -976,7 +979,7 @@ export default async function CustomerPage({
           actions that handle the file. What to do follows, once you know who. */}
       <section
         id="overview"
-        className="relative mb-3 scroll-mt-24 overflow-hidden rounded-lg border bg-card px-3 py-3 shadow-sm sm:px-4"
+        className="relative mb-3 scroll-mt-24 overflow-visible rounded-lg border bg-card px-3 py-3 shadow-sm sm:px-4"
       >
         <span
           aria-hidden
@@ -1171,113 +1174,211 @@ export default async function CustomerPage({
           ) : null}
         </dl>
 
-        <div className="mt-3 border-t pt-3">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <details className="group mt-3 rounded-lg border bg-background">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-3 text-sm font-semibold [&::-webkit-details-marker]:hidden">
             Handle this customer
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-          {(SALES_ROLES as string[]).includes(profile.role) && !customer.cancelled_at ? (
-            <ProcessCardButton
-              url={orgSettings.card_processing_url}
-              customerId={customer.id}
-              clientName={customer.full_name}
-              balance={money.balance}
-              isAdmin={profile.role === "admin"}
-            />
-          ) : null}
-          {!customer.cancelled_at ? (
-            <>
-              <NewEstimate
-                customerId={customer.id}
-                sourceOk={sourceOk}
-                sources={leadSources}
-                variant="outline"
-              />
-              <Link
-                href={`/jobs/new?customer=${customer.id}`}
-                className={cn(buttonVariants({ variant: "outline", size: "sm" }), "min-h-11")}
-              >
-                <Wrench className="size-3.5" /> New job
-              </Link>
-              <OnTheWayButton
-                customerId={customer.id}
-                customerName={customer.full_name}
-                customerEmail={customer.email}
-              />
-              <QuickActions
-                customerId={customer.id}
-                stages={stages.map((s) => ({ id: s.id, name: s.name, outcome: s.outcome ?? null }))}
-                currentStageId={currentStage?.id ?? null}
-                currentStageName={currentStage?.name ?? null}
-                currentOwnerId={customer.workflow_owner_id ?? null}
-                currentOwnerName={ownerName}
-                assignedRepId={customer.assigned_to ?? null}
-                ownerDutyLabel={ownerDuty ? DUTY_LABELS[ownerDuty] : null}
-                reassignOptions={reassignOptions}
-                repOptions={repOptions}
-                installOptions={installOptions}
-                estimate={
-                  estimateAppointment
-                    ? {
-                        startsAt: estimateAppointment.startsAt,
-                        rep: estimateAppointment.salespersonName ?? null,
+            <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="space-y-4 border-t px-3 py-3">
+            {!customer.cancelled_at ? (
+              <div className="flex flex-col gap-2 [&_a]:min-h-11 [&_a]:w-full [&_a]:justify-start [&_button]:min-h-11 [&_button]:w-full [&_button]:justify-start">
+                {(SALES_ROLES as string[]).includes(profile.role) ? (
+                  <ProcessCardButton
+                    url={orgSettings.card_processing_url}
+                    customerId={customer.id}
+                    clientName={customer.full_name}
+                    balance={money.balance}
+                    isAdmin={profile.role === "admin"}
+                  />
+                ) : null}
+                <NewEstimate
+                  customerId={customer.id}
+                  sourceOk={sourceOk}
+                  sources={leadSources}
+                  variant="outline"
+                />
+                <Link
+                  href={`/jobs/new?customer=${customer.id}`}
+                  className={cn(buttonVariants({ variant: "outline", size: "sm" }), "min-h-11")}
+                >
+                  <Wrench className="size-3.5" /> New job
+                </Link>
+                {seesMoney ? (
+                  <form action={createInvoice} data-tour="create-invoice" className="flex flex-col gap-2">
+                    <OperationIdempotencyField />
+                    <input type="hidden" name="customer_id" value={customer.id} />
+                    {(() => {
+                      const activeIds = jobs
+                        .filter((j) => j.status !== "cancelled")
+                        .map((j) => j.id);
+                      const linked = defaultInvoiceJobId(activeIds);
+                      if (linked) {
+                        return <input type="hidden" name="job_id" value={linked} />;
                       }
-                    : null
-                }
-                job={quickJob}
-                closeout={closeoutTarget}
-                canCloseOut={canCloseOut}
-                arrivalWindows={arrivalWindows}
-                actions={prefs.quickActions}
-                installScheduler={
-                  installScheduleProps ? <InstallSchedule {...installScheduleProps} /> : null
-                }
-                openOnLoad={openScheduler}
-                compact
-                plainLabels
-                showValues={false}
-                showSwitcher={false}
-              />
-            </>
-          ) : null}
-          <details className="group">
-            <summary className="inline-flex min-h-11 cursor-pointer list-none items-center rounded-lg px-3 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground [&::-webkit-details-marker]:hidden">
-              More actions
-            </summary>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-          <CustomerSettingsMenu
-            customer={customer}
-            canDelete={canDelete}
-            portalUser={portalUser}
-            defaultEmail={customer.email ?? ""}
-            sources={leadSources}
-          />
-          <QualifyDialog
-            customerId={customer.id}
-            questions={qualifyingQuestions}
-            qualified={!!customer.qualified}
-            autoOpen={justAdded}
-          />
-          {!customer.cancelled_at ? (
-            <CustomerSwitcher currentId={customer.id} />
-          ) : null}
-          <CancelCustomer
-            customerId={customer.id}
-            name={customer.full_name}
-            cancelled={!!customer.cancelled_at}
-            reasons={cancelReasons}
-            hasOpenPO={customerPOs.some((po) => po.status === "ordered")}
-          />
-          {canDelete ? (
-            <VisibleCustomerDelete
-              customerId={customer.id}
-              customerName={customer.full_name}
-            />
-          ) : null}
+                      if (activeIds.length > 1) {
+                        return (
+                          <select
+                            name="job_id"
+                            required
+                            className="h-11 rounded-md border border-input bg-transparent px-2 text-sm"
+                            defaultValue=""
+                          >
+                            <option value="" disabled>
+                              Link the invoice to which job?
+                            </option>
+                            {jobs
+                              .filter((j) => j.status !== "cancelled")
+                              .map((j) => (
+                                <option key={j.id} value={j.id}>
+                                  {j.title || j.id.slice(0, 8)}
+                                </option>
+                              ))}
+                          </select>
+                        );
+                      }
+                      return null;
+                    })()}
+                    <SubmitButton
+                      size="sm"
+                      variant="outline"
+                      pendingText="Creating…"
+                      confirm="Invoice created"
+                      className="min-h-11 w-full justify-start"
+                    >
+                      <Receipt className="size-3.5" /> New invoice
+                    </SubmitButton>
+                  </form>
+                ) : null}
+                {canWriteOrders ? (
+                  <form action={createBlankPO}>
+                    <input type="hidden" name="customer_id" value={customer.id} />
+                    <SubmitButton
+                      size="sm"
+                      variant="outline"
+                      pendingText="Starting…"
+                      confirm={null}
+                      className="min-h-11 w-full justify-start"
+                    >
+                      <Boxes className="size-3.5" /> New PO
+                    </SubmitButton>
+                  </form>
+                ) : null}
+                <OnTheWayButton
+                  customerId={customer.id}
+                  customerName={customer.full_name}
+                  customerEmail={customer.email}
+                />
+                <QuickActions
+                  customerId={customer.id}
+                  stages={stages.map((s) => ({ id: s.id, name: s.name, outcome: s.outcome ?? null }))}
+                  currentStageId={currentStage?.id ?? null}
+                  currentStageName={currentStage?.name ?? null}
+                  currentOwnerId={customer.workflow_owner_id ?? null}
+                  currentOwnerName={ownerName}
+                  assignedRepId={customer.assigned_to ?? null}
+                  ownerDutyLabel={ownerDuty ? DUTY_LABELS[ownerDuty] : null}
+                  reassignOptions={reassignOptions}
+                  repOptions={repOptions}
+                  installOptions={installOptions}
+                  estimate={
+                    estimateAppointment
+                      ? {
+                          startsAt: estimateAppointment.startsAt,
+                          rep: estimateAppointment.salespersonName ?? null,
+                        }
+                      : null
+                  }
+                  job={quickJob}
+                  closeout={closeoutTarget}
+                  canCloseOut={canCloseOut}
+                  arrivalWindows={arrivalWindows}
+                  actions={prefs.quickActions}
+                  installScheduler={
+                    installScheduleProps ? <InstallSchedule {...installScheduleProps} /> : null
+                  }
+                  openOnLoad={openScheduler}
+                  compact
+                  plainLabels
+                  showValues={false}
+                  showSwitcher={false}
+                />
+                <Link
+                  href="#messages"
+                  className={cn(buttonVariants({ variant: "outline", size: "sm" }), "min-h-11")}
+                >
+                  <MessageSquare className="size-3.5" /> Message
+                </Link>
+                <Link
+                  href="#activity"
+                  className={cn(buttonVariants({ variant: "outline", size: "sm" }), "min-h-11")}
+                >
+                  <StickyNote className="size-3.5" /> Log a note
+                </Link>
+                <Link
+                  href="#contact"
+                  className={cn(buttonVariants({ variant: "outline", size: "sm" }), "min-h-11")}
+                >
+                  <Package className="size-3.5" /> Check out samples
+                </Link>
+                {canWriteOrders ? (
+                  <Link
+                    href="#materials"
+                    className={cn(buttonVariants({ variant: "outline", size: "sm" }), "min-h-11")}
+                  >
+                    <ClipboardList className="size-3.5" /> Enter paperwork
+                  </Link>
+                ) : null}
+              </div>
+            ) : null}
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                More actions
+              </p>
+              <div className="flex flex-col gap-2 [&_a]:min-h-11 [&_a]:w-full [&_a]:justify-start [&_button]:min-h-11 [&_button]:w-full [&_button]:justify-start">
+                <CustomerSettingsMenu
+                  customer={customer}
+                  canDelete={canDelete}
+                  portalUser={portalUser}
+                  defaultEmail={customer.email ?? ""}
+                  sources={leadSources}
+                />
+                <QualifyDialog
+                  customerId={customer.id}
+                  questions={qualifyingQuestions}
+                  qualified={!!customer.qualified}
+                  autoOpen={justAdded}
+                />
+                {!customer.cancelled_at ? (
+                  <CustomerSwitcher currentId={customer.id} className="sm:w-full" />
+                ) : null}
+                {seesMoney &&
+                (profile.role === "admin" ||
+                  profile.role === "office" ||
+                  profile.role === "sales_manager") ? (
+                  <Link
+                    href={`/reports/statements#${customer.id}`}
+                    className={cn(buttonVariants({ variant: "outline", size: "sm" }), "min-h-11")}
+                  >
+                    <Receipt className="size-3.5" /> Statement
+                  </Link>
+                ) : null}
+                <CancelCustomer
+                  customerId={customer.id}
+                  name={customer.full_name}
+                  cancelled={!!customer.cancelled_at}
+                  reasons={cancelReasons}
+                  hasOpenPO={customerPOs.some((po) => po.status === "ordered")}
+                />
+                {canDelete ? (
+                  <VisibleCustomerDelete
+                    customerId={customer.id}
+                    customerName={customer.full_name}
+                  />
+                ) : null}
+              </div>
             </div>
-          </details>
           </div>
-        </div>
+        </details>
       </section>
 
       {customer.cancelled_at ? (
@@ -1290,8 +1391,8 @@ export default async function CustomerPage({
             </span>
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            This customer is out of the active pipeline. Open More actions and reopen them
-            to pick back up where they left off.
+            This customer is out of the active pipeline. Open Handle this customer,
+            then More actions, and reopen them to pick back up where they left off.
           </p>
         </div>
       ) : null}
@@ -1745,8 +1846,7 @@ export default async function CustomerPage({
             <CardContent>
               {estimateRows.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No estimates yet — use &ldquo;Guided questionnaire&rdquo; or
-                  &ldquo;Build estimate&rdquo; at the top of this page.
+                  No estimates yet — open Handle this customer and choose New estimate.
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -1784,7 +1884,7 @@ export default async function CustomerPage({
             <CardContent className="space-y-4">
               {workOrderRows.filter((j) => !cashCarryJobIds.has(j.id)).length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No install jobs yet — use &ldquo;New job&rdquo; at the top of this page,
+                  No install jobs yet — open Handle this customer and choose New job,
                   or create one from an approved estimate.
                 </p>
               ) : (
@@ -1962,6 +2062,7 @@ export default async function CustomerPage({
               stockPulls={stockPulls}
               attributed={attributedPoLines}
               canCreate={profile.role === "admin" || profile.role === "office"}
+              showCreate={false}
             />
           </TabSection>
 
@@ -1978,48 +2079,12 @@ export default async function CustomerPage({
                   </Link>
                 ) : null}
               </div>
-              <form action={createInvoice} data-tour="create-invoice" className="flex flex-wrap items-center gap-2">
-                <OperationIdempotencyField />
-                <input type="hidden" name="customer_id" value={customer.id} />
-                {(() => {
-                  const activeIds = jobs
-                    .filter((j) => j.status !== "cancelled")
-                    .map((j) => j.id);
-                  const linked = defaultInvoiceJobId(activeIds);
-                  if (linked) {
-                    return <input type="hidden" name="job_id" value={linked} />;
-                  }
-                  if (activeIds.length > 1) {
-                    return (
-                      <select
-                        name="job_id"
-                        required
-                        className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
-                        defaultValue=""
-                      >
-                        <option value="" disabled>
-                          Link to which job?
-                        </option>
-                        {jobs
-                          .filter((j) => j.status !== "cancelled")
-                          .map((j) => (
-                            <option key={j.id} value={j.id}>
-                              {j.title || j.id.slice(0, 8)}
-                            </option>
-                          ))}
-                      </select>
-                    );
-                  }
-                  return null;
-                })()}
-                <SubmitButton size="sm" pendingText="Creating…" confirm="Invoice created">
-                  <Receipt className="size-3.5" /> New invoice
-                </SubmitButton>
-              </form>
             </CardHeader>
             <CardContent>
               {invoiceRows.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No invoices yet.</p>
+                <p className="text-sm text-muted-foreground">
+                  No invoices yet. Open Handle this customer and choose New invoice.
+                </p>
               ) : (
                 <div className="space-y-2">
                   {invoiceRows.map((inv) => (
