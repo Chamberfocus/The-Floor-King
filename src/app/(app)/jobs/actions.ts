@@ -7,6 +7,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertRole, getProfile } from "@/lib/auth";
 import { sendEmail, emailLayout, emailInfoCard, siteUrl, ownerEmail } from "@/lib/notify";
+import { materialIssueActivity, materialNoticeActivity } from "@/lib/material-notice";
+import { materialStaffEmails } from "@/lib/material-staff";
 import { sendSms } from "@/lib/sms";
 import { addDaysYmd } from "@/lib/scheduling";
 import { to12, formatDate } from "@/lib/format";
@@ -2322,10 +2324,6 @@ export async function completeWarehouseJob(
     )
     .eq("id", id)
     .maybeSingle();
-  const isPickup =
-    job?.delivery_type === "cash_carry" ||
-    job?.delivery_type === "installer_pickup";
-
   // Materials ready → advance the lead to install scheduling (unchanged).
   if (job?.customer_id)
     await moveToAutoActionStage(job.customer_id as string, "schedule_install", id);
@@ -2338,43 +2336,39 @@ export async function completeWarehouseJob(
   } | null;
   const custName = cust?.full_name ?? "Customer";
 
-  // Installer + salesperson + admin get the "ready + where" email.
-  const ids = [
+  // Admin, the business owner, the account owner, the salesperson, and the
+  // installer hear that the material is installable. The customer does not,
+  // until one of those people chooses a message on the job.
+  const recipients = await materialStaffEmails(admin as never, [
     (job?.assigned_to as string | null) ?? null,
     cust?.assigned_to ?? null,
     cust?.workflow_owner_id ?? null,
-  ].filter(Boolean) as string[];
-  const recipients = new Set<string>([ownerEmail()]);
-  if (ids.length) {
-    const { data: profs } = await admin
-      .from("profiles")
-      .select("email")
-      .in("id", [...new Set(ids)]);
-    for (const p of profs ?? []) if (p.email) recipients.add(p.email as string);
-  }
+  ]);
   for (const to of recipients) {
     await sendEmail({
       to,
-      subject: `✅ Materials staged & ready — ${custName}`,
+      subject: `Material is ready to install — ${custName}`,
       html: emailLayout(
-        "Job is staged and ready",
+        "Material is ready to install",
         `<p><strong>${custName}</strong>${job?.title ? ` — ${job.title}` : ""}</p>
+         <p>The warehouse checked this material. It is complete and in installable condition.</p>
          <p>Staged at: <strong>${location}</strong></p>
-         <p>Install: <strong>${fmtDay(job?.scheduled_date as string)}</strong></p>`,
-        { label: "Open job", url: `${siteUrl()}/jobs/${id}` },
+         <p>The customer has not been told. On the job, choose whether to say that everything has arrived and someone will call to schedule, that some of it is still on the way, or that the customer should not be notified yet.</p>`,
+        { label: "Choose what the customer hears", url: `${siteUrl()}/jobs/${id}` },
       ),
     });
   }
 
-  // Brief, non-technical note to the customer via their portal thread.
   if (job?.customer_id) {
-    await admin.from("messages").insert({
+    await admin.from("activities").insert({
       customer_id: job.customer_id,
-      channel: "client",
-      author_id: user?.id ?? null,
-      body: isPickup
-        ? "✅ Your order is cut and ready for pickup. Come grab it whenever you're ready!"
-        : "✅ Good news — your materials are prepped and ready for your installation.",
+      user_id: user?.id ?? null,
+      type: "system",
+      body: materialNoticeActivity({
+        jobId: id,
+        kind: "hold",
+        detail: `The warehouse confirmed this material is complete and ready to install at ${location}. The customer has not been told yet.`,
+      }),
     });
   }
 
@@ -2615,16 +2609,18 @@ export async function setWarehouseStatus(formData: FormData): Promise<void> {
   if (customerId) revalidatePath(`/customers/${customerId}`);
 }
 
-/** Warehouse flags a problem (missing/short/wrong) → alert everyone on the job. */
+/** Warehouse flags missing or damaged material and alerts the people on that customer. */
 export async function reportMaterialIssue(formData: FormData): Promise<void> {
   const jobId = str(formData.get("id"));
   const note = str(formData.get("note"));
+  const kind = str(formData.get("kind")) === "damaged" ? "damaged" : "missing";
   if (!jobId || !note) return;
-  const supabase = await createClient();
-  const { data: job } = await supabase
+  const profile = await assertRole(["admin", "office", "warehouse"]);
+  const admin = createAdminClient();
+  const { data: job } = await admin
     .from("jobs")
     .select(
-      "title, assigned_to, customer_id, customer:customers(full_name, assigned_to, workflow_owner_id)",
+      "title, assigned_to, customer_id, workflow_owner_id, customer:customers(full_name, assigned_to, workflow_owner_id)",
     )
     .eq("id", jobId)
     .maybeSingle();
@@ -2636,49 +2632,39 @@ export async function reportMaterialIssue(formData: FormData): Promise<void> {
     workflow_owner_id: string | null;
   } | null;
 
-  const ids = [
+  const recipients = await materialStaffEmails(admin as never, [
     job.assigned_to as string | null,
+    (job.workflow_owner_id as string | null) ?? null,
     cust?.assigned_to ?? null,
     cust?.workflow_owner_id ?? null,
-  ].filter(Boolean) as string[];
+  ]);
 
-  const recipients = new Set<string>([ownerEmail()]);
-  if (ids.length) {
-    const { data: profs } = await supabase
-      .from("profiles")
-      .select("email")
-      .in("id", [...new Set(ids)]);
-    for (const p of profs ?? []) if (p.email) recipients.add(p.email as string);
-  }
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const label = kind === "damaged" ? "Damaged material" : "Missing material";
+  const who = (job.title as string) || cust?.full_name || "job";
   for (const to of recipients) {
     await sendEmail({
       to,
-      subject: `⚠️ Material problem — ${(job.title as string) || cust?.full_name || "job"}`,
+      subject: `${label} — ${who}`,
       html: emailLayout(
-        "Material problem reported",
-        `<p>The warehouse flagged an issue on${job.title ? ` "${job.title}"` : ""}${cust?.full_name ? ` for ${cust.full_name}` : ""}:</p><p><strong>${note}</strong></p>`,
+        label,
+        `<p>The warehouse reported ${kind} material${job.title ? ` on "${job.title}"` : ""}${cust?.full_name ? ` for ${cust.full_name}` : ""}.</p><p><strong>${note}</strong></p><p>The customer has not been told. The admin, the account owner, and the salesperson can send an update from the job.</p>`,
         { label: "Open job", url: `${siteUrl()}/jobs/${jobId}` },
       ),
     });
   }
 
-  // Log it on the job for the record.
   if (job.customer_id) {
-    await supabase.from("activities").insert({
+    await admin.from("activities").insert({
       customer_id: job.customer_id,
-      user_id: user?.id ?? null,
+      user_id: profile.id,
       type: "system",
-      body: `Warehouse reported a material problem: ${note}`,
+      body: materialIssueActivity({ jobId, kind, detail: note }),
     });
   }
 
   revalidatePath(`/jobs/${jobId}`);
   revalidatePath("/warehouse");
+  if (job.customer_id) revalidatePath(`/customers/${job.customer_id}`);
 }
 
 export async function setDeliveryType(formData: FormData): Promise<void> {

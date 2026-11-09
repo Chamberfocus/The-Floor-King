@@ -478,18 +478,22 @@ export default async function WarehousePage({
 
             <details className="text-sm">
               <summary className="cursor-pointer text-muted-foreground">
-                Report a problem (missing / short / wrong item)
+                Report missing or damaged material
               </summary>
               <form
                 action={reportMaterialIssue}
                 className="mt-2 flex flex-wrap gap-2"
               >
                 <input type="hidden" name="id" value={j.id} />
+                <select name="kind" required className={fieldClass} defaultValue="missing">
+                  <option value="missing">Missing</option>
+                  <option value="damaged">Damaged</option>
+                </select>
                 <input
                   name="note"
                   required
-                  placeholder="What's missing or wrong?"
-                  className={cn(fieldClass, "flex-1")}
+                  placeholder="What is missing or damaged?"
+                  className={cn(fieldClass, "min-w-48 flex-1")}
                 />
                 <Button type="submit" variant="destructive" size="sm">
                   Alert the team
@@ -738,6 +742,11 @@ export default async function WarehousePage({
         <h2 className="text-sm font-semibold">
           Incoming deliveries ({incomingError ? "—" : orderedIncoming.total} on order)
         </h2>
+        <p className="text-sm text-muted-foreground">
+          Check each delivery in, confirm a full good count, and mark anything
+          missing or damaged. A complete, installable job then notifies the
+          admin, the account owner, and that customer&apos;s salesperson.
+        </p>
         {incomingError ? (
           <p className="text-sm text-muted-foreground">{incomingError}</p>
         ) : (

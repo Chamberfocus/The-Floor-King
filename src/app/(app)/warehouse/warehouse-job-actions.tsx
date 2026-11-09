@@ -97,7 +97,7 @@ export function WarehouseJobActions({
   // ---- Ready ----------------------------------------------------------------
   if (ready) {
     return (
-      <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-sm dark:border-emerald-900/50 dark:bg-emerald-950/20">
+      <div className="flex flex-wrap items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-sm dark:border-emerald-900/50 dark:bg-emerald-950/20">
         <CheckCircle2 className="size-4 text-emerald-600" />
         <span className="font-medium text-emerald-800 dark:text-emerald-300">
           Materials ready for installation
@@ -105,6 +105,9 @@ export function WarehouseJobActions({
         {job.staging_location ? (
           <span className="text-muted-foreground">· at {job.staging_location}</span>
         ) : null}
+        <span className="text-muted-foreground">
+          · Admin, the account owner, and the salesperson were notified. They choose what the customer hears.
+        </span>
       </div>
     );
   }

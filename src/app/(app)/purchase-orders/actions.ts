@@ -89,18 +89,26 @@ export async function notifyBackordered(
       .eq("id", customerId)
       .maybeSingle();
     cust = (c as { full_name: string | null; email: string | null }) ?? null;
-    const repId =
-      (c?.assigned_to as string | null) ??
-      (c?.workflow_owner_id as string | null) ??
-      null;
-    if (repId) {
-      const { data: rep } = await supabase
+    const repIds = [
+      c?.assigned_to as string | null,
+      c?.workflow_owner_id as string | null,
+    ].filter((id): id is string => !!id);
+    if (repIds.length) {
+      const { data: reps } = await supabase
         .from("profiles")
         .select("email")
-        .eq("id", repId)
-        .maybeSingle();
-      if (rep?.email) recipients.add(rep.email as string);
+        .in("id", [...new Set(repIds)]);
+      for (const rep of reps ?? []) {
+        if (rep.email) recipients.add(rep.email as string);
+      }
     }
+  }
+  const { data: admins } = await supabase
+    .from("profiles")
+    .select("email")
+    .eq("role", "admin");
+  for (const admin of admins ?? []) {
+    if (admin.email) recipients.add(admin.email as string);
   }
 
   const headline = foundOnDelivery
@@ -111,7 +119,7 @@ export async function notifyBackordered(
         foundOnDelivery.note
           ? `<p style="color:#555">Warehouse note: ${foundOnDelivery.note}</p>`
           : ""
-      }`
+      }<p>The customer has not been told. The admin, the account owner, and the salesperson choose whether to send an update.</p>`
     : `<p>A purchase order${supplier ? ` from ${supplier}` : ""} is on <strong>backorder</strong>. Expected arrival: <strong>${etaText}</strong>.</p>`;
 
   for (const to of recipients) {
@@ -128,8 +136,9 @@ export async function notifyBackordered(
     });
   }
 
-  // The customer hears a plain-English version — never the shortfall maths.
-  if (customerId && cust?.email) {
+  // A short delivery found on the dock waits for the salesperson's choice.
+  // An office backorder, placed before the truck arrives, still tells the customer.
+  if (customerId && cust?.email && !foundOnDelivery) {
     await sendEmail({
       to: cust.email,
       subject: "Update on your materials",

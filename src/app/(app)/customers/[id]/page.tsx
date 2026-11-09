@@ -169,6 +169,9 @@ import { STEP_OVERRIDE_ROLES } from "@/lib/job-checklist";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth";
 import { RecordActionCenter } from "@/components/record-action-center";
+import { MaterialNoticeCard } from "@/components/material-notice-card";
+import { materialSignalsForCustomer } from "@/lib/data/material-notices";
+import { canDecideMaterialNotice } from "@/lib/material-notice";
 import { loadCustomerRecordFacts } from "@/lib/data/record-facts";
 import { serviceReportedAge, serviceStatusLabel } from "@/lib/service-callback";
 import {
@@ -346,6 +349,7 @@ export default async function CustomerPage({
     listCancelReasons({ activeOnly: true }),
     listQualifyingQuestions({ activeOnly: true }),
   ]);
+  const materialSignals = await materialSignalsForCustomer(id);
   // Whether the lead source (+ its required sub-detail) is recorded — gates
   // estimate creation with an inline prompt rather than a redirect.
   const _src = leadSources.find((s) => s.id === customer.source_id);
@@ -1398,6 +1402,38 @@ export default async function CustomerPage({
       ) : null}
 
       <RecordActionCenter model={customerAction} />
+      {jobs
+        .filter((job) => {
+          const signal = materialSignals.get(job.id);
+          return (
+            job.status !== "cancelled" &&
+            (!!job.warehouse_ready_at || !!signal?.notice || !!signal?.issue)
+          );
+        })
+        .map((job) => {
+          const signal = materialSignals.get(job.id);
+          const jobOwnerId =
+            "workflow_owner_id" in job && typeof job.workflow_owner_id === "string"
+              ? job.workflow_owner_id
+              : null;
+          return (
+            <div key={job.id} className="mb-3">
+              <MaterialNoticeCard
+                jobId={job.id}
+                jobTitle={job.title}
+                ready={!!job.warehouse_ready_at}
+                decision={signal?.notice ?? null}
+                issue={signal?.issue ?? null}
+                issueDetail={signal?.issueDetail ?? null}
+                canDecide={canDecideMaterialNotice(profile, {
+                  salespersonId: customer.assigned_to,
+                  accountOwnerId: customer.workflow_owner_id,
+                  jobOwnerId,
+                })}
+              />
+            </div>
+          );
+        })}
       {recordFacts.callbacks.length ? (
         <section className="mb-3 rounded-lg border bg-card p-3">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
