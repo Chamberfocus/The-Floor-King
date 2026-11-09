@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CalendarOff, Lock, Plus, Trash2, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +12,7 @@ import { SegmentedField } from "@/components/ui/segmented-field";
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { availabilityKindLabel } from "@/lib/crew-availability";
 import type { MyAvailabilityBlock } from "@/lib/data/crew-availability";
 import {
   addAvailability,
@@ -30,8 +31,7 @@ function fmtRange(b: MyAvailabilityBlock): string {
   return `${days} · ${b.start_time}${b.end_time ? `–${b.end_time}` : ""}`;
 }
 
-export function MyAvailability({ blocks }: { blocks: MyAvailabilityBlock[] }) {
-  const [open, setOpen] = useState(false);
+function DayOffForm({ onSaved }: { onSaved: () => void }) {
   const [allDay, setAllDay] = useState(true);
   const [isPrivate, setPrivate] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
@@ -39,26 +39,110 @@ export function MyAvailability({ blocks }: { blocks: MyAvailabilityBlock[] }) {
 
   useEffect(() => {
     if (state.ok) {
-      toast.success("Availability posted — the office can see it now.");
-      setOpen(false);
-      setAllDay(true);
-      setPrivate(false);
-      formRef.current?.reset();
-    } else if (state.error) {
-      toast.error(state.error);
+      toast.success("Saved. The office can see these days on the schedule.");
+      onSaved();
+      return;
     }
-  }, [state]);
+    if (state.error) toast.error(state.error);
+  }, [state, onSaved]);
+
+  return (
+    <form ref={formRef} action={formAction} className="space-y-3 rounded-xl border bg-muted/30 p-3">
+      <SegmentedField
+        name="kind"
+        defaultValue="off"
+        options={[
+          { value: "off", label: "Day off" },
+          { value: "busy", label: "Cannot work" },
+        ]}
+      />
+      <p className="text-xs text-muted-foreground">
+        Day off is a request the office can see. Cannot work means you cannot take a store job those days.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="start_date">From *</Label>
+          <DateField id="start_date" name="start_date" required />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="end_date">To</Label>
+          <DateField id="end_date" name="end_date" />
+          <p className="text-[11px] text-muted-foreground">Leave blank for a single day.</p>
+        </div>
+      </div>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          name="all_day"
+          checked={allDay}
+          onChange={(e) => setAllDay(e.target.checked)}
+          className="size-4 accent-primary"
+        />
+        All day
+      </label>
+      {!allDay ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="start_time">Start time</Label>
+            <Input id="start_time" name="start_time" type="time" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="end_time">End time</Label>
+            <Input id="end_time" name="end_time" type="time" />
+          </div>
+        </div>
+      ) : null}
+      <div className="space-y-1.5">
+        <Label htmlFor="note">Note {isPrivate ? "(kept private)" : "(optional)"}</Label>
+        <Input
+          id="note"
+          name="note"
+          placeholder={isPrivate ? "Only you can see this" : "e.g. Doctor appointment"}
+        />
+      </div>
+      <label
+        className={cn(
+          "flex items-start gap-2 rounded-lg border p-2.5 text-sm",
+          isPrivate ? "border-primary/40 bg-primary/5" : "",
+        )}
+      >
+        <input
+          type="checkbox"
+          name="private"
+          checked={isPrivate}
+          onChange={(e) => setPrivate(e.target.checked)}
+          className="mt-0.5 size-4 accent-primary"
+        />
+        <span>
+          <span className="flex items-center gap-1 font-medium">
+            <Lock className="size-3.5" /> Keep the reason private
+          </span>
+          <span className="text-xs text-muted-foreground">
+            The office sees only that you’re unavailable — no note, no job or customer details.
+          </span>
+        </span>
+      </label>
+      <Button type="submit" disabled={pending} className="min-h-11 w-full">
+        {pending ? "Saving…" : "Save these days"}
+      </Button>
+    </form>
+  );
+}
+
+export function MyAvailability({ blocks }: { blocks: MyAvailabilityBlock[] }) {
+  const [open, setOpen] = useState(false);
+  const closeForm = useCallback(() => setOpen(false), []);
 
   return (
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-2 text-base">
-            <CalendarOff className="size-4 text-primary" /> My availability
+            <CalendarOff className="size-4 text-primary" /> Days I can’t work
           </CardTitle>
           {!open ? (
-            <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
-              <Plus className="size-4" /> Add time off
+            <Button size="sm" variant="outline" className="min-h-10" onClick={() => setOpen(true)}>
+              <Plus className="size-4" /> Add days
             </Button>
           ) : (
             <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
@@ -67,110 +151,19 @@ export function MyAvailability({ blocks }: { blocks: MyAvailabilityBlock[] }) {
           )}
         </div>
         <p className="text-xs text-muted-foreground">
-          Tell the office when you can’t be scheduled. Mark a block{" "}
-          <span className="font-medium">private</span> and they’ll only see
-          “Unavailable” — never your own job or customer details.
+          Request a day off, or mark days you cannot take a Floor King job.
+          The office sees it on the install schedule. Mark a block{" "}
+          <span className="font-medium">private</span> and they only see
+          “Unavailable.”
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
-        {open ? (
-          <form
-            ref={formRef}
-            action={formAction}
-            className="space-y-3 rounded-xl border bg-muted/30 p-3"
-          >
-            <SegmentedField
-              name="kind"
-              defaultValue="off"
-              options={[
-                { value: "off", label: "Time off" },
-                { value: "busy", label: "Busy (my own job)" },
-              ]}
-            />
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="start_date">From *</Label>
-                <DateField id="start_date" name="start_date" required />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="end_date">To</Label>
-                <DateField id="end_date" name="end_date" />
-                <p className="text-[11px] text-muted-foreground">
-                  Leave blank for a single day.
-                </p>
-              </div>
-            </div>
-
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                name="all_day"
-                checked={allDay}
-                onChange={(e) => setAllDay(e.target.checked)}
-                className="size-4 accent-primary"
-              />
-              All day
-            </label>
-
-            {!allDay ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="start_time">Start time</Label>
-                  <Input id="start_time" name="start_time" type="time" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="end_time">End time</Label>
-                  <Input id="end_time" name="end_time" type="time" />
-                </div>
-              </div>
-            ) : null}
-
-            <div className="space-y-1.5">
-              <Label htmlFor="note">
-                Note {isPrivate ? "(kept private)" : "(optional)"}
-              </Label>
-              <Input
-                id="note"
-                name="note"
-                placeholder={isPrivate ? "Only you can see this" : "e.g. Doctor appointment"}
-              />
-            </div>
-
-            <label
-              className={cn(
-                "flex items-start gap-2 rounded-lg border p-2.5 text-sm",
-                isPrivate ? "border-primary/40 bg-primary/5" : "",
-              )}
-            >
-              <input
-                type="checkbox"
-                name="private"
-                checked={isPrivate}
-                onChange={(e) => setPrivate(e.target.checked)}
-                className="mt-0.5 size-4 accent-primary"
-              />
-              <span>
-                <span className="flex items-center gap-1 font-medium">
-                  <Lock className="size-3.5" /> Keep the reason private
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  The office sees only that you’re unavailable — no note, no job
-                  or customer details.
-                </span>
-              </span>
-            </label>
-
-            <Button type="submit" disabled={pending} className="w-full">
-              {pending ? "Posting…" : "Post availability"}
-            </Button>
-          </form>
-        ) : null}
+        {open ? <DayOffForm onSaved={closeForm} /> : null}
 
         {blocks.length === 0 ? (
           <p className="py-2 text-center text-sm text-muted-foreground">
-            No blocks posted. Add time off so the office doesn’t schedule you when
-            you’re out.
+            No days posted. Add a day off or a day you cannot work so the office
+            does not schedule you.
           </p>
         ) : (
           <ul className="divide-y">
@@ -187,7 +180,7 @@ export function MyAvailability({ blocks }: { blocks: MyAvailabilityBlock[] }) {
                           : "bg-muted text-muted-foreground",
                       )}
                     >
-                      {b.kind === "busy" ? "Busy" : "Time off"}
+                      {availabilityKindLabel(b.kind)}
                     </span>
                     {b.private ? (
                       <span className="inline-flex items-center gap-0.5 text-[11px] text-primary">

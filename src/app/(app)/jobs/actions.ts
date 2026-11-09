@@ -1857,6 +1857,7 @@ export async function applyToJob(formData: FormData): Promise<void> {
       { onConflict: "job_id,installer_id" },
     );
   revalidatePath("/board");
+  revalidatePath("/installer");
   revalidatePath(`/jobs/${jobId}`);
 
   // Tell the office a claim request came in — email + text, best-effort.
@@ -1918,6 +1919,7 @@ export async function withdrawApplication(formData: FormData): Promise<void> {
     .eq("job_id", jobId)
     .eq("installer_id", user.id);
   revalidatePath("/board");
+  revalidatePath("/installer");
   revalidatePath(`/jobs/${jobId}`);
 }
 

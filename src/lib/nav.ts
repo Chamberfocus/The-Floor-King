@@ -236,13 +236,13 @@ export function pinnedItemsForRole(role: UserRole): NavItem[] {
 
 /**
  * Where the logo and the sign-in redirect land. Office opens the financial
- * desk. Other staff open the day's work list. Customers open the portal.
- * Crew and warehouse still have their own first screen from the root route,
- * and Home remains a working link for them.
+ * desk. Installers open My Work. Other staff open the day's work list.
+ * Customers open the portal. Warehouse still opens Home from the root route.
  */
 export function homeHrefForRole(role: UserRole): string {
   if (role === "customer") return "/portal";
   if (role === "office") return "/office";
+  if (role === "crew") return "/installer";
   return "/home";
 }
 
@@ -514,7 +514,7 @@ const MOBILE_TABS: Record<UserRole, string[]> = {
   sales_manager: ["/shop-talk", "/customers", "/estimates", "/calendar"],
   salesman: ["/shop-talk", "/customers", "/estimates", "/calendar"],
   scheduler: ["/shop-talk", "/install-scheduler", "/jobs", "/calendar"],
-  crew: ["/shop-talk", "/installer", "/jobs", "/board"],
+  crew: ["/installer", "/board", "/jobs", "/shop-talk"],
   warehouse: ["/shop-talk", "/warehouse", "/inventory"],
   customer: [],
 };
