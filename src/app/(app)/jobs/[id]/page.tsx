@@ -64,6 +64,9 @@ import { paymentChoiceLabel, signoffPriceAlertCopy } from "@/lib/signoff-sheet";
 import { setJobShowPrices, setJobCollectsBalance } from "./wo-actions";
 import { JobMeasurementUpload } from "./measurement-upload";
 import { requireProfile } from "@/lib/auth";
+import { MaterialNoticeCard } from "@/components/material-notice-card";
+import { materialSignalsForCustomer } from "@/lib/data/material-notices";
+import { canDecideMaterialNotice } from "@/lib/material-notice";
 import { SHOP_TALK_ROLES } from "@/lib/shop-talk";
 import { lineTotal } from "@/lib/estimate-calc";
 import { formatDate, formatMoney, to12 } from "@/lib/format";
@@ -632,6 +635,20 @@ export default async function JobPage({
                 : null
           }
           crewName={assignedName}
+        />
+      ) : null}
+
+      {job.customer_id ? (
+        <MaterialNoticeSlot
+          jobId={job.id}
+          jobTitle={job.title}
+          customerId={job.customer_id}
+          ready={!!job.warehouse_ready_at}
+          salespersonId={job.customer?.assigned_to ?? null}
+          accountOwnerId={job.customer?.workflow_owner_id ?? null}
+          jobOwnerId={job.workflow_owner_id ?? null}
+          viewerId={profile.id}
+          viewerRole={profile.role}
         />
       ) : null}
 
@@ -1985,5 +2002,47 @@ export default async function JobPage({
       </JobTabs>
     </div>
     </>
+  );
+}
+
+async function MaterialNoticeSlot({
+  jobId,
+  jobTitle,
+  customerId,
+  ready,
+  salespersonId,
+  accountOwnerId,
+  jobOwnerId,
+  viewerId,
+  viewerRole,
+}: {
+  jobId: string;
+  jobTitle: string | null;
+  customerId: string;
+  ready: boolean;
+  salespersonId: string | null;
+  accountOwnerId: string | null;
+  jobOwnerId: string | null;
+  viewerId: string;
+  viewerRole: string;
+}) {
+  const signals = await materialSignalsForCustomer(customerId);
+  const signal = signals.get(jobId);
+  if (!ready && !signal?.notice && !signal?.issue) return null;
+  return (
+    <div className="mb-4">
+      <MaterialNoticeCard
+        jobId={jobId}
+        jobTitle={jobTitle}
+        ready={ready}
+        decision={signal?.notice ?? null}
+        issue={signal?.issue ?? null}
+        issueDetail={signal?.issueDetail ?? null}
+        canDecide={canDecideMaterialNotice(
+          { id: viewerId, role: viewerRole },
+          { salespersonId, accountOwnerId, jobOwnerId },
+        )}
+      />
+    </div>
   );
 }

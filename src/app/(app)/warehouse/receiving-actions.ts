@@ -7,6 +7,11 @@ import { applyPoStatus, notifyBackordered } from "@/app/(app)/purchase-orders/ac
 import { postPoReceiptLines } from "@/lib/po-stock";
 import { syncRolledOnHand } from "@/lib/data/stock-rolls";
 import { employeeReceiptError } from "@/lib/po-facts";
+import {
+  materialIssueActivity,
+  receivingConditionNote,
+  type ReceiveCondition,
+} from "@/lib/material-notice";
 import { QUEUE_LIST_UNAVAILABLE, logQueueFailure } from "@/lib/ops-scale";
 import { listPageWindow, WORK_QUEUE_PAGE_SIZE } from "@/lib/work-queues";
 
@@ -14,9 +19,11 @@ const RECEIVERS = ["admin", "office", "warehouse"] as const;
 
 export interface ReceiveLine {
   itemId: string;
-  /** What was actually counted in (cumulative stamp for the line). */
+  /** What was actually counted in (cumulative stamp for the line). Good pieces only. */
   receivedQty: string | number;
   note: string;
+  /** Missing or damaged pieces are not installable, even if the cartons showed up. */
+  condition?: ReceiveCondition;
 }
 
 const n = (v: string | number | null | undefined): number => {
@@ -83,19 +90,60 @@ export async function receivePoLines(input: {
     }
   }
 
+  const prepared: {
+    itemId: string;
+    qty: number;
+    ordered: number;
+    condition: ReceiveCondition;
+    note: string;
+  }[] = [];
+  for (const l of input.lines) {
+    const row = byId.get(l.itemId);
+    if (!row) continue;
+    const ordered = n(row.quantity);
+    const qty = n(l.receivedQty);
+    let condition: ReceiveCondition = l.condition ?? "good";
+    if (qty + 0.00005 < ordered && condition === "good") condition = "missing";
+    if (
+      (condition === "missing" || condition === "damaged") &&
+      !l.note.trim()
+    ) {
+      return {
+        error: "Say what is missing or damaged before checking this delivery in.",
+      };
+    }
+    if (
+      (condition === "missing" || condition === "damaged") &&
+      ordered > 0 &&
+      qty + 0.00005 >= ordered
+    ) {
+      return {
+        error:
+          "Enter only the amount that is still good enough to install. Missing or damaged pieces are not counted as received.",
+      };
+    }
+    prepared.push({
+      itemId: l.itemId,
+      qty,
+      ordered,
+      condition,
+      note: l.note.trim(),
+    });
+  }
+
   const now = new Date().toISOString();
   // One transaction for every line in this check-in. A later line failure
   // rolls back the earlier lines and does not stamp them.
   const posted = await postPoReceiptLines(
     db as never,
     input.poId,
-    input.lines.map((l) => ({
+    prepared.map((l) => ({
       po_item_id: l.itemId,
-      target_received_qty: n(l.receivedQty),
-      note: l.note.trim() || input.note.trim() || null,
+      target_received_qty: l.qty,
+      note: receivingConditionNote(l.condition, l.note) || input.note.trim() || null,
       stamp_received_qty: true,
       received_by: profile.id,
-      receiving_note: l.note.trim() || null,
+      receiving_note: receivingConditionNote(l.condition, l.note),
     })),
   );
   if (!posted.ok) {
@@ -183,15 +231,37 @@ export async function receivePoLines(input: {
   if (everyLineChecked && short > 0.005 && !po.backordered) {
     const { data: full } = await db
       .from("purchase_orders")
-      .select("supplier, eta_date, customer_id")
+      .select("supplier, eta_date, customer_id, job_id")
       .eq("id", input.poId)
       .maybeSingle();
+    const problems = prepared.filter((l) => l.condition !== "good" || l.qty + 0.00005 < l.ordered);
+    const problemNote = [
+      input.note.trim(),
+      ...problems.map((l) => receivingConditionNote(l.condition === "good" ? "missing" : l.condition, l.note)),
+    ]
+      .filter(Boolean)
+      .join(". ");
     await notifyBackordered(db as never, input.poId, {
       supplier: (full?.supplier as string | null) ?? null,
       etaDate: (full?.eta_date as string | null) ?? null,
       customerId: (full?.customer_id as string | null) ?? null,
-      foundOnDelivery: { shortUnits: short, note: input.note.trim() },
+      foundOnDelivery: { shortUnits: short, note: problemNote },
     });
+    const jobId = (full?.job_id as string | null) ?? null;
+    const customerId = (full?.customer_id as string | null) ?? null;
+    if (jobId && customerId && problemNote) {
+      const damaged = problems.some((l) => l.condition === "damaged");
+      await db.from("activities").insert({
+        customer_id: customerId,
+        user_id: profile.id,
+        type: "system",
+        body: materialIssueActivity({
+          jobId,
+          kind: damaged ? "damaged" : "missing",
+          detail: problemNote,
+        }),
+      });
+    }
   }
 
   revalidatePath("/warehouse");

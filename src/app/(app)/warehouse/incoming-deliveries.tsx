@@ -14,6 +14,7 @@ import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
 import { padRollCount } from "@/lib/job-scope";
 import { billedQtyToSqft, normalizeUnit } from "@/lib/units";
 import { receivePoLines, unreceivePoLine } from "./receiving-actions";
+import type { ReceiveCondition } from "@/lib/material-notice";
 
 import type { IncomingPoRow, IncomingPoItem } from "./receiving-actions";
 
@@ -66,7 +67,25 @@ function PoCard({ po }: { po: IncomingPo }) {
     ),
   );
   const [notes, setNotes] = useState<Record<string, string>>(() =>
-    Object.fromEntries(po.items.map((i) => [i.id, i.receiving_note ?? ""])),
+    Object.fromEntries(
+      po.items.map((i) => [
+        i.id,
+        (i.receiving_note ?? "").replace(/^(Missing|Damaged)\s+—\s+/, ""),
+      ]),
+    ),
+  );
+  const [conditions, setConditions] = useState<Record<string, ReceiveCondition>>(() =>
+    Object.fromEntries(
+      po.items.map((i) => {
+        const note = i.receiving_note ?? "";
+        const condition: ReceiveCondition = note.startsWith("Damaged")
+          ? "damaged"
+          : note.startsWith("Missing")
+            ? "missing"
+            : "good";
+        return [i.id, condition];
+      }),
+    ),
   );
   const [poNote, setPoNote] = useState("");
 
@@ -93,6 +112,7 @@ function PoCard({ po }: { po: IncomingPo }) {
           itemId: i.id,
           receivedQty: counts[i.id] ?? "0",
           note: notes[i.id] ?? "",
+          condition: conditions[i.id] ?? "good",
         })),
         note: poNote,
       });
@@ -170,8 +190,9 @@ function PoCard({ po }: { po: IncomingPo }) {
       {open ? (
         <div className="border-t p-3">
           <p className="mb-2 text-xs text-muted-foreground">
-            Count what actually arrived. It&apos;s pre-filled with what was
-            ordered — change anything that doesn&apos;t match and say why.
+            Count what is good enough to install. Mark anything missing or
+            damaged, and say what happened. A full good count confirms the
+            order. It does not tell the customer.
           </p>
 
           <div className="space-y-2">
@@ -358,11 +379,45 @@ function PoCard({ po }: { po: IncomingPo }) {
                     </div>
                   </div>
 
-                  {differs ? (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {(
+                      [
+                        ["good", "Good"],
+                        ["missing", "Missing"],
+                        ["damaged", "Damaged"],
+                      ] as const
+                    ).map(([value, label]) => {
+                      const on = (conditions[i.id] ?? "good") === value;
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() =>
+                            setConditions({ ...conditions, [i.id]: value })
+                          }
+                          className={cn(
+                            "min-h-9 rounded-md border px-2.5 text-xs font-medium",
+                            on
+                              ? value === "good"
+                                ? "border-emerald-600 bg-emerald-600 text-white"
+                                : "border-amber-600 bg-amber-600 text-white"
+                              : "hover:bg-muted",
+                          )}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {differs || (conditions[i.id] ?? "good") !== "good" ? (
                     <Input
                       value={notes[i.id] ?? ""}
                       onChange={(e) => setNotes({ ...notes, [i.id]: e.target.value })}
-                      placeholder="What's wrong — short, wrong colour, damaged?"
+                      placeholder={
+                        (conditions[i.id] ?? "good") === "damaged"
+                          ? "What is damaged, and how much cannot be installed?"
+                          : "What is missing, and how much is still on the way?"
+                      }
                       className="mt-2"
                       aria-label={`Note for ${itemLabel(i)}`}
                     />
