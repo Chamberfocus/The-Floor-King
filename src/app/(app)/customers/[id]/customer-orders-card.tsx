@@ -40,6 +40,7 @@ export function CustomerOrdersCard({
   stockPulls,
   attributed = [],
   canCreate = false,
+  showCreate = true,
 }: {
   customerId: string;
   pos: PurchaseOrder[];
@@ -47,6 +48,9 @@ export function CustomerOrdersCard({
   attributed?: AttributedPoLine[];
   /** Admin and office write purchase orders. Other roles only read this list. */
   canCreate?: boolean;
+  /** The customer file keeps New PO in Handle this customer, so the list
+   *  itself does not repeat the button. */
+  showCreate?: boolean;
 }) {
   const hasAny =
     pos.length > 0 || stockPulls.length > 0 || attributed.length > 0;
@@ -55,7 +59,7 @@ export function CustomerOrdersCard({
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <CardTitle className="text-base">Materials &amp; Orders</CardTitle>
-        {canCreate ? (
+        {canCreate && showCreate ? (
           <form action={createBlankPO}>
             <input type="hidden" name="customer_id" value={customerId} />
             <Button type="submit" variant="outline" size="sm">
@@ -67,9 +71,11 @@ export function CustomerOrdersCard({
       <CardContent className="space-y-3">
         {!hasAny ? (
           <p className="text-sm text-muted-foreground">
-            {canCreate
+            {canCreate && showCreate
               ? "No material orders yet. Start one with New PO, or build them from an approved estimate."
-              : "No material orders yet. The office starts purchase orders for this customer."}
+              : canCreate
+                ? "No material orders yet. Open Handle this customer and choose New PO, or build them from an approved estimate."
+                : "No material orders yet. The office starts purchase orders for this customer."}
           </p>
         ) : null}
 
