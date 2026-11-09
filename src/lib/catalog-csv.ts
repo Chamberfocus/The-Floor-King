@@ -270,16 +270,53 @@ export function parseColorMatrix(text: string): PriceRow[] | null {
  * including a name column), parse it directly into rows — no AI needed.
  * Returns null if it isn't structured, so the caller can fall back to AI.
  */
+const PRICE_HEADER_CELLS = [
+  "yourcost", "yourprice", "dealerprice", "dealernet", "dealercost", "dealer",
+  "netprice", "net", "unitcost", "materialcost", "cost", "materialrate",
+  "materialprice", "unitprice", "price", "list", "listprice", "msrp", "retail",
+  "retailprice", "material", "cutprice", "cut", "cutorder", "cutlength", "cutcost",
+  "rollprice", "roll", "cartonprice", "carton", "ctn", "boxprice",
+];
+
+const NAME_HEADER_CELLS = [
+  "name", "productname", "product", "itemname", "itemdescription", "description",
+  "productdescription", "stylename", "pattern", "collection", "series", "design",
+  "style", "styleno", "stylenumber", "sku", "itemno", "itemnumber", "item",
+  "color", "colorname", "colour",
+];
+
+/** First line that names both a product column and a price column. */
+function findPriceHeader(lines: string[]): number {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const delim = line.includes("\t") ? "\t" : line.includes(",") ? "," : "";
+    if (!delim) continue;
+    const cells = splitLine(line, delim).map(norm).filter(Boolean);
+    if (cells.length < 2) continue;
+    const price = cells.some((cell) => PRICE_HEADER_CELLS.includes(cell));
+    const name = cells.some((cell) => NAME_HEADER_CELLS.includes(cell));
+    if (price && name) return i;
+  }
+  return -1;
+}
+
 export function parseStructuredRows(text: string): PriceRow[] | null {
   // Vendor color-matrix lists (Casabella etc.) look structured but need
   // matrix-aware parsing — try that first.
   const matrix = parseColorMatrix(text);
   if (matrix?.length) return matrix;
 
-  const lines = text.split(/\r?\n/).filter((l) => l.trim().length);
+  const rawLines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length);
+  if (rawLines.length < 2) return null;
+  const headerAt = findPriceHeader(rawLines);
+  if (headerAt < 0) return null;
+  const headerKey = norm(rawLines[headerAt]);
+  const lines = rawLines
+    .slice(headerAt)
+    .filter((line, index) => index === 0 || norm(line) !== headerKey);
   if (lines.length < 2) return null;
 
-  const delim = lines[0].includes("\t") && !lines[0].includes(",") ? "\t" : ",";
+  const delim = lines[0].includes("\t") ? "\t" : lines[0].includes(",") ? "," : "\t";
   const H = splitLine(lines[0], delim).map(norm);
 
   // Find the column index whose header matches any of these normalized names.
@@ -385,7 +422,18 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
     }
     if (!name) continue;
 
-    const category = mapCategory(get(iCat));
+    const explicit = mapCategory(get(iCat));
+    // A mill sheet with a Cut column and no category is carpet. A carton
+    // column and no category is hard surface. That picks the price tier
+    // the store actually pays.
+    const category =
+      explicit !== "other"
+        ? explicit
+        : iCut >= 0 && iCarton < 0
+          ? "carpet"
+          : iCarton >= 0 && iCut < 0
+            ? "lvp"
+            : explicit;
     const { rate, note: priceNote } = priceFor(category, get);
     const sizeNote = get(iSize);
     const notes =
