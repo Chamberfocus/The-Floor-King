@@ -95,6 +95,14 @@ function readFields(formData: FormData) {
   const labor = money(formData.get("labor_rate"));
   if (!material.ok) return { error: material.error } as const;
   if (!labor.ok) return { error: labor.error } as const;
+  const rollRaw = str(formData.get("roll_rate"));
+  let rollRate: number | null = null;
+  if (rollRaw) {
+    const n = parseFloat(rollRaw);
+    if (!Number.isFinite(n)) return { error: "Roll price must be a number." } as const;
+    if (n < 0) return { error: "Roll price cannot be negative." } as const;
+    rollRate = n === 0 ? null : Math.round(n * 100) / 100;
+  }
   const rawCategory = str(formData.get("category"));
   if (isLaborCategory(rawCategory)) return { error: LABOR_NOT_A_PRODUCT } as const;
   const category = catalogProductCategory(rawCategory);
@@ -105,6 +113,7 @@ function readFields(formData: FormData) {
     category: category as ProductCategory,
     unit: pickedProductUnit(str(formData.get("unit")), str(formData.get("category"))),
     material_rate: material.value,
+    roll_rate: rollRate,
     labor_rate: labor.value,
     sku: str(formData.get("sku")) || null,
     manufacturer: str(formData.get("manufacturer")) || null,
@@ -224,9 +233,18 @@ export async function createProduct(
 
   const supabase = await createClient();
   let { data, error } = await supabase.from("products").insert(fields).select("id").single();
+  if (error && /roll_rate/i.test(error.message ?? "")) {
+    // 0509 isn't applied yet. Keep a typed roll price in the notes.
+    const { roll_rate: roll, ...rest } = fields;
+    const kept =
+      roll == null
+        ? rest
+        : { ...rest, notes: [rest.notes, `Roll $${roll}`].filter(Boolean).join(" · ") };
+    ({ data, error } = await supabase.from("products").insert(kept).select("id").single());
+  }
   if (error) {
     // Fallback for before the vendor-unit (0099) / prep-coverage (0106) columns.
-    const { sqft_per_box: _s, roll_width_ft: _r, coverage_sqft: _cs, coverage_thickness_in: _ct, ...legacy } = fields;
+    const { sqft_per_box: _s, roll_width_ft: _r, coverage_sqft: _cs, coverage_thickness_in: _ct, roll_rate: _roll, ...legacy } = fields;
     ({ data, error } = await supabase.from("products").insert(legacy).select("id").single());
   }
   if (error || !data) return { error: error?.message ?? "Couldn't save the product." };
@@ -366,9 +384,17 @@ export async function updateProduct(
     .from("products")
     .update({ ...fields, active })
     .eq("id", id);
+  if (error && /roll_rate/i.test(error.message ?? "")) {
+    const { roll_rate: roll, ...rest } = fields;
+    const kept =
+      roll == null
+        ? rest
+        : { ...rest, notes: [rest.notes, `Roll $${roll}`].filter(Boolean).join(" · ") };
+    ({ error } = await supabase.from("products").update({ ...kept, active }).eq("id", id));
+  }
   if (error) {
     // Fallback for before the vendor-unit (0099) / prep-coverage (0106) columns.
-    const { sqft_per_box: _s, roll_width_ft: _r, coverage_sqft: _cs, coverage_thickness_in: _ct, ...legacy } = fields;
+    const { sqft_per_box: _s, roll_width_ft: _r, coverage_sqft: _cs, coverage_thickness_in: _ct, roll_rate: _roll, ...legacy } = fields;
     ({ error } = await supabase
       .from("products")
       .update({ ...legacy, active })

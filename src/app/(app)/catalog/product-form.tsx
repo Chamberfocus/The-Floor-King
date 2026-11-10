@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import {
   CATALOG_PRODUCT_CATEGORIES,
   isCatalogProductCategory,
+  isRollGoodCategory,
   PRODUCT_CATEGORY_LABELS,
   type Product,
 } from "@/lib/types";
@@ -57,6 +58,11 @@ export function ProductForm({
   const storedAsLabor = product?.category === "labor";
   const [category, setCategory] = useState<string>(
     storedAsLabor ? "" : (product?.category ?? "lvp"),
+  );
+  const [rollRate, setRollRate] = useState(
+    product?.roll_rate != null && product.roll_rate !== 0
+      ? String(product.roll_rate)
+      : "",
   );
   const [materialRate, setMaterialRate] = useState(
     product?.material_rate != null && product.material_rate !== 0
@@ -158,7 +164,9 @@ export function ProductForm({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="material_rate">Material cost ($ / unit)</Label>
+          <Label htmlFor="material_rate">
+            {isRollGoodCategory(category) ? "Cut price ($ / unit)" : "Material cost ($ / unit)"}
+          </Label>
           <Input
             id="material_rate"
             name="material_rate"
@@ -170,10 +178,32 @@ export function ProductForm({
             placeholder="3.50"
           />
           <p className="text-xs text-muted-foreground">
-            What you pay for it — not what you sell it for. A vendor cost below
-            wins when recorded.
+            {isRollGoodCategory(category)
+              ? "What you pay for a cut. This is the cost estimates use. A vendor cost below wins when recorded."
+              : "What you pay for it — not what you sell it for. A vendor cost below wins when recorded."}
           </p>
         </div>
+        {isRollGoodCategory(category) ? (
+          <div className="space-y-2">
+            <Label htmlFor="roll_rate">Roll price ($ / unit)</Label>
+            <Input
+              id="roll_rate"
+              name="roll_rate"
+              type="number"
+              step="0.01"
+              min="0"
+              value={rollRate}
+              onChange={(e) => setRollRate(e.target.value)}
+              placeholder="Optional"
+            />
+            <p className="text-xs text-muted-foreground">
+              What a full roll costs, when the mill prices it separately.
+              Estimates keep using the cut price.
+            </p>
+          </div>
+        ) : (
+          <input type="hidden" name="roll_rate" value="" />
+        )}
         <div className="space-y-2">
           <Label htmlFor="labor_rate">Install rate ($ / unit)</Label>
           <Input

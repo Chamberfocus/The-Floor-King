@@ -16,7 +16,10 @@ export const maxDuration = 300;
 export default async function ImportPriceListPage() {
   const profile = await requireProfile();
   if (!["admin", "office", "sales_manager"].includes(profile.role)) redirect("/");
-  const suppliers = (await listSuppliers()).map((s) => s.name);
+  const suppliers = (await listSuppliers()).map((s) => ({
+    name: s.name,
+    kind: s.kind,
+  }));
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -28,7 +31,7 @@ export default async function ImportPriceListPage() {
       </Link>
       <PageHeader
         title="Import price list"
-        description="Drop a price list in any format — Excel, CSV, PDF, or a photo. We read it, you review, then import. Re-importing a list can update prices instead of making duplicates."
+        description="Tell us the manufacturer, the distributor, and what the material is. A PDF is read for the style, the color, the cut price, and the roll price. You review, then import."
       />
 
       <Card>

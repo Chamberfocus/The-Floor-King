@@ -325,16 +325,21 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
 
   const HARD = new Set(["lvp", "hardwood", "laminate", "tile", "vinyl"]);
   // Pick the correct price column + how to interpret it, per row's category.
+  // Cut is the price we pay to cut a piece (and the catalog cost). Roll is a
+  // second tier, kept only when the sheet actually has both columns.
   const priceFor = (
     category: string,
     get: (i: number) => string,
-  ): { rate: number | null; note: string | null } => {
+  ): { rate: number | null; roll: number | null; note: string | null } => {
+    if (iCut >= 0 || iRoll >= 0) {
+      const rate = iCut >= 0 ? toNum(get(iCut)) : toNum(get(iRoll));
+      const roll = iCut >= 0 && iRoll >= 0 ? toNum(get(iRoll)) : null;
+      return { rate, roll, note: null };
+    }
     // Choose the tier column that applies to this product.
     let idx = iPrice;
     let fromCarton = false;
-    if (category === "carpet") {
-      idx = iCut >= 0 ? iCut : iRoll >= 0 ? iRoll : iPrice;
-    } else if (HARD.has(category)) {
+    if (HARD.has(category)) {
       if (iCarton >= 0) {
         idx = iCarton;
         fromCarton = true; // a carton column may be a per-carton total
@@ -355,7 +360,7 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
         note = `${cov} sf/carton`;
       }
     }
-    return { rate, note };
+    return { rate, roll: null, note };
   };
 
   // Need SOME price column AND a way to name the product, else it's not
@@ -386,7 +391,7 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
     if (!name) continue;
 
     const category = mapCategory(get(iCat));
-    const { rate, note: priceNote } = priceFor(category, get);
+    const { rate, roll, note: priceNote } = priceFor(category, get);
     const sizeNote = get(iSize);
     const notes =
       get(iNotes) ||
@@ -402,6 +407,7 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
       unit: iUnit >= 0 ? normUnit(get(iUnit)) : unitForCategory(category),
       sku: get(iStyleNum) || null,
       material_rate: rate,
+      roll_rate: roll,
       labor_rate: iLabor >= 0 ? toNum(get(iLabor)) : null,
       manufacturer: get(iMfg) || null,
       style: styleName || null,
