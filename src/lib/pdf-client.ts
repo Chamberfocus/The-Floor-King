@@ -1,6 +1,7 @@
 // Browser-only helpers: extract text from a PDF and chunk long text.
 // Used by the importers so big PDFs are read locally and only TEXT is sent to
 // the server (no upload-size or function-time limits).
+import { layoutPdfJsItems } from "@/lib/pdf-layout";
 
 export async function pdfToText(
   file: File,
@@ -13,10 +14,19 @@ export async function pdfToText(
   for (let p = 1; p <= doc.numPages; p++) {
     const page = await doc.getPage(p);
     const content = await page.getTextContent();
+    const laid = layoutPdfJsItems(
+      content.items as {
+        str?: string;
+        transform?: number[];
+        width?: number;
+        height?: number;
+      }[],
+    );
     out +=
-      content.items
-        .map((i) => ("str" in i ? (i as { str: string }).str : ""))
-        .join(" ") + "\n";
+      (laid ||
+        content.items
+          .map((i) => ("str" in i ? (i as { str: string }).str : ""))
+          .join(" ")) + "\n";
   }
   return { text: out, pages: doc.numPages };
 }

@@ -34,6 +34,7 @@ import {
   buildCatalogTemplate,
   mapCategory,
   normUnit,
+  unitPriceCell,
 } from "@/lib/catalog-csv";
 import {
   applySheetFacts,
@@ -68,10 +69,9 @@ const FIELDS: { key: string; label: string; syn: string[] }[] = [
   { key: "name", label: "Product name", syn: ["name", "productname", "product", "itemname", "description", "itemdescription"] },
   // Cost-first — auto-map OUR cost, NEVER auto-pick MSRP / list / retail (those
   // must be chosen deliberately). Generic "price"/"unitprice" are last resort.
-  { key: "material_rate", label: "Material / cost", syn: ["yourcost", "dealercost", "dealernet", "dealerprice", "netprice", "net", "unitcost", "cost", "materialcost", "materialrate", "material", "unitprice", "price"] },
+  { key: "material_rate", label: "Price", syn: ["yourcost", "dealercost", "dealernet", "dealerprice", "netprice", "net", "unitcost", "cost", "materialcost", "materialrate", "material", "unitprice", "price"] },
   { key: "cut_price", label: "Cut price", syn: ["cutprice", "cut", "cutorder", "cutlength", "cutyd", "cutperyd", "priceperyard"] },
   { key: "roll_price", label: "Roll price", syn: ["rollprice", "roll", "fullroll", "rollcost"] },
-  { key: "labor_rate", label: "Labor", syn: ["laborrate", "labor", "labour", "install", "installrate"] },
   { key: "sku", label: "SKU / item #", syn: ["sku", "style", "styleno", "stylenumber", "item", "itemno", "itemnumber", "partno", "partnumber", "productcode", "code"] },
   { key: "manufacturer", label: "Manufacturer", syn: ["manufacturer", "mfg", "mfr", "brand", "vendor", "supplier", "mill", "sellingcompanyname"] },
   { key: "style", label: "Style", syn: ["stylename", "pattern", "collection", "series", "design"] },
@@ -83,15 +83,19 @@ const FIELDS: { key: string; label: string; syn: string[] }[] = [
 ];
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
-// Strict money parse: one number only. Blank/"N/A"/ranges ("12-15") → null so
-// they're flagged in the preview, never silently turned into a wrong value.
-const toNum = (v: string): number | null => {
-  if (!v) return null;
-  const nums = v.replace(/[$,]/g, "").match(/\d+(?:\.\d+)?/g);
-  if (!nums || nums.length !== 1) return null;
-  const n = parseFloat(nums[0]);
-  return Number.isFinite(n) ? n : null;
-};
+
+// The price the store pays. Cut before a generic price, generic before roll.
+// Labor is not a price-list column.
+const PRICE_COLUMN_ORDER = [
+  "yourcost", "yourprice", "dealercost", "dealernet", "dealerprice", "dealer",
+  "netprice", "net", "unitcost", "cost", "materialcost", "materialrate", "material",
+  "cutprice", "cut", "cutorder", "cutcost",
+  "pricesy", "pricepersy", "priceperyd", "pricepersqyd", "costsy", "costpersy", "netsy",
+  "unitprice", "price",
+  "cartonprice", "carton", "ctn", "boxprice",
+  "rollprice", "roll",
+  "listprice", "list", "msrp", "retail", "retailprice",
+];
 
 export type RowStatus = { level: "ok" | "flag"; reason: string };
 /**
@@ -122,6 +126,8 @@ export function validateRow(
     return { level: "flag", reason: "price didn't parse — fix it or map a different price column" };
   const p = Number(r.material_rate);
   if (!(p > 0)) return { level: "flag", reason: "price is $0" };
+  if (p >= 200)
+    return { level: "flag", reason: `$${p} looks like a roll size, not the unit price` };
   if (r.roll_rate != null && r.roll_rate !== undefined) {
     const roll = Number(r.roll_rate);
     if (!(roll > 0)) return { level: "flag", reason: "roll price didn't parse" };
@@ -322,6 +328,13 @@ export function SmartImporter({
         }
       }
     }
+    for (const name of PRICE_COLUMN_ORDER) {
+      const i = normHead.indexOf(name);
+      if (i >= 0) {
+        guess.material_rate = i;
+        break;
+      }
+    }
     setSource(src);
     setGrid({ headers, body });
     setMap(guess);
@@ -456,7 +469,7 @@ export function SmartImporter({
     const sheet = Boolean(opts?.sheet || sheetFlag.current);
     setStatus(null);
     setSource(src);
-    setRows(r);
+    setRows(r.map((row) => ({ ...row, labor_rate: null })));
     setSheetRead(sheet);
     sheetFlag.current = sheet;
     if (r.length) {
@@ -490,10 +503,13 @@ export function SmartImporter({
       const unitCell = cell(row, "unit");
       const rawCategory = catCell ? mapCategory(catCell) : defCategory;
       const rawUnit = unitCell ? normUnit(unitCell) : defUnit;
-      const cutPrice = toNum(cell(row, "cut_price"));
-      const rawMat = cutPrice ?? toNum(cell(row, "material_rate"));
-      const rawRoll = toNum(cell(row, "roll_price"));
-      const rawLab = toNum(cell(row, "labor_rate"));
+      const priceHeader =
+        map.material_rate >= 0 ? (grid.headers[map.material_rate] ?? "") : "";
+      const cutHeader = map.cut_price >= 0 ? (grid.headers[map.cut_price] ?? "cut") : "cut";
+      const rollHeader = map.roll_price >= 0 ? (grid.headers[map.roll_price] ?? "roll") : "roll";
+      const cutPrice = unitPriceCell(cell(row, "cut_price"), cutHeader);
+      const rawMat = cutPrice ?? unitPriceCell(cell(row, "material_rate"), priceHeader);
+      const rawRoll = unitPriceCell(cell(row, "roll_price"), rollHeader);
       // House rule: carpet is ALWAYS quoted per square yard, hard surface per
       // square foot. A supplier sending carpet per sq ft is converted here
       // rather than left to be converted (or not) later — the same money per
@@ -519,7 +535,7 @@ export function SmartImporter({
         sku: cell(row, "sku") || null,
         material_rate: yardify ? x9(rawMat) : rawMat,
         roll_rate: rawRoll == null ? null : yardify ? x9(rawRoll) : rawRoll,
-        labor_rate: yardify ? x9(rawLab) : rawLab,
+        labor_rate: null,
         manufacturer: cell(row, "manufacturer") || null,
         style: cell(row, "style") || null,
         color: folded.color,
@@ -1132,8 +1148,7 @@ export function SmartImporter({
                     <th className="px-2 py-2 text-left">Category</th>
                     <th className="px-2 py-2 text-left">SKU</th>
                     <th className="px-2 py-2 text-left">Mfr</th>
-                    <th className="px-2 py-2 text-right">Material</th>
-                    <th className="px-2 py-2 text-right">Labor</th>
+                    <th className="px-2 py-2 text-right">Price</th>
                     {!grid ? <th className="px-2 py-2"></th> : null}
                   </tr>
                 </thead>
@@ -1161,7 +1176,6 @@ export function SmartImporter({
                                 {r.material_rate != null ? `$${r.material_rate}` : "—"}
                                 <span className="text-xs font-normal text-muted-foreground">/{r.unit}</span>
                               </td>
-                              <td className="px-2 py-1 text-right">{r.labor_rate ?? "—"}</td>
                             </>
                           );
                         })()
@@ -1195,10 +1209,7 @@ export function SmartImporter({
                             <input value={defManufacturer.trim() ? defManufacturer.trim() : (r.manufacturer ?? "")} onChange={(e) => updateRow(i, { manufacturer: e.target.value })} disabled={!!defManufacturer.trim()} title={defManufacturer.trim() ? "Set by the whole-list manufacturer above — clear it to edit rows individually" : undefined} className={cn(inputSm, "w-24", defManufacturer.trim() && "opacity-70")} />
                           </td>
                           <td className="px-2 py-1">
-                            <input type="number" step="0.01" value={r.material_rate ?? ""} onChange={(e) => updateRow(i, { material_rate: e.target.value ? Number(e.target.value) : null })} className={cn(inputSm, "w-20 text-right")} />
-                          </td>
-                          <td className="px-2 py-1">
-                            <input type="number" step="0.01" value={r.labor_rate ?? ""} onChange={(e) => updateRow(i, { labor_rate: e.target.value ? Number(e.target.value) : null })} className={cn(inputSm, "w-20 text-right")} />
+                            <input type="number" step="0.01" aria-label={`Price for ${r.name || "row"}`} value={r.material_rate ?? ""} onChange={(e) => updateRow(i, { material_rate: e.target.value ? Number(e.target.value) : null })} className={cn(inputSm, "w-24 text-right")} />
                           </td>
                           <td className="px-2 py-1 text-right">
                             <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove" onClick={() => removeRow(i)}>
@@ -1492,13 +1503,18 @@ function localLineParse(text: string): PriceRow[] {
     if (parts && parts.length > 1) {
       const cells = parts.map((p) => p.trim()).filter(Boolean);
       name = cells[0] || line;
+      let repaired: number | null = null;
       for (let k = cells.length - 1; k >= 1; k--) {
-        const n = parseFloat(cells[k].replace(/[^0-9.]/g, ""));
-        if (Number.isFinite(n) && /\d/.test(cells[k]) && /[$.\d]/.test(cells[k])) {
+        const n = unitPriceCell(cells[k], "price");
+        if (n == null) continue;
+        if (!Number.isInteger(n)) {
           rate = n;
+          repaired = null;
           break;
         }
+        if (repaired == null) repaired = n;
       }
+      if (rate == null) rate = repaired;
       const skuCell = cells
         .slice(1)
         .find((c) => /[a-z]/i.test(c) && /\d/.test(c) && c.length <= 20);

@@ -118,13 +118,72 @@ export function mapCategory(v: string): string {
  * requires EXACTLY ONE number — so a blank, "N/A", or a range like "12-15" (two
  * numbers) returns null (to be flagged), never a silently-corrupted value.
  */
+/** Turn a money cell into plain digits. A comma before exactly two digits is cents (12,00 → 12.00), not a thousands separator. */
+function moneyText(v: string): string {
+  return v
+    .replace(/\$/g, "")
+    .replace(/(\d),(\d{2})(?!\d)/g, "$1.$2")
+    .replace(/,/g, "");
+}
+
 export function toNum(v: string): number | null {
   if (!v) return null;
-  const cleaned = v.replace(/[$,]/g, "");
+  const cleaned = moneyText(v);
   const nums = cleaned.match(/\d+(?:\.\d+)?/g);
   if (!nums || nums.length !== 1) return null; // blank, junk, or a range → flag
   const n = parseFloat(nums[0]);
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * A price cell we already know is a price. One number wins. When a width or a
+ * second tier leaked into the cell ("12 4.99", "4.99 3.25"), keep the first
+ * amount that looks like money instead of throwing the price away.
+ */
+export function priceAmount(v: string): number | null {
+  const strict = toNum(v);
+  if (strict != null && strict > 0) return strict;
+  if (!v.trim()) return null;
+  const nums = moneyText(v).match(/\d+(?:\.\d+)?/g);
+  if (!nums) return null;
+  const valued = nums
+    .map((raw) => ({ raw, n: Number(raw) }))
+    .filter((x) => Number.isFinite(x.n) && x.n > 0 && x.n < 100000);
+  const cents = valued.filter((x) => x.raw.includes("."));
+  if (cents.length) return cents[0].n;
+  if (valued.length === 1) return valued[0].n;
+  return null;
+}
+
+/**
+ * A per-unit flooring price. 1,200 is the square feet on a 12×100 roll, or
+ * $12.00 whose decimal never made it into the text — it is not the cost.
+ * On a real price header, a smashed "1200" / "899" is read as $12.00 / $8.99.
+ * A width, weight, or bare roll-size column is never the price.
+ */
+export function unitPriceCell(cell: string, header = ""): number | null {
+  const text = cell.trim();
+  if (!text) return null;
+  const shown = moneyText(text);
+  const n0 = priceAmount(shown);
+  if (n0 == null || !(n0 > 0)) return null;
+  const hasDecimal = /\d\.\d/.test(shown);
+  const h = norm(header);
+  const lumpHeader = /carton|box|ctn/.test(h);
+  const priceHeader = /price|cost|net|cut|dealer|material|carton|box|ctn/.test(h);
+  const sizeHeader = /^(roll|width|rollwidth|weight|oz|faceweight|size|sqft|sf|footage|rollsize|sqftroll|sy|sqyd)$/.test(h);
+  if (sizeHeader && !hasDecimal && n0 >= 80) return null;
+  let n = n0;
+  // 1200 / 899 on a price header is $12.00 / $8.99 with the decimal missing.
+  // Leave a real $125 carton alone, and never do this on a roll-size column.
+  if (!hasDecimal && priceHeader && !lumpHeader && !sizeHeader && Number.isInteger(n0) && n0 >= 400 && n0 <= 8000) {
+    const repaired = Math.round(n0) / 100;
+    if (repaired >= 4 && repaired <= 80) n = repaired;
+  }
+  if (!hasDecimal && !priceHeader && n >= 80) return null;
+  const cap = /carton|box|ctn/.test(h) ? 500 : 90;
+  if (n > cap) return null;
+  return Math.round(n * 100) / 100;
 }
 
 /**
@@ -270,16 +329,55 @@ export function parseColorMatrix(text: string): PriceRow[] | null {
  * including a name column), parse it directly into rows — no AI needed.
  * Returns null if it isn't structured, so the caller can fall back to AI.
  */
+const PRICE_HEADER_CELLS = [
+  "yourcost", "yourprice", "dealerprice", "dealernet", "dealercost", "dealer",
+  "netprice", "net", "unitcost", "materialcost", "cost", "materialrate",
+  "materialprice", "unitprice", "price", "list", "listprice", "msrp", "retail",
+  "retailprice", "material", "cutprice", "cut", "cutorder", "cutcost",
+  "rollprice", "roll", "cartonprice", "carton", "ctn", "boxprice",
+  "pricesy", "pricepersy", "priceperyd", "pricepersqyd", "pricepersqft",
+  "costsy", "costpersy", "costpersqft", "netsy", "netpersy", "syprice", "ydprice",
+];
+
+const NAME_HEADER_CELLS = [
+  "name", "productname", "product", "itemname", "itemdescription", "description",
+  "productdescription", "stylename", "pattern", "collection", "series", "design",
+  "style", "styleno", "stylenumber", "sku", "itemno", "itemnumber", "item",
+  "color", "colorname", "colour",
+];
+
+/** First line that names both a product column and a price column. */
+function findPriceHeader(lines: string[]): number {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const delim = line.includes("\t") ? "\t" : line.includes(",") ? "," : "";
+    if (!delim) continue;
+    const cells = splitLine(line, delim).map(norm).filter(Boolean);
+    if (cells.length < 2) continue;
+    const price = cells.some((cell) => PRICE_HEADER_CELLS.includes(cell));
+    const name = cells.some((cell) => NAME_HEADER_CELLS.includes(cell));
+    if (price && name) return i;
+  }
+  return -1;
+}
+
 export function parseStructuredRows(text: string): PriceRow[] | null {
   // Vendor color-matrix lists (Casabella etc.) look structured but need
   // matrix-aware parsing — try that first.
   const matrix = parseColorMatrix(text);
   if (matrix?.length) return matrix;
 
-  const lines = text.split(/\r?\n/).filter((l) => l.trim().length);
+  const rawLines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length);
+  if (rawLines.length < 2) return null;
+  const headerAt = findPriceHeader(rawLines);
+  if (headerAt < 0) return null;
+  const headerKey = norm(rawLines[headerAt]);
+  const lines = rawLines
+    .slice(headerAt)
+    .filter((line, index) => index === 0 || norm(line) !== headerKey);
   if (lines.length < 2) return null;
 
-  const delim = lines[0].includes("\t") && !lines[0].includes(",") ? "\t" : ",";
+  const delim = lines[0].includes("\t") ? "\t" : lines[0].includes(",") ? "," : "\t";
   const H = splitLine(lines[0], delim).map(norm);
 
   // Find the column index whose header matches any of these normalized names.
@@ -304,7 +402,7 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
   const iUnit = col("unitofmeasure", "unit", "uom", "priceper", "sellunit");
   // Tier-specific price columns, so we can pick the RIGHT one per product:
   //   carpet → CUT price (not roll); hard surface → CARTON price (not pallet/piece).
-  const iCut = col("cutprice", "cut", "cutorder", "cutlength", "cutcost", "cutyd", "cutperyd", "priceperyard", "cutyard");
+  const iCut = col("cutprice", "cut", "cutorder", "cutcost", "cutyd", "cutperyd", "priceperyard", "cutyard");
   const iRoll = col("rollprice", "roll", "fullroll", "rollcost");
   const iCarton = col("cartonprice", "carton", "ctn", "boxprice", "box", "perbox", "percarton", "priceperbox", "pricepercarton", "cartoncost", "boxcost");
   // (pallet / piece / broken-carton columns are deliberately NOT selected —
@@ -314,10 +412,11 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
   const iPrice = col(
     "yourcost", "yourprice", "dealerprice", "dealernet", "dealercost", "dealer",
     "netprice", "net", "unitcost", "materialcost", "cost", "materialrate",
-    "materialprice", "material", "unitprice", "price", "list", "listprice",
-    "msrp", "retail", "retailprice",
+    "materialprice", "material", "unitprice", "price",
+    "pricesy", "pricepersy", "priceperyd", "pricepersqyd", "pricepersqft",
+    "costsy", "costpersy", "costpersqft", "netsy", "netpersy", "syprice", "ydprice",
+    "list", "listprice", "msrp", "retail", "retailprice",
   );
-  const iLabor = col("laborrate", "labor", "labour", "laborprice", "laborcost", "install", "installrate", "installprice");
   const iSize = col("size", "dimensions", "sqftperbox");
   // Coverage (sf per carton/box) — used to convert a per-carton dollar price to per-sqft.
   const iCoverage = col("sqftperbox", "sqftpercarton", "sfperbox", "sfpercarton", "sfctn", "sfbox", "coverage", "boxcoverage", "cartoncoverage");
@@ -330,25 +429,61 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
   const priceFor = (
     category: string,
     get: (i: number) => string,
-  ): { rate: number | null; roll: number | null; note: string | null } => {
-    if (iCut >= 0 || iRoll >= 0) {
-      const rate = iCut >= 0 ? toNum(get(iCut)) : toNum(get(iRoll));
-      const roll = iCut >= 0 && iRoll >= 0 ? toNum(get(iRoll)) : null;
-      return { rate, roll, note: null };
+  ): { rate: number | null; note: string | null; header: string } => {
+    // Prefer the tier the store pays. If that cell is blank or not a number,
+    // use the next real price on the row instead of leaving the price empty.
+    const order: { idx: number; fromCarton: boolean }[] = [];
+    const push = (idx: number, fromCarton = false) => {
+      if (idx >= 0 && !order.some((item) => item.idx === idx)) order.push({ idx, fromCarton });
+    };
+    if (category === "carpet") {
+      push(iCut);
+      push(iPrice);
+      push(iRoll);
+    } else if (HARD.has(category)) {
+      push(iCarton, true);
+      push(iPrice);
+      push(iCut);
+    } else {
+      push(iPrice);
+      push(iCut);
+      push(iCarton, true);
+      push(iRoll);
     }
-    // Choose the tier column that applies to this product.
-    let idx = iPrice;
+    let rate: number | null = null;
     let fromCarton = false;
-    if (HARD.has(category)) {
-      if (iCarton >= 0) {
-        idx = iCarton;
-        fromCarton = true; // a carton column may be a per-carton total
-      } else {
-        idx = iPrice; // avoid pallet/piece — never prefer them
+    let idx = -1;
+    const parsed = order.map((cand) => ({
+      ...cand,
+      raw: get(cand.idx),
+      n: unitPriceCell(get(cand.idx), H[cand.idx] ?? ""),
+    }));
+    const decimalHit = parsed.find(
+      (cand) => cand.n != null && /\d\.\d/.test(moneyText(cand.raw)),
+    );
+    const chosen = decimalHit ?? parsed.find((cand) => cand.n != null);
+    if (chosen && chosen.n != null) {
+      rate = chosen.n;
+      fromCarton = chosen.fromCarton;
+      idx = chosen.idx;
+    }
+    // The labeled price was a roll size (1200). Use another cell that is
+    // actually a unit price, and skip width / weight / roll-footage columns.
+    if (rate == null) {
+      const sizeHeader = /^(roll|width|rollwidth|weight|oz|faceweight|size|sqft|sf|footage|rollsize|sqftroll)$/;
+      for (let i = 0; i < H.length; i++) {
+        if (sizeHeader.test(H[i] ?? "")) continue;
+        const raw = get(i);
+        if (!/\d\.\d/.test(moneyText(raw))) continue;
+        const n = unitPriceCell(raw, "price");
+        if (n != null) {
+          rate = n;
+          idx = i;
+          fromCarton = false;
+          break;
+        }
       }
     }
-    if (idx < 0) idx = iPrice;
-    let rate = toNum(get(idx));
     let note: string | null = null;
     // Hard surface priced per carton with a coverage → normalize to per-sqft.
     if (fromCarton && rate != null && iCoverage >= 0) {
@@ -360,8 +495,35 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
         note = `${cov} sf/carton`;
       }
     }
-    return { rate, roll: null, note };
+    return { rate, note, header: idx >= 0 ? H[idx] ?? "" : "" };
   };
+
+  // A price that the PDF dropped onto the next line still belongs to the product.
+  const moneyToken = (cell: string) => {
+    const t = cell.trim();
+    // A bare 1200 is roll footage, not a price that slipped onto the next line.
+    return !!t && !/[a-z]/i.test(t) && unitPriceCell(t, "price") != null && /\d\.\d/.test(moneyText(t));
+  };
+  const stitched: string[] = [lines[0]];
+  for (let i = 1; i < lines.length; i++) {
+    const cells = splitLine(lines[i], delim);
+    const next = lines[i + 1];
+    const filled = cells.filter(Boolean);
+    const hasWord = filled.some((cell) => /[a-z]/i.test(cell));
+    const hasPrice = filled.some((cell) => moneyToken(cell));
+    if (next && hasWord && !hasPrice) {
+      const nextCells = splitLine(next, delim).filter(Boolean);
+      if (nextCells.length && nextCells.every((cell) => moneyToken(cell))) {
+        const kept = cells.filter((cell, index) => cell || index < cells.length - 1 && cells.slice(index).some(Boolean));
+        while (kept.length && !kept[kept.length - 1]) kept.pop();
+        stitched.push([...kept, ...nextCells].join(delim));
+        i += 1;
+        continue;
+      }
+    }
+    stitched.push(lines[i]);
+  }
+  lines.splice(0, lines.length, ...stitched);
 
   // Need SOME price column AND a way to name the product, else it's not
   // something we can safely parse without the AI.
@@ -390,8 +552,30 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
     }
     if (!name) continue;
 
-    const category = mapCategory(get(iCat));
-    const { rate, roll, note: priceNote } = priceFor(category, get);
+    const explicit = mapCategory(get(iCat));
+    // A mill sheet with a Cut column and no category is carpet. A carton
+    // column and no category is hard surface. That picks the price tier
+    // the store actually pays.
+    const category =
+      explicit !== "other"
+        ? explicit
+        : iCut >= 0 && iCarton < 0
+          ? "carpet"
+          : iCarton >= 0 && iCut < 0
+            ? "lvp"
+            : explicit;
+    const { rate, note: priceNote, header: priceHeader } = priceFor(category, get);
+    // "Price/SY" with no category column is carpet, priced per square yard.
+    const pricedCategory =
+      category === "other" &&
+      /(sy|sqyd|peryd|yard)/.test(priceHeader) &&
+      !/(sqft|persf)/.test(priceHeader)
+        ? "carpet"
+        : category;
+    // A real roll price, only when the sheet has both a cut column and a roll
+    // column. 1,200 in the roll column is footage, so it stays off the product.
+    const rollRate =
+      iCut >= 0 && iRoll >= 0 ? unitPriceCell(get(iRoll), H[iRoll] ?? "") : null;
     const sizeNote = get(iSize);
     const notes =
       get(iNotes) ||
@@ -403,17 +587,18 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
     const folded = foldCatalogColor(colorOnly, colorName ? colorCode : "", notes);
     rows.push({
       name,
-      category,
-      unit: iUnit >= 0 ? normUnit(get(iUnit)) : unitForCategory(category),
+      category: pricedCategory,
+      unit: iUnit >= 0 ? normUnit(get(iUnit)) : unitForCategory(pricedCategory),
       sku: get(iStyleNum) || null,
       material_rate: rate,
-      roll_rate: roll,
-      labor_rate: iLabor >= 0 ? toNum(get(iLabor)) : null,
+      roll_rate: rollRate,
+      labor_rate: null,
       manufacturer: get(iMfg) || null,
       style: styleName || null,
       color: folded.color,
       notes: folded.notes,
     });
   }
-  return rows.length ? rows : null;
+  if (!rows.some((row) => row.material_rate != null && row.material_rate > 0)) return null;
+  return rows;
 }

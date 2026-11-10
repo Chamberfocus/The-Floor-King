@@ -14,12 +14,11 @@ import { catalogProductCategory } from "@/lib/types";
 import { chunkText } from "@/lib/pdf-client";
 import {
   parsePriceSheet,
-  pdfItemsToLines,
   readPriceText,
   sheetLinesToPriceRows,
-  type PdfTextItem,
 } from "@/lib/price-sheet";
 import { specFieldsFor } from "@/lib/product-fields";
+import { layoutPdfJsItems } from "@/lib/pdf-layout";
 import { triggerImportProcessing } from "@/lib/import-worker";
 import {
   listActiveImportJobs,
@@ -121,35 +120,23 @@ async function pdfTextFromStorage(storagePath: string): Promise<string> {
         height?: number;
       }[];
 
-      // Group fragments by their real position. A gap between columns becomes a
-      // tab so "Style / Color / Cut / Roll" stays four cells, not one sentence.
-      const positioned: PdfTextItem[] = [];
+      // Column gaps become tabs. "12" and "00" stay $12.00, not 1200.
+      // A two-column page is read left side, then right side.
+      const laid = layoutPdfJsItems(items);
+      if (laid.trim()) {
+        for (const line of laid.split("\n")) {
+          const trimmed = line.trim();
+          if (trimmed) lines.push(trimmed);
+        }
+        continue;
+      }
       let flat = "";
       for (const it of items) {
-        const s = it.str ?? "";
-        flat += s + (it.hasEOL ? "\n" : " ");
-        if (!s.trim() || !it.transform || it.transform.length < 6) continue;
-        const height =
-          typeof it.height === "number" && it.height > 0
-            ? it.height
-            : Math.abs(it.transform[3]) || 0;
-        positioned.push({
-          str: s,
-          x: it.transform[4],
-          y: it.transform[5],
-          width: typeof it.width === "number" ? it.width : 0,
-          height,
-        });
+        flat += (it.str ?? "") + (it.hasEOL ? "\n" : " ");
       }
-
-      const geometric = pdfItemsToLines(positioned);
-      if (geometric.length > 1) {
-        lines.push(...geometric);
-      } else {
-        for (const l of flat.split("\n")) {
-          const t = l.trim();
-          if (t) lines.push(t);
-        }
+      for (const line of flat.split("\n")) {
+        const trimmed = line.trim();
+        if (trimmed) lines.push(trimmed);
       }
     }
     return lines.join("\n");

@@ -533,8 +533,12 @@ export function AppShell({
             size="icon"
             render={<Link href={homeHref} />}
             nativeButton={false}
-            aria-label={homeHref === "/office" ? "Office" : "Home"}
-            title={homeHref === "/office" ? "Office" : "Home"}
+            aria-label={
+              homeHref === "/office" ? "Office" : homeHref === "/installer" ? "My work" : "Home"
+            }
+            title={
+              homeHref === "/office" ? "Office" : homeHref === "/installer" ? "My work" : "Home"
+            }
             className="shrink-0"
           >
             <Home className="size-5" />

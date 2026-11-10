@@ -7,7 +7,7 @@
  * list — a price book is one material from one mill, bought from one place.
  */
 import { foldCatalogColor } from "@/lib/catalog-identity";
-import { parseColorMatrix, parseStructuredRows } from "@/lib/catalog-csv";
+import { parseColorMatrix, parseStructuredRows, unitPriceCell } from "@/lib/catalog-csv";
 import type { PriceRow } from "@/lib/extract";
 
 export interface PriceSheetLine {
@@ -344,15 +344,15 @@ function splitCells(line: string): string[] | null {
   return null;
 }
 
-function moneyCell(cell: string): number | null {
+function moneyCell(cell: string, header: string): number | null {
   const t = cell.trim();
   if (!t || /^(-|—|–|n\/?a|call|tbd|\.)$/i.test(t)) return null;
-  const nums = t.replace(/,/g, "").match(/\d+(?:\.\d+)?/g);
-  if (!nums || nums.length !== 1) return null;
-  if (/^20\d{2}$/.test(nums[0])) return null;
-  const n = parseFloat(nums[0]);
-  if (!Number.isFinite(n) || n <= 0 || n >= 100000) return null;
-  return Math.round(n * 100) / 100;
+  if (/^20\d{2}$/.test(t.replace(/[$,]/g, ""))) return null;
+  // 1,200 on a price column is $12.00 with a missing decimal. On a roll
+  // column it is the square feet on the roll, so it is not a second price.
+  const n = unitPriceCell(t, header);
+  if (n == null || !(n > 0)) return null;
+  return n;
 }
 
 function styleFromLabeledLine(line: string): { style: string; styleNumber: string | null } | null {
@@ -500,9 +500,9 @@ export function parsePriceSheet(text: string): PriceSheetLine[] | null {
     const cutCell = at("cut");
     const rollCell = at("roll");
     const priceCell = at("price");
-    let cut = moneyCell(cutCell);
-    let roll: number | null = columns.includes("roll") ? moneyCell(rollCell) : null;
-    if (cut == null && columns.includes("price")) cut = moneyCell(priceCell);
+    let cut = moneyCell(cutCell, "cut");
+    let roll: number | null = columns.includes("roll") ? moneyCell(rollCell, "roll") : null;
+    if (cut == null && columns.includes("price")) cut = moneyCell(priceCell, "price");
     // A sheet with only a roll column: that figure is the price, not a second tier.
     if (cut == null && roll != null && !columns.includes("cut") && !columns.includes("price")) {
       cut = roll;
