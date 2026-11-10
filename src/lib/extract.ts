@@ -12,6 +12,7 @@
  * instead of failing the whole import. No-ops (returns null) until
  * ANTHROPIC_API_KEY is set.
  */
+import { sheetLinesToPriceRows, type PriceSheetLine } from "@/lib/price-sheet";
 
 const API_URL = "https://api.anthropic.com/v1/messages";
 const MODEL = "claude-sonnet-4-6";
@@ -228,7 +229,13 @@ export interface PriceRow {
   category: string;
   unit: string;
   sku: string | null;
+  /** Cut price, or the only price. This is the catalog cost. */
   material_rate: number | null;
+  /**
+   * Full-roll price when the sheet has a separate roll column.
+   * Null when the sheet does not price a roll differently from a cut.
+   */
+  roll_rate?: number | null;
   labor_rate: number | null;
   notes: string | null;
   manufacturer?: string | null;
@@ -330,6 +337,80 @@ export async function extractPriceList(opts: {
   if (!text) return null;
   const rows = extractRows(text, "items").map(toPriceRow).filter((r) => r.name);
   return rows;
+}
+
+const SHEET_SYSTEM = `You read flooring PRICE SHEETS for a flooring contractor. You extract only the color rows. You do not guess who makes the product or who sells it — the person importing the sheet already knows that.`;
+
+const SHEET_SCHEMA = `Return ONLY a JSON object — no prose, no code fences:
+{ "items": [ {
+  "style": string,              // style / pattern / collection NAME. If the sheet shows only a style number, put that number here.
+  "style_number": string|null,  // style / item / SKU number, when it is separate from the style name
+  "color": string,              // color name. If the sheet shows only a color number, put that number here.
+  "color_number": string|null,  // color number, when it is separate from the color name
+  "cut_price": number,          // CUT price (cut, cut order, cut/yd). If the sheet has only ONE price column, that price goes here.
+  "roll_price": number|null     // ROLL price ONLY when a separate roll column exists. Otherwise null. Never copy cut_price into roll_price.
+} ] }
+
+Rules:
+- One item per color. Do not merge colors. Do not skip a color because the style is printed once above the list — repeat that style on every color.
+- Prices are plain numbers. Strip $ and commas. Do not use MSRP, retail, list, or suggested price.
+- Ignore manufacturer, distributor, freight, warranty, page numbers, headers, totals, and terms. Do not put any of that in the items.
+- Use null for a missing style number, color number, or roll price. Do not invent a price. Omit a row that has no price.`;
+
+function toSheetLine(o: Record<string, unknown>): PriceSheetLine | null {
+  const style = coerceStr(o.style) ?? "";
+  const styleNumber = coerceStr(o.style_number);
+  const color = coerceStr(o.color) ?? "";
+  const colorNumber = coerceStr(o.color_number);
+  const cut = coerceNum(o.cut_price);
+  const roll = coerceNum(o.roll_price);
+  if ((!style && !styleNumber) || !color || cut == null || !(cut > 0)) return null;
+  return {
+    style: style || styleNumber || "",
+    color,
+    styleNumber,
+    colorNumber: colorNumber && colorNumber !== color ? colorNumber : null,
+    cutPrice: Math.round(cut * 100) / 100,
+    rollPrice: roll != null && roll > 0 ? Math.round(roll * 100) / 100 : null,
+  };
+}
+
+/**
+ * Read a price sheet for style, color, cut price, and roll price only.
+ * Manufacturer and distributor are not extracted — the importer asks for them.
+ */
+export async function extractPriceSheet(opts: {
+  text?: string;
+  base64?: string;
+  url?: string;
+  mediaType?: string;
+}): Promise<PriceRow[] | null> {
+  lastExtractError = null;
+  if (!process.env.ANTHROPIC_API_KEY) {
+    lastExtractError = "No AI key set (ANTHROPIC_API_KEY).";
+    return null;
+  }
+  const content: unknown[] = [];
+  const block = fileBlock(opts);
+  if (block) {
+    content.push(block);
+    content.push({ type: "text", text: SHEET_SCHEMA });
+  } else if (opts.text) {
+    content.push({ type: "text", text: `${SHEET_SCHEMA}\n\nPRICE SHEET:\n${opts.text}` });
+  } else {
+    return null;
+  }
+  const text = await callModel({
+    system: SHEET_SYSTEM,
+    content,
+    maxTokens: 16000,
+  });
+  if (!text) return null;
+  const lines = extractRows(text, "items")
+    .map(toSheetLine)
+    .filter((l): l is PriceSheetLine => l != null);
+  if (!lines.length) return null;
+  return sheetLinesToPriceRows(lines);
 }
 
 // ===========================================================================

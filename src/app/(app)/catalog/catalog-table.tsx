@@ -119,6 +119,11 @@ export function CatalogTable({
                       value={formatCatalogPrice(m.cost, formatMoney)}
                       needed={m.cost.missing}
                     />
+                    {p.roll_rate != null && p.roll_rate > 0 ? (
+                      <div className="text-xs font-normal text-muted-foreground">
+                        Roll {formatMoney(p.roll_rate)}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               ) : null}
@@ -226,11 +231,16 @@ export function CatalogTable({
                   </TableCell>
                   {showCost ? (
                     <TableCell className="text-right">
-                      <PriceCell
-                        value={formatCatalogPrice(m.cost, formatMoney)}
-                        needed={m.cost.missing}
-                      />
-                    </TableCell>
+                    <PriceCell
+                      value={formatCatalogPrice(m.cost, formatMoney)}
+                      needed={m.cost.missing}
+                    />
+                    {p.roll_rate != null && p.roll_rate > 0 ? (
+                      <div className="text-xs font-normal text-muted-foreground">
+                        Roll {formatMoney(p.roll_rate)}
+                      </div>
+                    ) : null}
+                  </TableCell>
                   ) : null}
                   {showLanded ? (
                     <TableCell className="text-right font-medium">

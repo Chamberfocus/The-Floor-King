@@ -16,6 +16,7 @@ export const CATALOG_PRODUCT_COLUMNS = [
   "category",
   "unit",
   "material_rate",
+  "roll_rate",
   "labor_rate",
   "sku",
   "manufacturer",
@@ -55,6 +56,33 @@ export const CATALOG_PRODUCT_COLUMNS = [
   "search_text",
   "price_override",
 ].join(", ");
+
+/**
+ * Until 0509 is applied, selecting roll_rate fails the whole catalog read.
+ * Drop it for the rest of this process and retry the query.
+ */
+let omitRollRate = false;
+function catalogColumns(): string {
+  if (!omitRollRate) return CATALOG_PRODUCT_COLUMNS;
+  return CATALOG_PRODUCT_COLUMNS.split(", ")
+    .filter((column) => column !== "roll_rate")
+    .join(", ");
+}
+
+async function withCatalogColumns<T>(
+  run: (columns: string) => PromiseLike<{ data: T; error: { message?: string } | null }>,
+): Promise<{ data: T; error: { message?: string } | null }> {
+  const first = await run(catalogColumns());
+  if (
+    first.error &&
+    /roll_rate/i.test(first.error.message ?? "") &&
+    !omitRollRate
+  ) {
+    omitRollRate = true;
+    return run(catalogColumns());
+  }
+  return first;
+}
 
 const PAGE = 1000; // Supabase caps a single request at 1000 rows.
 
@@ -179,15 +207,17 @@ export async function listProducts(
   const supabase = await createClient();
   const all: Product[] = [];
   for (let from = 0; ; from += PAGE) {
-    let query = supabase
-      .from("products")
-      .select(CATALOG_PRODUCT_COLUMNS)
-      .order("category", { ascending: true })
-      .order("name", { ascending: true })
-      .range(from, from + PAGE - 1);
-    if (opts.activeOnly) query = query.eq("active", true);
-    const { data, error } = await query;
-    if (error) throw error;
+    const { data, error } = await withCatalogColumns((cols) => {
+      let query = supabase
+        .from("products")
+        .select(cols)
+        .order("category", { ascending: true })
+        .order("name", { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (opts.activeOnly) query = query.eq("active", true);
+      return query;
+    });
+    if (error) throw new Error(error.message ?? "Couldn't load the catalog.");
     const batch = (data ?? []) as unknown as Product[];
     all.push(...batch);
     if (batch.length < PAGE) break;
@@ -416,16 +446,16 @@ export async function searchCatalogWith(
           active_only: opts.activeOnly !== false,
         }),
         cats.length
-          ? (() => {
+          ? withCatalogColumns((cols) => {
               let cq = supabase
                 .from("products")
-                .select(CATALOG_PRODUCT_COLUMNS)
+                .select(cols)
                 .in("category", cats)
                 .order("name", { ascending: true })
                 .limit(displayLimit * 4);
               if (opts.activeOnly !== false) cq = cq.eq("active", true);
               return cq;
-            })()
+            })
           : Promise.resolve({ data: [], error: null }),
         tokens.length
           ? searchCatalogIdentity(supabase, tokens, displayLimit, opts)
@@ -465,19 +495,21 @@ export async function searchCatalogWith(
   // Fallback: the pre-0143 behaviour, so the picker still works on a database
   // where the migration hasn't been run yet.
   const pool = tokens.length ? Math.max(displayLimit * 8, 400) : displayLimit;
-  let q = supabase
-    .from("products")
-    .select(CATALOG_PRODUCT_COLUMNS)
-    .order("name", { ascending: true })
-    .limit(pool);
-  if (opts.activeOnly) q = q.eq("active", true);
-  for (const token of tokens) {
-    const parts = [tokenColumnOr(token, SEARCH_COLS)];
-    const cat = tokenCategory(token);
-    if (cat) parts.push(`category.eq.${cat}`);
-    q = q.or(parts.join(","));
-  }
-  const { data } = await q;
+  const { data } = await withCatalogColumns((cols) => {
+    let q = supabase
+      .from("products")
+      .select(cols)
+      .order("name", { ascending: true })
+      .limit(pool);
+    if (opts.activeOnly) q = q.eq("active", true);
+    for (const token of tokens) {
+      const parts = [tokenColumnOr(token, SEARCH_COLS)];
+      const cat = tokenCategory(token);
+      if (cat) parts.push(`category.eq.${cat}`);
+      q = q.or(parts.join(","));
+    }
+    return q;
+  });
   const rows = ((data ?? []) as Product[]).filter(
     (p) => opts.includeLabor || p.category !== "labor",
   );
@@ -505,14 +537,13 @@ async function searchCatalogIdentity(
 ): Promise<Product[]> {
   if (!tokens.length) return [];
   const pool = Math.min(Math.max(displayLimit, 40), 80);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let q: any = supabase
-    .from("products")
-    .select(CATALOG_PRODUCT_COLUMNS)
-    .limit(pool);
-  if (opts.activeOnly !== false) q = q.eq("active", true);
-  for (const token of tokens) q = q.or(tokenColumnOr(token, TEXT_MATCH_COLS));
-  const { data, error } = await q;
+  const { data, error } = await withCatalogColumns((cols) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q: any = supabase.from("products").select(cols).limit(pool);
+    if (opts.activeOnly !== false) q = q.eq("active", true);
+    for (const token of tokens) q = q.or(tokenColumnOr(token, TEXT_MATCH_COLS));
+    return q;
+  });
   if (error || !Array.isArray(data)) return [];
   return (data as Product[]).filter(
     (p) => opts.includeLabor || p.category !== "labor",
@@ -547,7 +578,7 @@ async function searchCatalogScoped(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let q: any = supabase
     .from("products")
-    .select(CATALOG_PRODUCT_COLUMNS)
+    .select(catalogColumns())
     .order("name", { ascending: true })
     .limit(pool);
   if (opts.activeOnly !== false) q = q.eq("active", true);
@@ -567,6 +598,10 @@ async function searchCatalogScoped(
   }
 
   const { data, error } = await q;
+  if (error && /roll_rate/i.test(error.message ?? "") && !omitRollRate) {
+    omitRollRate = true;
+    return searchCatalogScoped(supabase, query, tokens, displayLimit, opts);
+  }
   if (error) return null;
   let rows = ((data ?? []) as Product[]).filter(
     (p) => opts.includeLabor || p.category !== "labor",
@@ -650,11 +685,9 @@ export async function primaryCatalogCostByProductIds(
 
 export async function getProduct(id: string): Promise<Product | null> {
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("products")
-    .select(CATALOG_PRODUCT_COLUMNS)
-    .eq("id", id)
-    .maybeSingle();
+  const { data } = await withCatalogColumns((cols) =>
+    supabase.from("products").select(cols).eq("id", id).maybeSingle(),
+  );
   if (!data) return null;
   const [p] = await enrichCatalogProducts(supabase, [data as unknown as Product]);
   return p;

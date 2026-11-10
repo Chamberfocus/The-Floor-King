@@ -633,6 +633,12 @@ export interface Product {
   category: ProductCategory;
   unit: string;
   material_rate: number;
+  /**
+   * Full-roll price when a mill prices a roll differently from a cut.
+   * Estimates and purchase orders use material_rate (the cut). Null when the
+   * sheet has only one price.
+   */
+  roll_rate?: number | null;
   labor_rate: number;
   sku: string | null;
   manufacturer: string | null;

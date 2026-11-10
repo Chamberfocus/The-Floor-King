@@ -424,6 +424,8 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
 
   const HARD = new Set(["lvp", "hardwood", "laminate", "tile", "vinyl"]);
   // Pick the correct price column + how to interpret it, per row's category.
+  // Cut is the price we pay to cut a piece (and the catalog cost). Roll is a
+  // second tier, kept only when the sheet actually has both columns.
   const priceFor = (
     category: string,
     get: (i: number) => string,
@@ -570,6 +572,10 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
       !/(sqft|persf)/.test(priceHeader)
         ? "carpet"
         : category;
+    // A real roll price, only when the sheet has both a cut column and a roll
+    // column. 1,200 in the roll column is footage, so it stays off the product.
+    const rollRate =
+      iCut >= 0 && iRoll >= 0 ? unitPriceCell(get(iRoll), H[iRoll] ?? "") : null;
     const sizeNote = get(iSize);
     const notes =
       get(iNotes) ||
@@ -585,6 +591,7 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
       unit: iUnit >= 0 ? normUnit(get(iUnit)) : unitForCategory(pricedCategory),
       sku: get(iStyleNum) || null,
       material_rate: rate,
+      roll_rate: rollRate,
       labor_rate: null,
       manufacturer: get(iMfg) || null,
       style: styleName || null,

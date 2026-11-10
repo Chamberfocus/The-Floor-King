@@ -6,12 +6,18 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   extractPriceList,
+  extractPriceSheet,
   getLastExtractError,
   type PriceRow,
 } from "@/lib/extract";
 import { catalogProductCategory } from "@/lib/types";
 import { chunkText } from "@/lib/pdf-client";
-import { parseStructuredRows } from "@/lib/catalog-csv";
+import {
+  parsePriceSheet,
+  readPriceText,
+  sheetLinesToPriceRows,
+} from "@/lib/price-sheet";
+import { specFieldsFor } from "@/lib/product-fields";
 import { layoutPdfJsItems } from "@/lib/pdf-layout";
 import { triggerImportProcessing } from "@/lib/import-worker";
 import {
@@ -113,6 +119,9 @@ async function pdfTextFromStorage(storagePath: string): Promise<string> {
         width?: number;
         height?: number;
       }[];
+
+      // Column gaps become tabs. "12" and "00" stay $12.00, not 1200.
+      // A two-column page is read left side, then right side.
       const laid = layoutPdfJsItems(items);
       if (laid.trim()) {
         for (const line of laid.split("\n")) {
@@ -155,18 +164,17 @@ export async function extractStoragePdfText(
   const text = await pdfTextFromStorage(storagePath);
   if (!text || text.trim().length < 20)
     return { text: "", structured: null, error: null };
-  const structured = parseStructuredRows(text);
-  return {
-    text,
-    structured: structured?.length ? structured : null,
-    error: null,
-  };
+  // A price book often starts with a title, so the header is not on line 1.
+  // Cut/roll sheets, then color-matrix books, then a normal spreadsheet.
+  const read = readPriceText(text);
+  return { text, structured: read?.rows ?? null, error: null };
 }
 
 export async function parsePriceList(formData: FormData): Promise<ParseResult> {
   const text = str(formData.get("text"));
   const file = formData.get("file");
   const storagePath = str(formData.get("storage_path"));
+  const sheetMode = str(formData.get("mode")) === "sheet";
   const hasKey = Boolean(process.env.ANTHROPIC_API_KEY);
 
   // Storage path is now ONLY the AI-vision fallback (scanned PDFs / photos),
@@ -192,7 +200,7 @@ export async function parsePriceList(formData: FormData): Promise<ParseResult> {
     const mediaType =
       str(formData.get("storage_mime")) ||
       (isPdf ? "application/pdf" : "image/jpeg");
-    const rows = await extractPriceList({
+    const rows = await (sheetMode ? extractPriceSheet : extractPriceList)({
       url: signed.signedUrl,
       mediaType,
     });
@@ -216,7 +224,7 @@ export async function parsePriceList(formData: FormData): Promise<ParseResult> {
       };
     }
     const bytes = Buffer.from(await file.arrayBuffer());
-    const rows = await extractPriceList({
+    const rows = await (sheetMode ? extractPriceSheet : extractPriceList)({
       base64: bytes.toString("base64"),
       mediaType: file.type || "application/octet-stream",
     });
@@ -232,6 +240,19 @@ export async function parsePriceList(formData: FormData): Promise<ParseResult> {
   }
 
   if (text) {
+    if (sheetMode) {
+      const local = parsePriceSheet(text);
+      if (local?.length) return { error: null, rows: sheetLinesToPriceRows(local) };
+      const rows = hasKey ? await extractPriceSheet({ text }) : null;
+      if (!rows?.length) {
+        return {
+          error: hasKey
+            ? "Couldn't find styles, colors, and prices in that PDF."
+            : "That PDF didn't come out as columns. Reading it needs the AI key (ANTHROPIC_API_KEY), or export the sheet to Excel.",
+        };
+      }
+      return { error: null, rows };
+    }
     let rows = hasKey ? await extractPriceList({ text }) : null;
     if (!rows || !rows.length) rows = parseTextRows(text); // AI-free fallback
     if (!rows.length) return { error: "No products found in that text." };
@@ -320,6 +341,8 @@ export interface ImportResult {
   inserted?: number; // brand-new products added
   updated?: number; // existing products whose price/attrs actually changed
   unchanged?: number; // matched an existing product, nothing changed
+  /** The colors imported, but a follow-up (roll price, vendor link) did not. */
+  warning?: string | null;
 }
 
 /** Parse to a finite number, else null — never a silent 0. */
@@ -327,6 +350,251 @@ function numOrNull(v: number | string | null | undefined): number | null {
   if (v == null || v === "") return null;
   const n = typeof v === "number" ? v : parseFloat(String(v).replace(/[$,]/g, ""));
   return Number.isFinite(n) ? n : null;
+}
+
+type StampedItem = {
+  name: string;
+  category: string;
+  material_rate: number;
+  roll_rate: number | null;
+};
+
+/** Specs the upload form is allowed to write. Anything else is ignored. */
+function sheetSpecPatch(
+  category: string,
+  specs: Record<string, string> | undefined,
+): Record<string, string | number> {
+  const allowed = new Map(specFieldsFor(category).map((f) => [f.key, f.kind]));
+  const patch: Record<string, string | number> = {};
+  for (const [key, raw] of Object.entries(specs ?? {})) {
+    const kind = allowed.get(key);
+    const value = (raw ?? "").trim();
+    if (!kind || !value) continue;
+    if (kind === "number") {
+      const n = parseFloat(value);
+      if (Number.isFinite(n) && n > 0) patch[key] = n;
+    } else {
+      patch[key] = value;
+    }
+  }
+  return patch;
+}
+
+async function ensureSupplier(
+  admin: ReturnType<typeof createAdminClient>,
+  name: string,
+  kind: "manufacturer" | "distributor",
+): Promise<{ id: string; name: string } | null> {
+  const clean = name.trim();
+  if (!clean) return null;
+  const { data: found } = await admin
+    .from("suppliers")
+    .select("id, name")
+    .ilike("name", clean)
+    .limit(1);
+  const existing = (found ?? [])[0] as { id?: string; name?: string } | undefined;
+  if (existing?.id) {
+    await admin.from("suppliers").update({ active: true }).eq("id", existing.id);
+    return { id: existing.id, name: existing.name || clean };
+  }
+  const { data, error } = await admin
+    .from("suppliers")
+    .insert({ name: clean, kind, active: true })
+    .select("id, name")
+    .single();
+  if (error || !data) return null;
+  return { id: data.id as string, name: (data.name as string) || clean };
+}
+
+/** Quote a value for a PostgREST `.or()` filter. `%` and `_` are not wildcards here. */
+function quoteExactIlike(value: string): string {
+  const escaped = value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/%/g, "\\%")
+    .replace(/_/g, "\\_");
+  return `"${escaped}"`;
+}
+
+/** Products just written, matched even when the stored name differs only by case. */
+async function loadProductsForNames(
+  admin: ReturnType<typeof createAdminClient>,
+  names: string[],
+): Promise<{ id: string; name: string }[]> {
+  const unique = [...new Set(names.map((n) => n.trim()).filter(Boolean))];
+  const found = new Map<string, { id: string; name: string }>();
+  for (let i = 0; i < unique.length; i += 25) {
+    const slice = unique.slice(i, i + 25);
+    const wanted = new Set(slice.map((n) => n.toLowerCase()));
+    const ilike = await admin
+      .from("products")
+      .select("id, name")
+      .or(slice.map((n) => `name.ilike.${quoteExactIlike(n)}`).join(","));
+    const rows = ilike.error
+      ? (
+          await admin.from("products").select("id, name").in("name", slice)
+        ).data
+      : ilike.data;
+    for (const row of rows ?? []) {
+      const key = String(row.name ?? "").toLowerCase();
+      if (!wanted.has(key) || found.has(key)) continue;
+      found.set(key, { id: row.id as string, name: row.name as string });
+    }
+  }
+  return [...found.values()];
+}
+
+/** Roll price, the specs for this material, and the distributor you buy it from. */
+async function stampImportedSheet(
+  admin: ReturnType<typeof createAdminClient>,
+  items: StampedItem[],
+  opts: {
+    supplier?: string;
+    manufacturer?: string;
+    specs?: Record<string, string>;
+    category?: string;
+  },
+): Promise<string | null> {
+  const warnings: string[] = [];
+  const category = opts.category || items[0]?.category || "";
+  const products = await loadProductsForNames(
+    admin,
+    items.map((it) => it.name),
+  );
+  const idByName = new Map(products.map((p) => [p.name.toLowerCase(), p.id]));
+
+  const byRoll = new Map<number, string[]>();
+  for (const it of items) {
+    if (it.roll_rate == null || !(it.roll_rate > 0)) continue;
+    const id = idByName.get(it.name.toLowerCase());
+    if (!id) continue;
+    const list = byRoll.get(it.roll_rate) ?? [];
+    list.push(id);
+    byRoll.set(it.roll_rate, list);
+  }
+  let rollMissing = false;
+  for (const [price, ids] of byRoll) {
+    if (rollMissing) break;
+    for (let i = 0; i < ids.length; i += 200) {
+      const { error } = await admin
+        .from("products")
+        .update({ roll_rate: price })
+        .in("id", ids.slice(i, i + 200));
+      if (!error) continue;
+      if (/roll_rate/i.test(error.message)) {
+        rollMissing = true;
+        break;
+      }
+      warnings.push(error.message);
+      break;
+    }
+  }
+  if (rollMissing) {
+    warnings.push(
+      "Roll prices were read but not saved. Run 0509_product_roll_rate.sql in the Supabase SQL editor, then import this list again.",
+    );
+  }
+
+  const distributorName = opts.supplier?.trim() ?? "";
+  const manufacturerName = opts.manufacturer?.trim() ?? "";
+  let supplierId: string | null = null;
+  let supplierName = distributorName;
+  if (distributorName) {
+    const vendor = await ensureSupplier(admin, distributorName, "distributor");
+    if (vendor) {
+      supplierId = vendor.id;
+      supplierName = vendor.name;
+    } else {
+      warnings.push(`Couldn't save distributor “${distributorName}”.`);
+    }
+  }
+  if (manufacturerName && manufacturerName.toLowerCase() !== distributorName.toLowerCase()) {
+    await ensureSupplier(admin, manufacturerName, "manufacturer");
+  }
+
+  const specPatch = sheetSpecPatch(category, opts.specs);
+  const shared: Record<string, unknown> = { ...specPatch };
+  if (supplierName) {
+    shared.supplier = supplierName;
+    if (supplierId) shared.supplier_id = supplierId;
+  }
+  const ids = products.map((p) => p.id);
+  if (Object.keys(shared).length && ids.length) {
+    for (let i = 0; i < ids.length; i += 200) {
+      const slice = ids.slice(i, i + 200);
+      const { error } = await admin.from("products").update(shared).in("id", slice);
+      if (!error) continue;
+      const supplierOnly: Record<string, unknown> = {};
+      if (shared.supplier) supplierOnly.supplier = shared.supplier;
+      if (shared.supplier_id) supplierOnly.supplier_id = shared.supplier_id;
+      if (Object.keys(supplierOnly).length) {
+        const retry = await admin.from("products").update(supplierOnly).in("id", slice);
+        if (retry.error) warnings.push(retry.error.message);
+      }
+      break;
+    }
+  }
+
+  if (supplierId) {
+    const linkWarning = await linkDistributorCost(admin, products, supplierId, items);
+    if (linkWarning) warnings.push(linkWarning);
+  }
+  return warnings[0] ?? null;
+}
+
+/** The cut price is what we pay this distributor. Estimates use that cost. */
+async function linkDistributorCost(
+  admin: ReturnType<typeof createAdminClient>,
+  products: { id: string; name: string }[],
+  vendorId: string,
+  items: StampedItem[],
+): Promise<string | null> {
+  const costByName = new Map(items.map((it) => [it.name.toLowerCase(), it.material_rate]));
+  const existing = new Map<string, string>();
+  const ids = products.map((p) => p.id);
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data, error } = await admin
+      .from("product_vendors")
+      .select("id, product_id, vendor_id")
+      .in("product_id", ids.slice(i, i + 200));
+    if (error) return null;
+    for (const row of data ?? []) {
+      if (row.vendor_id === vendorId) existing.set(row.product_id as string, row.id as string);
+    }
+  }
+  const inserts: {
+    product_id: string;
+    vendor_id: string;
+    cost: number;
+    position: number;
+  }[] = [];
+  const updatesByCost = new Map<number, string[]>();
+  for (const p of products) {
+    const cost = costByName.get(p.name.toLowerCase());
+    if (cost == null) continue;
+    const rowId = existing.get(p.id);
+    if (rowId) {
+      const list = updatesByCost.get(cost) ?? [];
+      list.push(rowId);
+      updatesByCost.set(cost, list);
+    } else {
+      inserts.push({ product_id: p.id, vendor_id: vendorId, cost, position: 0 });
+    }
+  }
+  if (inserts.length) {
+    const { error } = await admin.from("product_vendors").insert(inserts);
+    if (error) return error.message;
+  }
+  for (const [cost, rowIds] of updatesByCost) {
+    for (let i = 0; i < rowIds.length; i += 200) {
+      const { error } = await admin
+        .from("product_vendors")
+        .update({ cost })
+        .in("id", rowIds.slice(i, i + 200));
+      if (error) return error.message;
+    }
+  }
+  return null;
 }
 
 /**
@@ -339,7 +607,16 @@ function numOrNull(v: number | string | null | undefined): number | null {
  */
 export async function importProducts(
   rows: PriceRow[],
-  opts: { update?: boolean; supplier?: string } = {},
+  opts: {
+    update?: boolean;
+    /** Distributor — who this upload is ordered from. Applied to every color. */
+    supplier?: string;
+    /** Manufacturer name, remembered as a supplier so the next upload can pick it. */
+    manufacturer?: string;
+    /** Specs that apply to every color (roll width, face weight, …). */
+    specs?: Record<string, string>;
+    category?: string;
+  } = {},
 ): Promise<ImportResult> {
   try {
     const valid = (rows ?? []).filter((r) => r.name?.trim());
@@ -381,6 +658,7 @@ export async function importProducts(
           return null;
         }
         const cov = parseCoverage(r.name);
+        const roll = numOrNull(r.roll_rate);
         return {
           name: r.name.trim(),
           category,
@@ -388,6 +666,7 @@ export async function importProducts(
           // area) instead of blindly defaulting to square feet.
           unit: inferUnit(r.name, r.unit, category),
           material_rate: mat ?? 0,
+          roll_rate: roll != null && roll > 0 ? roll : null,
           labor_rate: lab ?? 0,
           sku: r.sku || "",
           manufacturer: r.manufacturer || "",
@@ -459,6 +738,7 @@ export async function importProducts(
         category: it.category,
         unit: it.unit,
         material_rate: it.material_rate,
+        roll_rate: it.roll_rate,
         labor_rate: it.labor_rate,
         sku: toNull(it.sku),
         manufacturer: toNull(it.manufacturer),
@@ -469,9 +749,20 @@ export async function importProducts(
         coverage_thickness_in: it.coverage_thickness_in ?? null,
       }));
       count = 0;
+      let dropRoll = false;
       for (let i = 0; i < insertRows.length; i += 500) {
-        const batch = insertRows.slice(i, i + 500);
+        const batch = insertRows.slice(i, i + 500).map((row) => {
+          if (!dropRoll) return row;
+          const { roll_rate, ...rest } = row;
+          void roll_rate;
+          return rest;
+        });
         const { error } = await admin.from("products").insert(batch);
+        if (error && /roll_rate/i.test(error.message) && !dropRoll) {
+          dropRoll = true;
+          i -= 500;
+          continue;
+        }
         if (error) return { error: error.message, count };
         count += batch.length;
       }
@@ -480,21 +771,10 @@ export async function importProducts(
       unchanged = 0;
     }
 
-    // Stamp the supplier where it's blank (a price list is one vendor).
-    const supplier = opts.supplier?.trim();
-    if (supplier) {
-      const names = [...new Set(items.map((it) => it.name))];
-      for (let i = 0; i < names.length; i += 200) {
-        await admin
-          .from("products")
-          .update({ supplier })
-          .in("name", names.slice(i, i + 200))
-          .or("supplier.is.null,supplier.eq.");
-      }
-    }
+    const warning = await stampImportedSheet(admin, items, opts);
 
     revalidatePath("/catalog");
-    return { error: null, count, skipped, inserted, updated, unchanged };
+    return { error: null, count, skipped, inserted, updated, unchanged, warning };
   } catch (e) {
     return {
       error: e instanceof Error ? e.message : "Import failed unexpectedly.",

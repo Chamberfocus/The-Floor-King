@@ -28,15 +28,20 @@ import { SearchPicker } from "@/components/ui/search-picker";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-import { foldCatalogColor } from "@/lib/catalog-identity";
+import { foldCatalogColor, colorNumberFromText } from "@/lib/catalog-identity";
 import { fileToGrid, chunkText } from "@/lib/pdf-client";
 import {
-  parseStructuredRows,
   buildCatalogTemplate,
   mapCategory,
   normUnit,
   unitPriceCell,
 } from "@/lib/catalog-csv";
+import {
+  applySheetFacts,
+  readPriceText,
+} from "@/lib/price-sheet";
+import { specFieldsFor } from "@/lib/product-fields";
+import { defaultUnitForCategory, unitsForCategory } from "@/lib/units";
 import {
   CATALOG_PRODUCT_CATEGORIES,
   isCatalogProductCategory,
@@ -65,6 +70,8 @@ const FIELDS: { key: string; label: string; syn: string[] }[] = [
   // Cost-first — auto-map OUR cost, NEVER auto-pick MSRP / list / retail (those
   // must be chosen deliberately). Generic "price"/"unitprice" are last resort.
   { key: "material_rate", label: "Price", syn: ["yourcost", "dealercost", "dealernet", "dealerprice", "netprice", "net", "unitcost", "cost", "materialcost", "materialrate", "material", "unitprice", "price"] },
+  { key: "cut_price", label: "Cut price", syn: ["cutprice", "cut", "cutorder", "cutlength", "cutyd", "cutperyd", "priceperyard"] },
+  { key: "roll_price", label: "Roll price", syn: ["rollprice", "roll", "fullroll", "rollcost"] },
   { key: "sku", label: "SKU / item #", syn: ["sku", "style", "styleno", "stylenumber", "item", "itemno", "itemnumber", "partno", "partnumber", "productcode", "code"] },
   { key: "manufacturer", label: "Manufacturer", syn: ["manufacturer", "mfg", "mfr", "brand", "vendor", "supplier", "mill", "sellingcompanyname"] },
   { key: "style", label: "Style", syn: ["stylename", "pattern", "collection", "series", "design"] },
@@ -97,7 +104,14 @@ export type RowStatus = { level: "ok" | "flag"; reason: string };
  * mislabels that made prices wrong (carpet priced per sq ft, hard surface priced
  * per sq yd, a per-carton lump labeled per sq ft). Nothing wrong imports silently.
  */
-export function validateRow(r: PriceRow): RowStatus {
+export function validateRow(
+  r: PriceRow,
+  opts: { sheet?: boolean } = {},
+): RowStatus {
+  if (opts.sheet) {
+    if (!r.style?.trim()) return { level: "flag", reason: "no style" };
+    if (!r.color?.trim()) return { level: "flag", reason: "no color" };
+  }
   if (!r.name?.trim()) return { level: "flag", reason: "no product name" };
   if (isLaborCategory(r.category)) {
     return {
@@ -105,12 +119,25 @@ export function validateRow(r: PriceRow): RowStatus {
       reason: "Labor is not a product — it stays on the estimate",
     };
   }
+  if (!isCatalogProductCategory(r.category)) {
+    return { level: "flag", reason: "choose what this material is" };
+  }
   if (r.material_rate == null)
     return { level: "flag", reason: "price didn't parse — fix it or map a different price column" };
   const p = Number(r.material_rate);
   if (!(p > 0)) return { level: "flag", reason: "price is $0" };
   if (p >= 200)
     return { level: "flag", reason: `$${p} looks like a roll size, not the unit price` };
+  if (r.roll_rate != null && r.roll_rate !== undefined) {
+    const roll = Number(r.roll_rate);
+    if (!(roll > 0)) return { level: "flag", reason: "roll price didn't parse" };
+    if (roll > p * 1.02) {
+      return {
+        level: "flag",
+        reason: "roll price is higher than the cut price — those two columns look swapped",
+      };
+    }
+  }
   const u = r.unit;
   if (r.category === "carpet") {
     // Carpet is always sq yd here. A plausible sq ft price was already
@@ -152,7 +179,11 @@ function guessKind(name: string | null | undefined): "trim" | "underlayment" | n
 
 type Source = { name: string; how: "spreadsheet" | "pdf" | "image" | "text" };
 
-export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
+export function SmartImporter({
+  suppliers = [],
+}: {
+  suppliers?: { name: string; kind: string }[];
+}) {
   // input
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -166,11 +197,17 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
   const [source, setSource] = useState<Source | null>(null);
   const [grid, setGrid] = useState<{ headers: string[]; body: string[][] } | null>(null);
   const [map, setMap] = useState<Record<string, number>>({});
-  const [defCategory, setDefCategory] = useState("other");
-  const [defUnit, setDefUnit] = useState("sqft");
+  const [defCategory, setDefCategory] = useState("");
+  const [defUnit, setDefUnit] = useState("");
+  const [unitTouched, setUnitTouched] = useState(false);
   const [defSupplier, setDefSupplier] = useState("");
   const [defManufacturer, setDefManufacturer] = useState("");
+  const [defNote, setDefNote] = useState("");
+  const [specs, setSpecs] = useState<Record<string, string>>({});
   const [rows, setRows] = useState<PriceRow[] | null>(null);
+  /** This read came from a price sheet: style, color, cut, roll — nothing else. */
+  const [sheetRead, setSheetRead] = useState(false);
+  const sheetFlag = useRef(false);
   // Row indices selected for a bulk change (editable / AI-rows path).
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulkCat, setBulkCat] = useState("carpet");
@@ -190,6 +227,8 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
     setGrid(null);
     setMap({});
     setRows(null);
+    setSheetRead(false);
+    sheetFlag.current = false;
     setSelected(new Set());
     setShown(60);
     setStatus(null);
@@ -211,11 +250,34 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
   // Order: column-structured (instant) → AI (best) → local line parser
   // (guaranteed). So extracted text ALWAYS yields rows to review, even with no
   // AI key.
-  const parseTextSmart = async (text: string): Promise<PriceRow[]> => {
-    const structured = parseStructuredRows(text);
-    if (structured?.length) {
-      setStatus(`Recognized ${structured.length} rows from the columns — no AI needed.`);
-      return structured;
+  const parseTextSmart = async (
+    text: string,
+    shape: "sheet" | "any" = "any",
+  ): Promise<PriceRow[]> => {
+    const read = readPriceText(text);
+    if (read?.rows.length) {
+      sheetFlag.current = read.sheet || shape === "sheet";
+      setStatus(
+        read.sheet
+          ? `Found ${read.rows.length} colors — style, color, cut, and roll.`
+          : `Recognized ${read.rows.length} rows from the columns — no AI needed.`,
+      );
+      return read.rows;
+    }
+    if (shape === "sheet") {
+      const chunks = chunkText(text);
+      const out: PriceRow[] = [];
+      for (let i = 0; i < chunks.length; i++) {
+        setStatus(`Reading the price sheet — part ${i + 1} of ${chunks.length}…`);
+        const fd = new FormData();
+        fd.set("mode", "sheet");
+        fd.set("text", chunks[i]);
+        const res = await parsePriceList(fd);
+        if (res.rows?.length) out.push(...res.rows);
+        else if (res.error && chunks.length === 1) setStatus(res.error);
+      }
+      if (out.length) sheetFlag.current = true;
+      return out;
     }
     const chunks = chunkText(text);
     const out: PriceRow[] = [];
@@ -318,41 +380,44 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
             setStatus("Reading the PDF…");
             const { text, structured } = await extractStoragePdfText(path);
             if (structured?.length) {
-              finishRows(structured, { name: file.name, how: "pdf" });
+              finishRows(structured, { name: file.name, how: "pdf" }, { sheet: true });
               return;
             }
             if (text && text.trim().length >= 20) {
-              const rows = await parseTextSmart(text); // chunked AI, short calls
+              const rows = await parseTextSmart(text, "sheet");
               if (rows.length) {
-                finishRows(rows, { name: file.name, how: "pdf" });
+                finishRows(rows, { name: file.name, how: "pdf" }, { sheet: true });
                 return;
               }
             }
-            // No usable text → it's a scan. One AI-vision call on the document.
-            setStatus("Reading the scanned PDF with AI…");
+            // No usable text → it's a scan. One AI-vision call, still only
+            // style, color, cut, and roll.
+            setStatus("Reading the scanned PDF…");
             const fd = new FormData();
+            fd.set("mode", "sheet");
             fd.set("storage_path", path);
             fd.set("storage_mime", "application/pdf");
             const res = await parsePriceList(fd);
             if (res.rows?.length) {
-              finishRows(res.rows, { name: file.name, how: "image" });
+              finishRows(res.rows, { name: file.name, how: "pdf" }, { sheet: true });
             } else {
               toast.error(res.error || "Couldn't read that PDF.");
               setStatus(
                 res.error ||
-                  "Couldn't read that PDF. Try the Excel/CSV, or paste the rows above.",
+                  "Couldn't find styles, colors, and prices in that PDF.",
               );
             }
             return;
           }
           // Photo / image: single AI-vision call.
           if (isImage) {
-            setStatus("Reading the photo with AI…");
+            setStatus("Reading the photo…");
             const fd = new FormData();
+            fd.set("mode", "sheet");
             fd.set("file", file);
             const res = await parsePriceList(fd);
             if (res.rows?.length) {
-              finishRows(res.rows, { name: file.name, how: "image" });
+              finishRows(res.rows, { name: file.name, how: "image" }, { sheet: true });
             } else {
               toast.error(res.error || "Couldn't read that photo.");
               setStatus(res.error || "Couldn't read that photo.");
@@ -400,12 +465,26 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
       }
     });
 
-  const finishRows = (r: PriceRow[], src: Source) => {
+  const finishRows = (r: PriceRow[], src: Source, opts?: { sheet?: boolean }) => {
+    const sheet = Boolean(opts?.sheet || sheetFlag.current);
     setStatus(null);
     setSource(src);
     setRows(r.map((row) => ({ ...row, labor_rate: null })));
-    if (r.length) toast.success(`Found ${r.length} products — review & import`);
-    else toast.error("No products found. Try a clearer file, or paste the rows as text.");
+    setSheetRead(sheet);
+    sheetFlag.current = sheet;
+    if (r.length) {
+      toast.success(
+        sheet
+          ? `Found ${r.length} colors — check style, color, cut, and roll.`
+          : `Found ${r.length} products — review & import`,
+      );
+    } else {
+      toast.error(
+        sheet
+          ? "Couldn't find styles, colors, and prices in that PDF."
+          : "No products found. Try a clearer file, or paste the rows as text.",
+      );
+    }
   };
 
   // ---- Spreadsheet: build rows from current mapping ----
@@ -426,7 +505,11 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
       const rawUnit = unitCell ? normUnit(unitCell) : defUnit;
       const priceHeader =
         map.material_rate >= 0 ? (grid.headers[map.material_rate] ?? "") : "";
-      const rawMat = unitPriceCell(cell(row, "material_rate"), priceHeader);
+      const cutHeader = map.cut_price >= 0 ? (grid.headers[map.cut_price] ?? "cut") : "cut";
+      const rollHeader = map.roll_price >= 0 ? (grid.headers[map.roll_price] ?? "roll") : "roll";
+      const cutPrice = unitPriceCell(cell(row, "cut_price"), cutHeader);
+      const rawMat = cutPrice ?? unitPriceCell(cell(row, "material_rate"), priceHeader);
+      const rawRoll = unitPriceCell(cell(row, "roll_price"), rollHeader);
       // House rule: carpet is ALWAYS quoted per square yard, hard surface per
       // square foot. A supplier sending carpet per sq ft is converted here
       // rather than left to be converted (or not) later — the same money per
@@ -451,6 +534,7 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
         unit: yardify ? "sqyd" : rawUnit,
         sku: cell(row, "sku") || null,
         material_rate: yardify ? x9(rawMat) : rawMat,
+        roll_rate: rawRoll == null ? null : yardify ? x9(rawRoll) : rawRoll,
         labor_rate: null,
         manufacturer: cell(row, "manufacturer") || null,
         style: cell(row, "style") || null,
@@ -461,19 +545,27 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
     return out;
   };
 
-  // One manufacturer for the whole download. When set, it OVERRIDES every row —
-  // a price list is usually a single brand, so "set it once" means force it on
-  // all of them (not just fill the blanks). Clear the field to keep each row's
-  // own manufacturer.
-  const applyDefaults = (list: PriceRow[]): PriceRow[] => {
-    const mfr = defManufacturer.trim();
-    if (!mfr) return list;
-    return list.map((r) => ({ ...r, manufacturer: mfr }));
+  const effectiveUnit = defUnit || defaultUnitForCategory(defCategory);
+  const facts = {
+    manufacturer: defManufacturer,
+    distributor: defSupplier,
+    category: defCategory,
+    unit: effectiveUnit,
+    note: defNote,
   };
+  const sheetMode = sheetRead || source?.how === "pdf" || source?.how === "image";
+  const factsReady =
+    Boolean(defManufacturer.trim()) &&
+    Boolean(defSupplier.trim()) &&
+    (!sheetMode || isCatalogProductCategory(defCategory));
+  // Manufacturer, category, unit, and the note apply to the whole upload.
+  // A PDF is one material, so the category replaces whatever the file guessed.
+  const applyDefaults = (list: PriceRow[]): PriceRow[] =>
+    applySheetFacts(list, facts, { lockCategory: sheetMode });
 
   const finalRows = applyDefaults(grid ? buildFromGrid() : (rows ?? []));
   // Loud validation: split into what will import vs what's flagged & held back.
-  const validated = finalRows.map((r) => ({ r, status: validateRow(r) }));
+  const validated = finalRows.map((r) => ({ r, status: validateRow(r, { sheet: sheetMode }) }));
   const flaggedCount = validated.filter((v) => v.status.level === "flag").length;
   const okCount = validated.length - flaggedCount;
 
@@ -490,7 +582,15 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
       }
       // Only clean rows import. Flagged rows (bad/implausible price×unit) are
       // held back — never written with a wrong or $0 price.
-      const okOnly = built.filter((r) => validateRow(r).level === "ok");
+      if (!defManufacturer.trim() || !defSupplier.trim()) {
+        toast.error("Enter the manufacturer and the distributor for this price list.");
+        return;
+      }
+      if (sheetMode && !isCatalogProductCategory(defCategory)) {
+        toast.error("Choose what this material is — carpet, LVP, hardwood, and so on.");
+        return;
+      }
+      const okOnly = built.filter((r) => validateRow(r, { sheet: sheetMode }).level === "ok");
       const held = built.length - okOnly.length;
       if (!okOnly.length) {
         toast.error(`All ${built.length} rows are flagged — fix the mapping/units first.`);
@@ -499,6 +599,9 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
       const res = await importProducts(okOnly, {
         update: updateMode,
         supplier: defSupplier.trim() || undefined,
+        manufacturer: defManufacturer.trim() || undefined,
+        category: isCatalogProductCategory(defCategory) ? defCategory : undefined,
+        specs,
       });
       if (res.error) {
         // Keep the reviewed rows on screen so nothing is lost — just retry.
@@ -526,6 +629,7 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
           `${heldTotal} row${heldTotal === 1 ? "" : "s"} held back — not imported.`,
         );
       }
+      if (res.warning) toast.warning(res.warning);
       setDone(res.count ?? okOnly.length);
       reset();
     });
@@ -628,8 +732,153 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
   const hasResult = Boolean(grid) || (rows && rows.length >= 0 && source);
 
   // ===================== RENDER =====================
+  const manufacturers = suppliers.filter((s) => s.kind === "manufacturer");
+  const distributors = [
+    ...suppliers.filter((s) => s.kind !== "manufacturer"),
+    ...manufacturers,
+  ];
+  const specList = specFieldsFor(defCategory);
+
   return (
     <div className="space-y-5">
+      <div className="space-y-4 rounded-lg border bg-muted/30 p-4">
+        <div>
+          <div className="text-sm font-medium">About this price list</div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            The PDF only has to contain the style, the color, the cut price, and
+            the roll price when the sheet has one. You say who makes it and who
+            you order it from. That is saved on every color in this upload.
+          </p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="space-y-1 text-sm">
+            <span className="text-xs text-muted-foreground">Manufacturer — who makes it *</span>
+            <Input
+              value={defManufacturer}
+              onChange={(e) => setDefManufacturer(e.target.value)}
+              placeholder="Shaw, Mohawk, Mannington…"
+              list="price-sheet-manufacturers"
+              className="h-9"
+            />
+            <datalist id="price-sheet-manufacturers">
+              {manufacturers.map((s) => (
+                <option key={s.name} value={s.name} />
+              ))}
+            </datalist>
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-xs text-muted-foreground">Distributor — who you order it from *</span>
+            <Input
+              value={defSupplier}
+              onChange={(e) => setDefSupplier(e.target.value)}
+              placeholder="The vendor on the purchase order"
+              list="price-sheet-distributors"
+              className="h-9"
+            />
+            <datalist id="price-sheet-distributors">
+              {distributors.map((s) => (
+                <option key={`${s.kind}-${s.name}`} value={s.name} />
+              ))}
+            </datalist>
+          </label>
+        </div>
+        <div className="space-y-2">
+          <div className="text-xs text-muted-foreground">
+            What is this material?{sheetMode ? " *" : ""}
+          </div>
+          <SegmentedField
+            size="sm"
+            value={defCategory}
+            onChange={(v) => {
+              if (!isCatalogProductCategory(v)) return;
+              setDefCategory(v);
+              if (!unitTouched) setDefUnit(defaultUnitForCategory(v));
+            }}
+            options={CATALOG_CATEGORY_OPTIONS}
+          />
+        </div>
+        {isCatalogProductCategory(defCategory) ? (
+          <div className="flex flex-wrap items-end gap-4">
+            <label className="space-y-1 text-sm">
+              <span className="text-xs text-muted-foreground">Priced per</span>
+              <select
+                value={effectiveUnit}
+                onChange={(e) => {
+                  setUnitTouched(true);
+                  setDefUnit(e.target.value);
+                }}
+                className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
+              >
+                {unitsForCategory(defCategory).map((u) => (
+                  <option key={u.value} value={u.value}>
+                    {u.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {specList.map((field) => (
+              <label key={field.key} className="space-y-1 text-sm">
+                <span className="text-xs text-muted-foreground">
+                  {field.label}
+                  {field.hint ? ` — ${field.hint}` : ""}
+                </span>
+                {field.kind === "choice" ? (
+                  <select
+                    value={specs[field.key] ?? ""}
+                    onChange={(e) =>
+                      setSpecs((cur) => ({ ...cur, [field.key]: e.target.value }))
+                    }
+                    className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
+                  >
+                    <option value="">—</option>
+                    {(field.options ?? []).map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <Input
+                    value={specs[field.key] ?? ""}
+                    onChange={(e) =>
+                      setSpecs((cur) => ({ ...cur, [field.key]: e.target.value }))
+                    }
+                    className="h-9 w-36"
+                  />
+                )}
+              </label>
+            ))}
+          </div>
+        ) : null}
+        <label className="block space-y-1 text-sm">
+          <span className="text-xs text-muted-foreground">
+            Anything else to save on every color
+          </span>
+          <Input
+            value={defNote}
+            onChange={(e) => setDefNote(e.target.value)}
+            placeholder="Optional — a note that belongs on each color"
+            className="h-9"
+          />
+        </label>
+        {!factsReady ? (
+          <p className="text-sm text-amber-800 dark:text-amber-300">
+            {sheetMode
+              ? "Enter the manufacturer, the distributor, and what this material is. Then the colors can import."
+              : "Enter the manufacturer and the distributor. They are saved on every row."}
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {defManufacturer.trim()} from {defSupplier.trim()}
+            {isCatalogProductCategory(defCategory)
+              ? ` · ${PRODUCT_CATEGORY_LABELS[defCategory]}`
+              : ""}
+            {effectiveUnit ? ` · ${effectiveUnit}` : ""}. Cut price is the cost estimates use.
+            Roll price is kept when the sheet has one.
+          </p>
+        )}
+      </div>
+
       {/* Step 1 — drop / paste (hidden once we have a result) */}
       {!hasResult ? (
         <>
@@ -653,15 +902,16 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
           >
             <FileUp className="size-7 text-primary" />
             <span className="text-base font-medium">
-              {reading ? "Reading…" : "Drop your price list — or click to choose"}
+              {reading ? "Reading…" : "Drop the price list — or click to choose"}
             </span>
             <span className="text-sm text-muted-foreground">
-              Excel, CSV, PDF, an image/scan, or anything. We figure out the rest.
+              From a PDF we read the style, the color, the cut price, and the roll price.
+              You already told us the rest.
             </span>
             <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
-              <span className="inline-flex items-center gap-1"><FileSpreadsheet className="size-3.5" /> Excel/CSV — instant</span>
-              <span className="inline-flex items-center gap-1"><FileText className="size-3.5" /> PDF — read automatically</span>
-              <span className="inline-flex items-center gap-1"><ImageIcon className="size-3.5" /> Photo/scan — AI</span>
+              <span className="inline-flex items-center gap-1"><FileSpreadsheet className="size-3.5" /> Excel/CSV</span>
+              <span className="inline-flex items-center gap-1"><FileText className="size-3.5" /> PDF</span>
+              <span className="inline-flex items-center gap-1"><ImageIcon className="size-3.5" /> Photo of a sheet</span>
             </div>
             <input
               ref={fileRef}
@@ -727,42 +977,6 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
             </Button>
           </div>
 
-          {/* Applies to the whole download — a price list is usually one vendor
-              and one brand, so set them once instead of row by row. */}
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-lg border bg-muted/30 p-3">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">
-                Order from (vendor):
-              </span>
-              <Input
-                value={defSupplier}
-                onChange={(e) => setDefSupplier(e.target.value)}
-                placeholder="e.g. local distributor"
-                list="importer-supplier-options"
-                className="h-8 w-48"
-              />
-              {suppliers.length ? (
-                <datalist id="importer-supplier-options">
-                  {suppliers.map((s) => (
-                    <option key={s} value={s} />
-                  ))}
-                </datalist>
-              ) : null}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">
-                Manufacturer / brand:
-              </span>
-              <Input
-                value={defManufacturer}
-                onChange={(e) => setDefManufacturer(e.target.value)}
-                placeholder="e.g. Shaw — sets every row"
-                title="Sets this manufacturer on every product in the list. Leave blank to keep each row's own."
-                className="h-8 w-56"
-              />
-            </div>
-          </div>
-
           {/* Spreadsheet column mapping */}
           {grid ? (
             <details className="rounded-lg border bg-muted/30 p-3" open={map.name === undefined || map.name < 0}>
@@ -806,7 +1020,7 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
 
           {/* Bulk tools — change the flooring type for many rows at once, and
               auto-sort trim/pad pieces out of the flooring. */}
-          {!grid && rows && rows.length > 0 ? (
+          {!grid && !sheetMode && rows && rows.length > 0 ? (
             <div className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-2 text-sm">
               <div className="flex flex-wrap items-center gap-2">
               <Button
@@ -902,6 +1116,16 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
             <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
               No products detected. Try “Start over” with a clearer file, or paste the rows as text.
             </p>
+          ) : sheetMode && !grid ? (
+            <SheetColorTable
+              rows={finalRows}
+              shown={shown}
+              onShowMore={() => setShown((n) => n + 100)}
+              onShowAll={() => setShown(finalRows.length)}
+              onPatch={(i, patch) => updateRow(i, patch)}
+              onRemove={removeRow}
+              priceLabel={defCategory === "carpet" || defCategory === "vinyl" ? "Cut" : "Price"}
+            />
           ) : (
             <div className="overflow-x-auto rounded-md border">
               <table className="w-full text-sm">
@@ -1053,8 +1277,14 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
                 <input type="checkbox" checked={updateMode} onChange={(e) => setUpdateMode(e.target.checked)} className="size-4 rounded border-input" />
                 Update existing products (match by name) instead of adding duplicates
               </label>
-              <Button type="button" onClick={doImport} disabled={importing || okCount === 0}>
-                {importing ? "Importing…" : updateMode ? `Update / add ${okCount}` : `Import ${okCount} products`}
+              <Button type="button" onClick={doImport} disabled={importing || okCount === 0 || !factsReady}>
+                {importing
+                  ? "Importing…"
+                  : updateMode
+                    ? `Update / add ${okCount}`
+                    : sheetMode
+                      ? `Import ${okCount} colors`
+                      : `Import ${okCount} products`}
               </Button>
             </div>
           ) : null}
@@ -1087,6 +1317,157 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function withoutColorNumber(notes: string | null | undefined): string | null {
+  if (!notes) return null;
+  const stripped = notes
+    .replace(/Color\s*#\s*[A-Za-z0-9][A-Za-z0-9./-]*/gi, "")
+    .replace(/\s*·\s*·\s*/g, " · ")
+    .replace(/^\s*·\s*|\s*·\s*$/g, "")
+    .trim();
+  return stripped || null;
+}
+
+/** Review for a PDF price sheet: style, color, cut, roll. Nothing else. */
+function SheetColorTable({
+  rows,
+  shown,
+  priceLabel,
+  onShowMore,
+  onShowAll,
+  onPatch,
+  onRemove,
+}: {
+  rows: PriceRow[];
+  shown: number;
+  priceLabel: string;
+  onShowMore: () => void;
+  onShowAll: () => void;
+  onPatch: (index: number, patch: Partial<PriceRow>) => void;
+  onRemove: (index: number) => void;
+}) {
+  const visible = rows.slice(0, shown);
+  return (
+    <div className="overflow-x-auto rounded-md border">
+      <table className="w-full text-sm">
+        <thead className="bg-muted/60 text-xs text-muted-foreground">
+          <tr>
+            <th className="px-2 py-2 text-left">Style</th>
+            <th className="px-2 py-2 text-left">Color</th>
+            <th className="px-2 py-2 text-right">{priceLabel}</th>
+            <th className="px-2 py-2 text-right">Roll</th>
+            <th className="px-2 py-2"></th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {visible.map((r, i) => {
+            const status = validateRow(r, { sheet: true });
+            const colorNo = colorNumberFromText(r.notes) ?? "";
+            return (
+              <tr key={i}>
+                <td className="px-2 py-1 align-top">
+                  <input
+                    value={r.style ?? ""}
+                    onChange={(e) => onPatch(i, { style: e.target.value })}
+                    aria-label="Style"
+                    className={cn(inputSm, "min-w-36")}
+                  />
+                  <input
+                    value={r.sku ?? ""}
+                    onChange={(e) => onPatch(i, { sku: e.target.value || null })}
+                    aria-label="Style number"
+                    placeholder="Style #"
+                    className={cn(inputSm, "mt-1 w-28 text-xs")}
+                  />
+                </td>
+                <td className="px-2 py-1 align-top">
+                  <input
+                    value={r.color ?? ""}
+                    onChange={(e) => onPatch(i, { color: e.target.value })}
+                    aria-label="Color"
+                    className={cn(inputSm, "min-w-32")}
+                  />
+                  <input
+                    value={colorNo}
+                    onChange={(e) => {
+                      const folded = foldCatalogColor(
+                        r.color,
+                        e.target.value,
+                        withoutColorNumber(r.notes),
+                      );
+                      onPatch(i, { color: folded.color, notes: folded.notes });
+                    }}
+                    aria-label="Color number"
+                    placeholder="Color #"
+                    className={cn(inputSm, "mt-1 w-28 text-xs")}
+                  />
+                  {status.level === "flag" ? (
+                    <div className="mt-1 text-xs font-medium text-destructive">{status.reason}</div>
+                  ) : null}
+                </td>
+                <td className="px-2 py-1 align-top">
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={r.material_rate ?? ""}
+                    onChange={(e) =>
+                      onPatch(i, {
+                        material_rate: e.target.value ? Number(e.target.value) : null,
+                      })
+                    }
+                    aria-label={priceLabel}
+                    className={cn(inputSm, "w-24 text-right")}
+                  />
+                </td>
+                <td className="px-2 py-1 align-top">
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={r.roll_rate ?? ""}
+                    onChange={(e) =>
+                      onPatch(i, {
+                        roll_rate: e.target.value ? Number(e.target.value) : null,
+                      })
+                    }
+                    aria-label="Roll price"
+                    placeholder="—"
+                    className={cn(inputSm, "w-24 text-right")}
+                  />
+                </td>
+                <td className="px-2 py-1 text-right align-top">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Remove"
+                    onClick={() => onRemove(i)}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {rows.length > shown ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          <span>
+            Showing {Math.min(shown, rows.length)} of {rows.length}.
+          </span>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={onShowMore}>
+              Show 100 more
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={onShowAll}>
+              Show all {rows.length}
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

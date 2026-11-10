@@ -33,6 +33,7 @@ interface RawRow {
   unit?: string;
   sku?: string | null;
   material_rate?: number | null;
+  roll_rate?: number | null;
   labor_rate?: number | null;
   manufacturer?: string | null;
   style?: string | null;
@@ -58,6 +59,7 @@ async function insertProducts(
         category,
         unit: inferUnit(r.name, r.unit, category),
         material_rate: Number(r.material_rate) || 0,
+        roll_rate: r.roll_rate != null && Number(r.roll_rate) > 0 ? Number(r.roll_rate) : null,
         labor_rate: Number(r.labor_rate) || 0,
         sku: r.sku || "",
         manufacturer: r.manufacturer || "",
