@@ -136,6 +136,7 @@ export function EstimateScheduler({
                 <div className="min-w-0">
                   <div className="font-medium">
                     {formatDate(s.date)} · {to12(s.time)}
+                    {s.endTime ? ` – ${to12(s.endTime)}` : ""}
                   </div>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
                     <span className="inline-flex items-center gap-1">
@@ -191,9 +192,11 @@ export function EstimateScheduler({
             <p className="text-xs text-muted-foreground">
               Ranked by{" "}
               {mode === "closest"
-                ? "least added drive and fuel from the store"
-                : "soonest open time on that salesperson’s schedule, then least added drive from the store"}
-              . A day off or a full route is skipped. Booking approves that time.
+                ? "least added drive from the store, then the earliest allotted arrival window"
+                : "the earliest allotted arrival window on that salesperson’s days, then least added drive"}
+              . Drive time plus the travel buffer has to finish before the window opens.
+              Days off, a shift that does not cover the day, and a route that cannot fit the visit are skipped.
+              Booking approves that window.
             </p>
           </div>
         ) : null}
