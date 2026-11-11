@@ -404,11 +404,68 @@ function blankToNull(v: string | undefined): string | null {
   return t || null;
 }
 
+/** A header that names the roll column to the left of the cut column. */
+function rollListedBeforeCut(text: string): boolean {
+  return text.split(/\r?\n/).some((line) => {
+    if (!line.includes("\t")) return false;
+    const cells = line.split("\t").map((c) => c.trim().toLowerCase());
+    const roll = cells.findIndex((c) => c === "roll" || c.startsWith("roll "));
+    const cut = cells.findIndex((c) => c === "cut" || c.startsWith("cut "));
+    return roll >= 0 && cut > roll;
+  });
+}
+
+/**
+ * Drop the roll size and the backing that sit between the style name and the
+ * prices. "CHEER UP 1200 AB" stays "CHEER UP". "BUCKINGHAM III" keeps the III.
+ */
+function styleNameBesideCode(middle: string): string {
+  const name = middle.replace(/\s+/g, " ").trim();
+  const withSize = name.match(/^(.*\S)\s+\d{3,4}(?:\s+[A-Za-z]{2})?$/);
+  if (withSize) return withSize[1].trim();
+  const backingOnly = name.match(/^(.*\S)\s+(?:AB|GS)$/i);
+  if (backingOnly) return backingOnly[1].trim();
+  return name;
+}
+
+/**
+ * A mill price list that has one row per style: style code, style name, roll
+ * size, backing, roll price, then cut price. There is no color column.
+ * The roll price is the left price. The cut price is the right price.
+ */
+function parseRollThenCutStyles(text: string): PriceSheetLine[] | null {
+  if (!rollListedBeforeCut(text)) return null;
+  const out: PriceSheetLine[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/\t/g, " ").replace(/\s+/g, " ").trim();
+    const match = line.match(
+      /^(\d{4,8})\s+(.+?)\s+\$(\d+\.\d{2})\s+\$(\d+\.\d{2})(?:\s+[A-Za-z]{1,5})?$/,
+    );
+    if (!match) continue;
+    const style = styleNameBesideCode(match[2]);
+    const roll = Number(match[3]);
+    const cut = Number(match[4]);
+    if (!style || !(cut > 0) || !(roll > 0)) continue;
+    out.push({
+      style,
+      color: "",
+      styleNumber: match[1],
+      colorNumber: null,
+      cutPrice: cut,
+      rollPrice: roll,
+    });
+  }
+  return out.length ? out : null;
+}
+
 /**
  * Pull one row per color. Returns null when the text does not look like a
  * style / color / price sheet, so the caller can try another reader.
  */
 export function parsePriceSheet(text: string): PriceSheetLine[] | null {
+  const millStyles = parseRollThenCutStyles(text);
+  if (millStyles?.length) return millStyles;
+
   // Keep leading tabs. They are empty cells, and trimming them shifts the
   // color into the style column on a continued row.
   const lines = text

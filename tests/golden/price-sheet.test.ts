@@ -202,6 +202,71 @@ describe("price sheet", () => {
     });
   });
 
+  it("reads a style price list whose roll price sits left of the cut price", () => {
+    const text = [
+      "STYLE\tROLL\tCUT",
+      "CODE STYLE DESCRIPTION\tSIZE\tBACK\tPRICE\tPRICE UM",
+      "33165 AMBITION\t1200\tAB\t$15.09\t$16.09 SY",
+      "33299 BUCKINGHAM III\t1200\tAB\t$13.39\t$14.39 SY",
+      "33141 CHEER UP\t1200\tAB\t$12.59\t$13.59 SY",
+      "33125 DIAMONDS ARE FOREVER 1200\tAB\t$15.89\t$16.89 SY",
+      "33086 DIVINE WIND\t1200\tGS\t$23.49\t$24.49 SY",
+      "Thank you for business, if you have any questions regarding this price",
+    ].join("\n");
+    const read = readPriceText(text);
+    expect(read?.sheet).toBe(true);
+    expect(read?.rows.map((row) => ({
+      name: row.name,
+      sku: row.sku,
+      style: row.style,
+      color: row.color,
+      material_rate: row.material_rate,
+      roll_rate: row.roll_rate,
+    }))).toEqual([
+      {
+        name: "AMBITION",
+        sku: "33165",
+        style: "AMBITION",
+        color: null,
+        material_rate: 16.09,
+        roll_rate: 15.09,
+      },
+      {
+        name: "BUCKINGHAM III",
+        sku: "33299",
+        style: "BUCKINGHAM III",
+        color: null,
+        material_rate: 14.39,
+        roll_rate: 13.39,
+      },
+      {
+        name: "CHEER UP",
+        sku: "33141",
+        style: "CHEER UP",
+        color: null,
+        material_rate: 13.59,
+        roll_rate: 12.59,
+      },
+      {
+        name: "DIAMONDS ARE FOREVER",
+        sku: "33125",
+        style: "DIAMONDS ARE FOREVER",
+        color: null,
+        material_rate: 16.89,
+        roll_rate: 15.89,
+      },
+      {
+        name: "DIVINE WIND",
+        sku: "33086",
+        style: "DIVINE WIND",
+        color: null,
+        material_rate: 24.49,
+        roll_rate: 23.49,
+      },
+    ]);
+    expect(read?.rows.every((row) => row.manufacturer == null)).toBe(true);
+  });
+
   it("keeps the roll price on a normal spreadsheet row", () => {
     const rows = parseStructuredRows(
       ["Style Name,Color,Cut,Roll,Your Cost", "EverStrand,Seagull,18.95,16.40,18.95"].join("\n"),

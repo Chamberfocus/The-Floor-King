@@ -110,7 +110,6 @@ export function validateRow(
 ): RowStatus {
   if (opts.sheet) {
     if (!r.style?.trim()) return { level: "flag", reason: "no style" };
-    if (!r.color?.trim()) return { level: "flag", reason: "no color" };
   }
   if (!r.name?.trim()) return { level: "flag", reason: "no product name" };
   if (isLaborCategory(r.category)) {
