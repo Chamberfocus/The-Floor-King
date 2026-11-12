@@ -1144,6 +1144,20 @@ export async function setJobArrivalWindow(formData: FormData): Promise<void> {
 }
 
 /** Create a job from an estimate (uses the accepted option, or the first one). */
+
+/** Copy approved lines onto the work order, then build the purchase orders. */
+async function finishJobForInstall(
+  admin: ReturnType<typeof createAdminClient>,
+  jobId: string,
+): Promise<void> {
+  await seedJobScopeIfEmpty(admin, jobId);
+  try {
+    await prepareJobMaterialsFor(jobId, { admin: true });
+  } catch {
+    // The work order lines are saved. Purchasing can be run again from the job.
+  }
+}
+
 /**
  * Create the job for an approved estimate — idempotent and reusable. Runs with
  * the service-role client so it works from ANY trigger: a staff "Create job"
@@ -1176,7 +1190,7 @@ export async function ensureJobForEstimate(
       .limit(1)
       .maybeSingle();
     if (existing) {
-      await seedJobScopeIfEmpty(admin, existing.id as string);
+      await finishJobForInstall(admin, existing.id as string);
       return existing.id as string;
     }
 
@@ -1282,7 +1296,7 @@ export async function ensureJobForEstimate(
           .limit(1)
           .maybeSingle();
         if (raced?.id) {
-          await seedJobScopeIfEmpty(admin, raced.id as string);
+          await finishJobForInstall(admin, raced.id as string);
           return raced.id as string;
         }
       }
@@ -1296,14 +1310,11 @@ export async function ensureJobForEstimate(
     }
     if (error || !job) return null;
 
-    // Operational scope: copy estimate lines into job_line_items immediately so
-    // WO / staging / stock / PO / installer all share one job-owned source.
-    // Idempotent — skips if lines already exist (race / retry).
-    await seedJobScopeIfEmpty(admin, job.id as string);
-
-    // Reserve stock + build POs for special-order items right after the win.
-    // Elevated, since the trigger may be a customer's portal session.
-    after(() => prepareJobMaterialsFor(job.id as string, { admin: true }));
+    // Copy the approved lines onto the work order, then reserve stock and
+    // write the draft purchase orders before the page moves on. A purchasing
+    // hiccup does not throw away the job — the lines are already saved, and
+    // purchasing can be run again from the job.
+    await finishJobForInstall(admin, job.id as string);
 
     revalidatePath("/jobs");
     if (est.customer_id) revalidatePath(`/customers/${est.customer_id}`);

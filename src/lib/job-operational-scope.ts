@@ -53,6 +53,47 @@ export function buildJobLineSeedRows<T extends object>(
   });
 }
 
+/** Fields the work order and purchase order need that older approval copies omitted. */
+const OPERATIONAL_SEED_KEYS = [
+  "material_cost",
+  "labor_cost",
+  "from_stock",
+  "is_fill",
+  "is_optional",
+  "coverage_sqft",
+  "coverage_thickness_in",
+  "prep_thickness_in",
+  "prep_key",
+  "option_id",
+] as const;
+
+/**
+ * An older approval copy has the sold price and quantity, and not the cost,
+ * stock choice, or prep coverage. Fill only keys the copy left out, from the
+ * estimate line with the same id. A key the copy set stays as approved.
+ */
+export function fillSnapshotOperationalFields<
+  S extends { id?: string | null },
+  L extends { id?: string | null },
+>(snapshotLines: S[], liveLines: readonly L[]): S[] {
+  const liveById = new Map<string, L>();
+  for (const line of liveLines) {
+    if (line.id) liveById.set(line.id, line);
+  }
+  return snapshotLines.map((line) => {
+    const live = line.id ? liveById.get(line.id) : undefined;
+    if (!live) return line;
+    const next = { ...(line as Record<string, unknown>) };
+    const fromLive = live as Record<string, unknown>;
+    for (const key of OPERATIONAL_SEED_KEYS) {
+      if (next[key] === undefined && fromLive[key] !== undefined) {
+        next[key] = fromLive[key];
+      }
+    }
+    return next as S;
+  });
+}
+
 /**
  * Prefer approval-snapshot commercial lines when seeding operational scope.
  * Falls back to live estimate lines only when no snapshot lines exist.

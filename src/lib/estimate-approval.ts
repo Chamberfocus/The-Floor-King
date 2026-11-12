@@ -88,6 +88,20 @@ export interface ApprovalSnapshotLine {
   sqft_per_box?: number | null;
   roll_width_ft?: number | null;
   order_as_roll?: boolean;
+  /**
+   * What the work order and purchase order need from the approved copy.
+   * Customer sanitize strips cost and stock. Do not add them to
+   * CUSTOMER_SAFE_SNAPSHOT_LINE_KEYS.
+   */
+  material_cost?: number | null;
+  labor_cost?: number | null;
+  from_stock?: boolean;
+  is_fill?: boolean;
+  is_optional?: boolean;
+  coverage_sqft?: number | null;
+  coverage_thickness_in?: number | null;
+  prep_thickness_in?: number | null;
+  prep_key?: string | null;
 }
 
 /** Keys that must never appear on a customer-facing approval payload. */
@@ -376,6 +390,15 @@ export function buildApprovalSnapshotPayload(args: {
         sqft_per_box: l.sqft_per_box ?? null,
         roll_width_ft: l.roll_width_ft ?? null,
         order_as_roll: l.order_as_roll,
+        material_cost: l.material_cost ?? null,
+        labor_cost: l.labor_cost ?? null,
+        from_stock: !!l.from_stock,
+        is_fill: !!l.is_fill,
+        is_optional: !!l.is_optional,
+        coverage_sqft: l.coverage_sqft ?? null,
+        coverage_thickness_in: l.coverage_thickness_in ?? null,
+        prep_thickness_in: l.prep_thickness_in ?? null,
+        prep_key: l.prep_key ?? null,
       })),
     },
     tax_rate: Number(estimate.tax_rate) || 0,
