@@ -10,6 +10,7 @@
  */
 import {
   buildJobLineSeedRows,
+  fillSnapshotOperationalFields,
   preferSnapshotLinesForSeed,
   resolveOperationalLines,
   shouldSeedJobScope,
@@ -92,10 +93,18 @@ export async function seedJobScopeIfEmpty(
   );
   if (!preferred.lines.length) return { seeded: false, lineCount: 0 };
 
+  const seedLines =
+    preferred.source === "snapshot"
+      ? fillSnapshotOperationalFields(
+          preferred.lines as Array<{ id?: string | null }>,
+          (liveLines ?? []) as Array<{ id?: string | null }>,
+        )
+      : preferred.lines;
+
   const rows =
     preferred.source === "snapshot"
-      ? (preferred.lines as Array<object & { job_id: string }>)
-      : buildJobLineSeedRows(preferred.lines, jobId);
+      ? (seedLines as Array<object & { job_id: string }>)
+      : buildJobLineSeedRows(seedLines, jobId);
 
   const { error } = await db.from("job_line_items").insert(rows);
   // Race: another writer may have seeded first — treat unique/conflict as OK.

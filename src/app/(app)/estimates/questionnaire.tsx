@@ -272,6 +272,8 @@ interface ProductAns {
   rollWidthFt: number | null;
   /** Hardwood species/construction text from the catalog, when present. */
   species: string | null;
+  /** Catalog style number. The purchase order needs this on the line. */
+  sku: string | null;
 }
 /** Extra pad/foam for a specific area. `sqft` is MEASURED area, not the order.
  *  `qty` is How many in the SKU unit for count extras — never leftover sq ft. */
@@ -429,6 +431,7 @@ function toProductAns(p: Product): ProductAns {
     pieceLengthIn: p.piece_length_in ?? null,
     rollWidthFt: p.roll_width_ft && p.roll_width_ft > 0 ? p.roll_width_ft : null,
     species: p.species?.trim() || null,
+    sku: p.sku?.trim() || null,
   };
 }
 /** A one-off product typed in the picker — used on this estimate only, never
@@ -467,6 +470,7 @@ function customToProductAns(input: CustomProductInput): ProductAns {
         : null,
     rollWidthFt: numOr0(input.specs?.roll_width_ft) > 0 ? numOr0(input.specs.roll_width_ft) : null,
     species: input.specs?.species?.trim() || null,
+    sku: input.sku.trim() || null,
   };
 }
 let xpid = 0;
@@ -2503,7 +2507,7 @@ export function Questionnaire({
     // Cash & carry: strip ALL labor — drop dedicated labor lines, and zero any
     // labor embedded on a surviving material/trim line (e.g. trim R&R). The one
     // guarantee that a cash & carry quote is materials only.
-    return cashCarry
+    const priced = cashCarry
       ? out
           .filter((l) => l.category !== "labor")
           .map((l) =>
@@ -2512,6 +2516,28 @@ export function Questionnaire({
               : l,
           )
       : out;
+    const skuByProduct = new Map<string, string>();
+    const rememberSku = (p: ProductAns | null | undefined) => {
+      const sku = p?.sku?.trim();
+      if (p?.productId && sku) skuByProduct.set(p.productId, sku);
+    };
+    for (const a of Object.values(answers)) {
+      if (!a) continue;
+      if (a.kind === "floor_map") Object.values(a.byRoom).forEach(rememberSku);
+      else if (a.kind === "product") {
+        rememberSku(a.product);
+        a.extras.forEach((extra) => rememberSku(extra.product));
+      } else if (a.kind === "trims") a.rows.forEach((row) => rememberSku(row.product));
+      else if (a.kind === "cuts") {
+        rememberSku(a.product);
+        a.groups.forEach((group) => rememberSku(group.product));
+      } else if (a.kind === "hs_stairs") rememberSku(a.product);
+    }
+    return priced.map((line) => {
+      if ((line.item_no ?? "").trim() || !line.product_id) return line;
+      const sku = skuByProduct.get(line.product_id);
+      return sku ? { ...line, item_no: sku } : line;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questions, answers, totalSqft, goal, visible, flaggedRooms, overrides, allRooms, cashCarry, cutsSqftByCategory, flooringCtx, addonDefaults, floorMapAssignments]);
 

@@ -124,6 +124,8 @@ export interface SmartLine {
   // First-class measured pieces (carpet cuts / hard-surface areas) — each piece
   // sums to the line's sq ft, and each carpet piece is a cut on the staging sheet.
   measurements?: LineMeasurement[] | null;
+  /** Catalog style number for the purchase order. */
+  item_no?: string | null;
 }
 
 export interface SmartEstimateInput {
@@ -232,6 +234,7 @@ export async function createSmartEstimate(
     manufacturer: l.manufacturer || null,
     style: l.style || null,
     color: l.color || null,
+    item_no: l.item_no?.trim() || null,
     from_stock: !!l.from_stock,
     sqft_per_box: l.sqft_per_box && l.sqft_per_box > 0 ? l.sqft_per_box : null,
     is_fill: !!l.is_fill,
