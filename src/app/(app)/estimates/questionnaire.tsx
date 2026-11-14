@@ -59,7 +59,7 @@ import {
   questionnaireEmitToLineQty,
   smartLineToCalcLine,
 } from "@/lib/questionnaire-emit";
-import { lineTotal, lineOrderQty, hardSurfaceAreaCartonCount } from "@/lib/estimate-calc";
+import { lineTotal, lineQty, lineOrderQty, hardSurfaceAreaCartonCount } from "@/lib/estimate-calc";
 import { padRollCount } from "@/lib/job-scope";
 import { bagsNeeded, selfLevelPourThicknessIn, thicknessLabel } from "@/lib/floor-prep";
 import type { Product, EstimateQuestion, EstimateEmit, CustomerArea } from "@/lib/types";
@@ -160,8 +160,15 @@ import {
   presentTrimTypes,
   HS_TRANSITION_OPTION_TO_TRIM,
   ensureJChannelTransitionOption,
+  ensureVinylCoveBaseOption,
   transitionTrimUnitClause,
   HS_BASE_OPTION_TO_TRIM,
+  stairNoseQuoteWhenMissing,
+  quoteTrimReviewExtras,
+  trimRowsFromAnswers,
+  orderWastePhrase,
+  trimBillableQty,
+  trimReviewPhrase,
   annotateRemovalDescription,
   type InstallContext,
   type ReviewRoom,
@@ -335,7 +342,7 @@ const TRIM_TYPES: { label: string; unit: string; sized?: boolean }[] = [
   { label: "Baseboard", unit: "lnft", sized: true },
   { label: "Shoe molding", unit: "lnft" },
   { label: "Quarter round", unit: "lnft" },
-  { label: "Cove base", unit: "lnft", sized: true },
+  { label: "Vinyl cove base", unit: "lnft", sized: true },
   { label: "Stair nose", unit: "each", sized: true },
   { label: "Stair tread", unit: "each", sized: true },
   { label: "Stair riser", unit: "each", sized: true },
@@ -1807,8 +1814,18 @@ export function Questionnaire({
         // Trims / moldings — each row is a quick-picked type (with color/size) or
         // a specific catalog product, billed per its unit (lnft/each), so the
         // exact trim shows on the estimate and can be pulled from stock or ordered.
+        const stairSteps = stairStepCountFromAnswers(answers, ["hs_stairs"]);
         for (const row of a.rows) {
-          const qty = numv(row.qty);
+          const qty = trimBillableQty(
+            {
+              type: row.type,
+              unit: row.unit || row.product?.unit,
+              qty: row.qty,
+              linearFt: row.linearFt,
+              productLabel: row.product?.label,
+            },
+            stairSteps,
+          );
           if (qty <= 0 || (!row.type && !row.product)) continue;
           const p = row.product;
           const unit = coerceTrimUnit(row.type || p?.label || "", row.unit || p?.unit);
@@ -2472,6 +2489,33 @@ export function Questionnaire({
         }
       }
     }
+    const nose = stairNoseQuoteWhenMissing(
+      stairStepCountFromAnswers(answers, ["hs_stairs"]),
+      trimRowsFromAnswers(answers),
+    );
+    if (nose && !out.some((l) => /stair\s*-?\s*nose|stairnose/i.test(l.description))) {
+      out.push({
+        room: null,
+        description: nose.description,
+        category: "trim",
+        measure_unit: "sqft",
+        sqft: null,
+        quantity: nose.quantity,
+        length_in: null,
+        width_in: null,
+        unit: nose.unit,
+        material_rate: 0,
+        labor_rate: 0,
+        material_cost: 0,
+        labor_cost: 0,
+        waste_pct: 0,
+        product_id: null,
+        manufacturer: null,
+        style: null,
+        color: null,
+        from_stock: false,
+      });
+    }
     for (const q of questions) {
       if (!visible[q.id] || q.key !== "delivery_scope") continue;
       const a = answers[q.id];
@@ -3098,11 +3142,24 @@ export function Questionnaire({
         if (n <= 0) return "";
         return `${n} step${n === 1 ? "" : "s"} (${a.treadRiser ? "tread + riser" : "tread only"})`;
       }
-      if (q.kind === "product" && a?.kind === "trims")
+      if (q.kind === "product" && a?.kind === "trims") {
+        const stairSteps = stairStepCountFromAnswers(answers, ["hs_stairs"]);
         return a.rows
-          .filter((r) => (r.type || r.product) && numv(r.qty) > 0)
-          .map((r) => `${r.type || r.product?.label}: ${r.qty} ${coerceTrimUnit(r.type, r.unit)}`)
+          .map((r) =>
+            trimReviewPhrase(
+              {
+                type: r.type,
+                unit: r.unit || r.product?.unit,
+                qty: r.qty,
+                linearFt: r.linearFt,
+                productLabel: r.product?.label,
+              },
+              stairSteps,
+            ),
+          )
+          .filter((phrase): phrase is string => !!phrase)
           .join("; ");
+      }
       return "";
     };
     const removal: string[] = [];
@@ -3126,6 +3183,23 @@ export function Questionnaire({
     if (flooringCtx.installLabels.length)
       installation.unshift(`System: ${flooringCtx.installLabels.join(", ")}`);
     accessories.push(...extraCountReview);
+    const pickedTrims = [
+      ...trimLabelsFromPicks(
+        keyedChoiceSelections(questions, answers, "hs_transitions"),
+        HS_TRANSITION_OPTION_TO_TRIM,
+      ),
+      ...trimLabelsFromPicks(
+        keyedChoiceSelections(questions, answers, "hs_base_trim"),
+        HS_BASE_OPTION_TO_TRIM,
+      ),
+    ];
+    for (const extra of quoteTrimReviewExtras({
+      pickedLabels: pickedTrims,
+      reviewText: accessories.join("\n"),
+      stairSteps: stairStepCountFromAnswers(answers, ["hs_stairs"]),
+    })) {
+      accessories.push(extra);
+    }
     prep.push(...prepCountReview);
     return buildSalespersonReview({
       rooms,
@@ -3593,6 +3667,12 @@ export function Questionnaire({
                   // Exclusive carpet-tile Guided Estimate Review order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
                   // Underlayment Guided Estimate Review order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
                   const padRolls = padRollCount(l.category, lineOrderQty(smartLineToCalcLine(l)), unitKey);
+                  const wastePhrase = orderWastePhrase({
+                    quantity: lineQty(smartLineToCalcLine(l)),
+                    unit: l.unit,
+                    wastePct: l.waste_pct,
+                    sqftPerBox: l.sqft_per_box,
+                  });
                   return (
                   <div key={i} className="flex items-center justify-between gap-3 py-1.5">
                     <span className="min-w-0">
@@ -3605,7 +3685,7 @@ export function Questionnaire({
                               l.sqft && !lineSkipsAreaCartonMath(l)
                                 ? ` · measured ${l.sqft} sq ft`
                                 : ""
-                            }${l.waste_pct ? ` · ${l.waste_pct}% waste` : ""}`}
+                            }${wastePhrase ? ` · ${wastePhrase}` : ""}`}
                         {/* Exclusive carpet-tile Guided Estimate Review carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
                         {/* Hard-surface Guided Estimate Review carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
                         {/* Exclusive carpet-tile Guided Estimate Review order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
@@ -4340,6 +4420,15 @@ function QuestionBody({
                                 {takeoff.cartons.cartonCount === 1 ? "" : "s"}
                               </>
                             ) : null}
+                            {(() => {
+                              const wastePhrase = orderWastePhrase({
+                                quantity: takeoff.measured.sqft,
+                                unit: "sqft",
+                                wastePct: takeoff.wastePct,
+                                sqftPerBox: takeoff.cartons?.coverageSqft ?? null,
+                              });
+                              return wastePhrase ? ` · ${wastePhrase}` : "";
+                            })()}
                           </p>
                         ) : null}
                       </div>
@@ -4830,6 +4919,17 @@ function QuestionBody({
                           {takeoff.wasteSqft > 0 ? (
                             <span className="text-muted-foreground"> ({showArea(takeoff.wasteSqft)})</span>
                           ) : null}
+                          {(() => {
+                            const fillPhrase = orderWastePhrase({
+                              quantity: takeoff.measured.sqft,
+                              unit: "sqft",
+                              wastePct: 0,
+                              sqftPerBox: takeoff.cartons?.coverageSqft ?? null,
+                            });
+                            return fillPhrase ? (
+                              <span className="text-muted-foreground"> · {fillPhrase}</span>
+                            ) : null;
+                          })()}
                         </p>
                         ) : null}
                         <p>
@@ -5255,7 +5355,9 @@ function QuestionBody({
           })()
         : q.key === "hs_transitions"
           ? ensureJChannelTransitionOption(configured)
-          : configured;
+          : q.key === "hs_base_trim"
+            ? ensureVinylCoveBaseOption(configured)
+            : configured;
     const opts = configuredOpts.filter((o) => choiceOptionApplies(q, o.label, flooringCtx));
     const mixedHsInstall =
       q.key === "install_method" && jobNeedsMixedInstallMethodPicks(flooringCtx.families);

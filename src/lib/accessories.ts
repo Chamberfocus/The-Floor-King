@@ -234,7 +234,9 @@ export function defaultsForType(typeName: string): {
  * invite a quantity that means nothing.
  */
 export function variesByRun(typeName: string): boolean {
-  return !/stair tread|stair riser|\briser\b|\btread\b/i.test(typeName);
+  // Stair nose is one piece per step. A Linear ft box was swallowing the count
+  // and the review never saw a quantity.
+  return !/stair tread|stair riser|stair\s*-?\s*nose|stairnose|\briser\b|\btread\b/i.test(typeName);
 }
 
 /** Suggested sizes for the size-axis millwork types. */

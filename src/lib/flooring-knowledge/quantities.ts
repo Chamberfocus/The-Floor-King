@@ -323,6 +323,62 @@ export function cartonTakeoff(
   };
 }
 
+/**
+ * Square feet the last carton adds beyond measured × (1 + waste%).
+ * 0 when no box size was entered or the percent order already fills whole cartons.
+ * This does not change wasteSqft or the price — the price still uses the waste percent.
+ */
+export function cartonFillSqft(t: {
+  measuredSqft: number;
+  wastePct: number;
+  orderedCoverageSqft: number | null | undefined;
+}): number {
+  const ordered = Number(t.orderedCoverageSqft);
+  if (!(ordered > 0)) return 0;
+  const measured = Number(t.measuredSqft);
+  if (!(measured > 0)) return 0;
+  const pct = Number(t.wastePct);
+  const waste = Number.isFinite(pct) && pct > 0 ? pct : 0;
+  const percentOrder = r2(measured * (1 + waste / 100));
+  const fill = r2(ordered - percentOrder);
+  return fill > 0.005 ? fill : 0;
+}
+
+/**
+ * Waste the salesperson typed, plus the extra square feet that fill the last carton.
+ * Empty when there is no area waste and no box fill. Does not change the price.
+ */
+export function orderWastePhrase(args: {
+  quantity: number;
+  unit?: string | null;
+  wastePct?: number | null;
+  sqftPerBox?: number | null;
+}): string {
+  const qty = Number(args.quantity);
+  if (!(qty > 0)) return "";
+  const unitKey = normalizeUnit(args.unit);
+  if (unitKey !== "sqft" && unitKey !== "sqyd") return "";
+  const pctRaw = Number(args.wastePct);
+  const wastePct = Number.isFinite(pctRaw) && pctRaw > 0 ? pctRaw : 0;
+  const measuredSqft = unitKey === "sqyd" ? qty * 9 : qty;
+  const wasteSqft = r2(measuredSqft * (wastePct / 100));
+  const orderSqft = r2(measuredSqft * (1 + wastePct / 100));
+  const cartons = cartonTakeoff(orderSqft, args.sqftPerBox);
+  const fill = cartonFillSqft({
+    measuredSqft,
+    wastePct,
+    orderedCoverageSqft: cartons?.orderedCoverageSqft,
+  });
+  const parts: string[] = [];
+  if (wastePct > 0) {
+    const shown =
+      unitKey === "sqyd" ? `${r2(qty * (wastePct / 100))} sq yd` : formatSqft(wasteSqft);
+    parts.push(`${r2(wastePct)}% waste (${shown})`);
+  }
+  if (fill > 0) parts.push(`${formatSqft(fill)} to fill the last carton`);
+  return parts.join(" · ");
+}
+
 export interface ComputeTakeoffInput {
   family: FlooringFamily;
   measuredSqft: number;
@@ -905,9 +961,17 @@ export function salespersonTakeoffDisplayRows(t: MaterialTakeoff): TakeoffConcep
     t.orderBasis === "none" || !(t.billingQty > 0)
       ? "TBD"
       : formatBillingQty(t.billingQty, t.billingUnit);
+  const boxFill = cartonFillSqft({
+    measuredSqft: t.measured.sqft,
+    wastePct: t.wastePct,
+    orderedCoverageSqft: t.cartons?.orderedCoverageSqft,
+  });
   return [
     { label: "Measured", value: formatSqft(t.measured.sqft) },
     { label: "Waste", value: waste },
+    ...(boxFill > 0
+      ? [{ label: "Box fill", value: `${formatSqft(boxFill)} to fill the last carton` }]
+      : []),
     ...(t.cartons
       ? [
           { label: "Carton coverage", value: `${t.cartons.coverageSqft} sq ft` },
@@ -943,6 +1007,54 @@ export function accessoryUnitForType(type: string): "lnft" | "each" {
  * Force a trim line onto lnft / each / pc. Area units (sq ft / sq yd) are
  * never valid for quarter round, shoe, base, or transitions.
  */
+/**
+ * Quantity the salesperson actually typed on a trim row.
+ * Qty wins. A number left in Linear ft is still their count — it used to
+ * vanish from Review when stick length was unknown. Stair nose with no
+ * number uses the hard-surface step count (each, never square feet).
+ */
+export function trimBillableQty(
+  row: {
+    type?: string | null;
+    unit?: string | null;
+    qty?: string | number | null;
+    linearFt?: string | number | null;
+    productLabel?: string | null;
+  },
+  stairSteps = 0,
+): number {
+  const read = (raw: string | number | null | undefined) => {
+    const n = Number(String(raw ?? "").trim());
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  };
+  const typed = read(row.qty);
+  if (typed > 0) return typed;
+  const linear = read(row.linearFt);
+  if (linear > 0) return linear;
+  const name = (row.type || row.productLabel || "").trim();
+  if (stairSteps > 0 && /stair\s*-?\s*nose|stairnose/i.test(name)) return Math.ceil(stairSteps);
+  return 0;
+}
+
+/** Review text for one trim row. A named row with no count still shows. */
+export function trimReviewPhrase(
+  row: {
+    type?: string | null;
+    unit?: string | null;
+    qty?: string | number | null;
+    linearFt?: string | number | null;
+    productLabel?: string | null;
+  },
+  stairSteps = 0,
+): string | null {
+  const name = (row.type || row.productLabel || "").trim();
+  if (!name) return null;
+  const qty = trimBillableQty(row, stairSteps);
+  const unit = coerceTrimUnit(name, row.unit);
+  if (qty > 0) return `${name}: ${r2(qty)} ${unit}`;
+  return `${name}: quantity needed`;
+}
+
 export function coerceTrimUnit(
   type: string,
   unit: string | null | undefined,

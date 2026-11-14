@@ -27,11 +27,19 @@ import {
   applyTrimTypeSeed,
   HS_TRANSITION_OPTION_TO_TRIM,
   ensureJChannelTransitionOption,
+  ensureVinylCoveBaseOption,
+  stairNoseQuoteWhenMissing,
+  quoteTrimReviewExtras,
   transitionTrimUnitClause,
   HS_BASE_OPTION_TO_TRIM,
   annotateRemovalDescription,
   billsBySqydFamily,
   cartonTakeoff,
+  cartonFillSqft,
+  orderWastePhrase,
+  salespersonTakeoffDisplayRows,
+  trimBillableQty,
+  trimReviewPhrase,
   catalogCategoryForFamily,
   coerceTrimUnit,
   computeMaterialTakeoff,
@@ -123574,7 +123582,78 @@ describe("0199 hard-surface transitions and base trim without invented SKUs", ()
     expect(q).toMatch(/applyTrimTypeSeed/);
     expect(q).toMatch(/hsTransitionTrims/);
     expect(q).toMatch(/ensureJChannelTransitionOption/);
+    expect(q).toMatch(/ensureVinylCoveBaseOption/);
     expect(q).toMatch(/hsBaseTrims/);
+    expect(q).toMatch(/Vinyl cove base/);
+    expect(q).toMatch(/orderWastePhrase/);
+    expect(q).toMatch(/trimReviewPhrase/);
+  });
+
+  it("offers vinyl cove base and keeps stair nose and J-channel on the review", () => {
+    expect(
+      ensureVinylCoveBaseOption([
+        { label: "Quarter round" },
+        { label: "Field verify / TBD" },
+      ]).map((o) => o.label),
+    ).toEqual(["Quarter round", "Vinyl cove base", "Field verify / TBD"]);
+    expect(
+      trimLabelsFromPicks(["Vinyl cove base", "Keep existing base"], HS_BASE_OPTION_TO_TRIM),
+    ).toEqual(["Vinyl cove base"]);
+    expect(accessoryUnitForType("Vinyl cove base")).toBe("lnft");
+    expect(accessoryUnitForType("J-channel")).toBe("lnft");
+    expect(accessoryUnitForType("Stair nose")).toBe("each");
+    const seeded = applyTrimTypeSeed([{ type: "Cove base", qty: "40" }], ["Vinyl cove base"], (label) => ({
+      type: label,
+      qty: "",
+    }));
+    expect(seeded).toEqual([{ type: "Cove base", qty: "40" }]);
+    expect(trimBillableQty({ type: "J-channel", qty: "", linearFt: "18", unit: "lnft" })).toBe(18);
+    expect(trimReviewPhrase({ type: "J-channel", qty: "", linearFt: "18", unit: "lnft" })).toBe(
+      "J-channel: 18 lnft",
+    );
+    expect(trimBillableQty({ type: "Stair nose", qty: "", linearFt: "6" }, 0)).toBe(6);
+    expect(trimReviewPhrase({ type: "Stair nose", qty: "" }, 6)).toBe("Stair nose: 6 each");
+    expect(trimReviewPhrase({ type: "Stair nose", qty: "" }, 0)).toBe("Stair nose: quantity needed");
+    expect(stairNoseQuoteWhenMissing(6, [])).toEqual({
+      description: "Stair nose",
+      quantity: 6,
+      unit: "each",
+    });
+    expect(stairNoseQuoteWhenMissing(6, [{ type: "Stair nose" }])).toBeNull();
+    expect(
+      quoteTrimReviewExtras({
+        pickedLabels: ["J-channel", "Vinyl cove base"],
+        reviewText: "J-channel: 18 lnft",
+        stairSteps: 6,
+      }),
+    ).toEqual(["Vinyl cove base: quantity needed", "Stair nose: 6 each"]);
+  });
+
+  it("shows the box-fill square feet without changing the priced waste", () => {
+    const withBox = computeMaterialTakeoff({
+      family: "lvp",
+      measuredSqft: 500,
+      wastePct: 10,
+      sqftPerBox: 23.64,
+    });
+    expect(withBox.wasteSqft).toBe(50);
+    expect(cartonFillSqft({
+      measuredSqft: 500,
+      wastePct: 10,
+      orderedCoverageSqft: withBox.cartons?.orderedCoverageSqft,
+    })).toBe(17.36);
+    expect(
+      orderWastePhrase({ quantity: 500, unit: "sqft", wastePct: 10, sqftPerBox: 23.64 }),
+    ).toBe("10% waste (50 sq ft) · 17.36 sq ft to fill the last carton");
+    const shown = salespersonTakeoffDisplayRows(withBox)
+      .map((r) => `${r.label}: ${r.value}`)
+      .join(" | ");
+    expect(shown).toMatch(/Waste: 10% \(50 sq ft\)/);
+    expect(shown).toMatch(/Box fill: 17\.36 sq ft to fill the last carton/);
+    expect(formatTakeoffStrip(withBox)).toMatch(/Waste 10% \(50 sq ft\)/);
+    expect(formatTakeoffStrip(withBox)).not.toMatch(/Box fill/);
+    const page = readFileSync(join(root, "src/app/(app)/estimates/[id]/page.tsx"), "utf8");
+    expect(page).toMatch(/orderWastePhrase/);
   });
 });
 
