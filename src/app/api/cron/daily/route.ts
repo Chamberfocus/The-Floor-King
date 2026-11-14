@@ -4,6 +4,16 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { customerIsArchived } from "@/lib/customer-operational";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import { sendSms } from "@/lib/sms";
+import { COMPANY_NAME } from "@/lib/nav";
+import { formatMoney } from "@/lib/format";
+import {
+  BALANCE_REMINDER_SCAN_LIMIT,
+  BALANCE_REMINDER_SEND_LIMIT,
+  balanceReminderDue,
+  balanceReminderLog,
+  balanceReminderText,
+  pickBalanceReminderCustomers,
+} from "@/lib/in-home-close";
 import { triggerImportProcessing } from "@/lib/import-worker";
 import { advanceToNamedStage } from "@/lib/workflow-engine";
 import { dayTaskCollectAmountDue } from "@/lib/payment-safety";
@@ -263,6 +273,109 @@ export async function GET(request: NextRequest) {
       await advanceToNamedStage(j.customer_id as string, /balance/, j.id as string);
       balanceChased += 1;
     }
+  }
+
+  // --- Open balance reminder (email + text, at most once a week) ------------
+  // A finished job already moves the file to Collect Balance. This tells the
+  // customer. The internal message is the only record of the last send, so a
+  // later night does not send the same reminder again inside the week.
+  let balanceReminders = 0;
+  const todayYmd = new Date(now).toISOString().slice(0, 10);
+  const { data: reminderInvoices } = await admin
+    .from("invoices")
+    .select(
+      "customer_id, issue_date, customer:customers(email, phone, cancelled_at)",
+    )
+    .neq("status", "void")
+    .not("issue_date", "is", null)
+    .lte("issue_date", todayYmd)
+    .order("issue_date", { ascending: true })
+    .limit(300);
+  const reminderRows = (reminderInvoices ?? []).map((row) => {
+    const raw = row.customer as unknown;
+    const cust = (Array.isArray(raw) ? raw[0] : raw) as {
+      email: string | null;
+      phone: string | null;
+      cancelled_at: string | null;
+    } | null;
+    return {
+      customerId: (row.customer_id as string) ?? "",
+      issueDate: (row.issue_date as string) ?? "",
+      archived: customerIsArchived(cust?.cancelled_at),
+      email: cust?.email ?? null,
+      phone: cust?.phone ?? null,
+    };
+  });
+  const reminderCandidates = pickBalanceReminderCustomers(
+    reminderRows,
+    todayYmd,
+    BALANCE_REMINDER_SCAN_LIMIT,
+  );
+  for (const candidate of reminderCandidates) {
+    if (balanceReminders >= BALANCE_REMINDER_SEND_LIMIT) break;
+    const { data: lastReminder } = await admin
+      .from("messages")
+      .select("created_at")
+      .eq("customer_id", candidate.customerId)
+      .eq("channel", "internal")
+      .ilike("body", "Balance reminder sent%")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (
+      !balanceReminderDue({
+        lastSentAt: (lastReminder?.created_at as string | null) ?? null,
+        nowMs: now,
+      })
+    ) {
+      continue;
+    }
+    const owed = await outstandingBalance(admin, candidate.customerId);
+    if (owed <= 0.005) continue;
+    const { data: who } = await admin
+      .from("customers")
+      .select("full_name, email, phone")
+      .eq("id", candidate.customerId)
+      .maybeSingle();
+    const first = ((who?.full_name as string | null) ?? "there").split(" ")[0] ?? "there";
+    const amount = formatMoney(owed);
+    const portal = `${siteUrl()}/portal`;
+    let delivered = false;
+    const emailTo = (who?.email as string | null)?.trim() || "";
+    const phoneTo = (who?.phone as string | null)?.trim() || "";
+    if (emailTo) {
+      const mailed = await sendEmail({
+        to: emailTo,
+        subject: `Balance due — ${COMPANY_NAME}`,
+        html: emailLayout(
+          "A balance is still open",
+          `<p>Hi ${first},</p>
+           <p>${COMPANY_NAME} shows <strong>${amount}</strong> still open on your account.</p>`,
+          { label: "View your account", url: portal },
+        ),
+      });
+      if (mailed.status === "success") delivered = true;
+    }
+    if (phoneTo) {
+      const texted = await sendSms(
+        phoneTo,
+        balanceReminderText({
+          firstName: first,
+          company: COMPANY_NAME,
+          amount,
+          url: portal,
+        }),
+      );
+      if (texted.status === "success") delivered = true;
+    }
+    if (!delivered) continue;
+    await admin.from("messages").insert({
+      customer_id: candidate.customerId,
+      channel: "internal",
+      author_id: null,
+      body: balanceReminderLog(amount),
+    });
+    balanceReminders += 1;
   }
 
   // --- Review request after a completed job ---
@@ -598,6 +711,7 @@ export async function GET(request: NextRequest) {
     started,
     staleScheduled,
     balanceChased,
+    balanceReminders,
     priceImports,
     ok: true,
     thankyou,

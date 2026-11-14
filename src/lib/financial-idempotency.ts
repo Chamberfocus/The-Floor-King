@@ -21,6 +21,9 @@ export const INVOICE_PAYMENT_IDEMPOTENCY_REQUIRED_MESSAGE =
 export const CARD_PAYMENT_IDEMPOTENCY_REQUIRED_MESSAGE =
   "Missing card-payment token. Refresh the page and try again.";
 
+export const VISIT_DEPOSIT_IDEMPOTENCY_REQUIRED_MESSAGE =
+  "Missing deposit operation token. Refresh the page and try again.";
+
 export const WRITE_OFF_IDEMPOTENCY_REQUIRED_MESSAGE =
   "Missing write-off operation token. Refresh the page and try again.";
 
@@ -209,6 +212,12 @@ export function resolveCardPaymentIdempotencyKey(
   raw: string | null | undefined,
 ): string | null {
   return prefixToken(raw, "card-op");
+}
+
+export function resolveVisitDepositIdempotencyKey(
+  raw: string | null | undefined,
+): string | null {
+  return prefixToken(raw, "visit-dep");
 }
 
 export function resolveWriteOffIdempotencyKey(

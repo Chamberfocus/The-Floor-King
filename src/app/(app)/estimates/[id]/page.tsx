@@ -69,8 +69,13 @@ import { parseProjectDetails, projectDetailsShown } from "@/lib/customer-scope";
 import { formatMoney, formatDate, formatDateTime } from "@/lib/format";
 import { estimateViewLabel } from "@/lib/estimate-client-response";
 import { cn } from "@/lib/utils";
-import type { EstimateLineItem, EstimateOption } from "@/lib/types";
+import type { EstimateLineItem, EstimateOption, UserRole } from "@/lib/types";
+import { PAYMENT_METHOD_LABELS } from "@/lib/types";
 import { setEstimateStatus, duplicateOption, unapproveEstimate } from "../actions";
+import { textEstimate } from "../close-visit-actions";
+import { recordVisitDeposit } from "@/app/(app)/invoices/actions";
+import { PaymentIdempotencyField } from "@/app/(app)/invoices/payment-idempotency-field";
+import { VISIT_DEPOSIT_METHODS } from "@/lib/in-home-close";
 import { DeleteEstimateButton } from "../estimate-list-actions";
 import { createJobFromEstimate } from "@/app/(app)/jobs/actions";
 import { createClient } from "@/lib/supabase/server";
@@ -138,10 +143,10 @@ export default async function EstimatePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ print?: string; preview?: string; approval_error?: string; invoice_error?: string; job_error?: string; delete_error?: string; undo?: string; why?: string; notify?: string; notify_detail?: string }>;
+  searchParams: Promise<{ print?: string; preview?: string; approval_error?: string; invoice_error?: string; job_error?: string; delete_error?: string; undo?: string; why?: string; notify?: string; notify_detail?: string; text?: string; text_detail?: string; deposit?: string; deposit_error?: string }>;
 }) {
   const { id } = await params;
-  const { print, preview: previewParam, approval_error: approvalError, invoice_error: invoiceError, job_error: jobError, delete_error: deleteError, undo, why, notify, notify_detail: notifyDetail } = await searchParams;
+  const { print, preview: previewParam, approval_error: approvalError, invoice_error: invoiceError, job_error: jobError, delete_error: deleteError, undo, why, notify, notify_detail: notifyDetail, text: textResult, text_detail: textDetail, deposit: depositResult, deposit_error: depositError } = await searchParams;
   const preview = previewParam === "1";
   const profilePromise = requireProfile();
   const estimate = await getEstimate(id);
@@ -451,6 +456,31 @@ export default async function EstimatePage({
             Estimate was updated. Email was not sent: {notifyDetail || "not attempted."}
           </p>
         ) : null}
+        {textResult === "success" ? (
+          <p className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
+            Quote texted to the customer.
+          </p>
+        ) : null}
+        {textResult === "failed" || textResult === "not_attempted" ? (
+          <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+            The quote was not texted{textDetail ? `: ${textDetail}` : "."}
+          </p>
+        ) : null}
+        {depositResult === "ok" ? (
+          <p className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
+            Deposit recorded on this visit.
+          </p>
+        ) : null}
+        {depositResult === "duplicate" ? (
+          <p className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
+            That deposit was already recorded.
+          </p>
+        ) : null}
+        {depositError ? (
+          <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            {depositError}
+          </p>
+        ) : null}
         {estimate.status === "approved" && approvalSnap ? (
           <p className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
             Customer approval on file (v{approvalSnap.version}
@@ -481,6 +511,95 @@ export default async function EstimatePage({
       <div className="print:hidden">
         <RecordActionCenter model={estimateAction} />
       </div>
+
+      {(["admin", "office", "sales_manager", "salesman"] as UserRole[]).includes(profile.role) &&
+      estimate.status !== "declined" &&
+      options.length > 0 ? (
+        <Card className="mb-6 print:hidden">
+          <CardHeader>
+            <CardTitle>Close this visit</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Text the quote while you are with the customer, then record the deposit
+              they hand you. Approving the estimate still builds the work order.
+            </p>
+            {depositSummary && depositSummary.available > 0.005 ? (
+              <p className="text-sm">
+                Deposit on file:{" "}
+                <span className="font-semibold tabular-nums">
+                  {formatMoney(depositSummary.available)}
+                </span>
+              </p>
+            ) : null}
+            {customer?.phone ? (
+              <form action={textEstimate}>
+                <input type="hidden" name="id" value={estimate.id} />
+                <SubmitButton variant="outline" confirm="Quote texted">
+                  <Send className="size-4" /> Text the quote
+                </SubmitButton>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Sends the review link to {customer.phone}. A draft is marked sent
+                  after the text goes through.
+                </p>
+              </form>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Add a phone number on the customer file to text this quote.
+              </p>
+            )}
+            <form action={recordVisitDeposit} className="space-y-3 border-t pt-4">
+              <input type="hidden" name="estimate_id" value={estimate.id} />
+              <input type="hidden" name="customer_id" value={estimate.customer_id} />
+              <PaymentIdempotencyField />
+              <div className="flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="text-xs text-muted-foreground" htmlFor="visit-deposit-amount">
+                    Deposit
+                  </label>
+                  <input
+                    id="visit-deposit-amount"
+                    name="amount"
+                    type="number"
+                    inputMode="decimal"
+                    min="0.01"
+                    step="0.01"
+                    required
+                    className="mt-1 h-11 w-32 rounded-md border px-3"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground" htmlFor="visit-deposit-method">
+                    How it was collected
+                  </label>
+                  <select
+                    id="visit-deposit-method"
+                    name="method"
+                    required
+                    className="mt-1 h-11 rounded-md border px-3"
+                    defaultValue="cash"
+                  >
+                    {VISIT_DEPOSIT_METHODS.map((method) => (
+                      <option key={method} value={method}>
+                        {PAYMENT_METHOD_LABELS[method]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <SubmitButton confirm="Deposit recorded">Record deposit</SubmitButton>
+              </div>
+              <input
+                name="notes"
+                placeholder="Check number or note (optional)"
+                className="h-11 w-full max-w-md rounded-md border px-3"
+              />
+              <p className="text-xs text-muted-foreground">
+                Card numbers stay in the card machine. This records the amount only.
+              </p>
+            </form>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Factual status and the existing job, send, and invoice buttons. */}
       <Card id="estimate-next" className="mb-6 border-primary/40 print:hidden">
