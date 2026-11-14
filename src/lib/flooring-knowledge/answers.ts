@@ -141,7 +141,7 @@ export const HARD_SURFACE_STAIR_TRIM_LABELS = ["Stair tread", "Stair riser", "St
 export type HardSurfaceStairTrimLabel = (typeof HARD_SURFACE_STAIR_TRIM_LABELS)[number];
 
 function matchHardSurfaceStairTrim(type: string, label: HardSurfaceStairTrimLabel): boolean {
-  if (label === "Stair nose") return /stair\s*nose/i.test(type);
+  if (label === "Stair nose") return /stair\s*-?\s*nose|stairnose/i.test(type);
   if (label === "Stair tread") return /tread/i.test(type);
   return /riser/i.test(type);
 }
@@ -231,11 +231,29 @@ export function transitionTrimUnitClause(labels: string[]): string {
   return "each, never square feet";
 }
 
-/** Option label → existing TRIM_TYPES label. Base/QR/shoe are LN FT. */
+/** Chip the salesperson looks for on a vinyl / LVP job. Linear feet. */
+export const HS_BASE_VINYL_COVE_LABEL = "Vinyl cove base";
+
+/**
+ * Base / quarter round / shoe always offers vinyl cove base, just before
+ * Field verify. A saved question that predates this chip still shows it.
+ * Does not invent a price or a SKU.
+ */
+export function ensureVinylCoveBaseOption<T extends { label: string }>(options: T[]): T[] {
+  if (options.some((o) => /vinyl\s*cove/i.test(o.label))) return options;
+  const row = { label: HS_BASE_VINYL_COVE_LABEL } as T;
+  const idx = options.findIndex((o) => /field verify|\btbd\b/i.test(o.label));
+  if (idx >= 0) return [...options.slice(0, idx), row, ...options.slice(idx)];
+  return [...options, row];
+}
+
+/** Option label → existing TRIM_TYPES label. Base/QR/shoe/cove are LN FT. */
 export const HS_BASE_OPTION_TO_TRIM: Record<string, string> = {
   "Quarter round": "Quarter round",
   "Shoe molding": "Shoe molding",
   Baseboard: "Baseboard",
+  "Vinyl cove base": "Vinyl cove base",
+  "Cove base": "Vinyl cove base",
 };
 
 /** TRIM_TYPES labels implied by a notes-only pick list (skips None / TBD). */
@@ -260,10 +278,67 @@ export function applyTrimTypeSeed<T extends { type: string }>(
   if (!labels.length) return rows;
   let rs = [...rows];
   for (const label of labels) {
-    if (rs.some((x) => x.type.trim().toLowerCase() === label.toLowerCase())) continue;
+    if (rs.some((x) => trimTypeLabelsMatch(x.type, label))) continue;
     rs = [...rs, addRow(label)];
   }
   return rs;
+}
+
+function trimTypeLabelsMatch(a: string, b: string): boolean {
+  const left = a.trim().toLowerCase();
+  const right = b.trim().toLowerCase();
+  if (left === right) return true;
+  return /cove\s*base/.test(left) && /cove\s*base/.test(right);
+}
+
+/**
+ * Stair nose line when the stair question has a step count and Trims has no
+ * nose row yet. Quantity is the step count (each). Price stays empty.
+ */
+export function stairNoseQuoteWhenMissing(
+  stepCount: number,
+  rows: { type?: string | null }[],
+): { description: "Stair nose"; quantity: number; unit: "each" } | null {
+  const steps = Math.ceil(Number(stepCount));
+  if (!(steps > 0)) return null;
+  if (rows.some((r) => /stair\s*-?\s*nose|stairnose/i.test(r.type || ""))) return null;
+  return { description: "Stair nose", quantity: steps, unit: "each" };
+}
+
+/** Review lines for picks and stair noses that are not already written out. */
+export function quoteTrimReviewExtras(args: {
+  pickedLabels: string[];
+  reviewText: string;
+  stairSteps: number;
+}): string[] {
+  const text = args.reviewText || "";
+  const out: string[] = [];
+  for (const label of args.pickedLabels) {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(escaped, "i").test(text)) continue;
+    out.push(`${label}: quantity needed`);
+  }
+  const steps = Math.ceil(Number(args.stairSteps));
+  if (steps > 0 && !/stair\s*-?\s*nose|stairnose/i.test(text) && !out.some((l) => /stair\s*-?\s*nose|stairnose/i.test(l))) {
+    out.push(`Stair nose: ${steps} each`);
+  }
+  return out;
+}
+
+/** Rows already on the trim question, for the stair-nose gap check. */
+export function trimRowsFromAnswers(
+  answers: Record<string, unknown> | unknown[] | null | undefined,
+): { type?: string }[] {
+  if (!answers) return [];
+  const values = Array.isArray(answers) ? answers : Object.values(answers);
+  const rows: { type?: string }[] = [];
+  for (const a of values) {
+    if (!a || typeof a !== "object") continue;
+    const ans = a as { kind?: string; rows?: { type?: string }[] };
+    if (ans.kind !== "trims") continue;
+    rows.push(...(ans.rows ?? []));
+  }
+  return rows;
 }
 
 export function presentTrimTypes(

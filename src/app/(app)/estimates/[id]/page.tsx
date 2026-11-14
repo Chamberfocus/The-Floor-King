@@ -62,7 +62,7 @@ import {
 } from "@/lib/estimate-calc";
 import { billedQtyToSqft, lineDisplayUnit, normalizeUnit } from "@/lib/units";
 import { padRollCount } from "@/lib/job-scope";
-import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
+import { computeMaterialTakeoff, orderWastePhrase } from "@/lib/flooring-knowledge";
 import { jobProfit } from "@/lib/job-profit";
 import { computeBillRecovery, presentCustomerBill } from "@/lib/bill-recovery";
 import { parseProjectDetails, projectDetailsShown } from "@/lib/customer-scope";
@@ -135,7 +135,15 @@ function lineMath(l: EstimateLineItem): string {
           takeoffLabel: "Carpet pad",
         })
       : null;
-  return `${qty.toFixed(2)} ${unit} × ${formatMoney(rate)}${cartons ? ` · 📦 ${cartons} carton(s)` : ""}${officePadTakeoff?.cartons ? ` · 📦 ${officePadTakeoff.cartons.cartonCount} carton(s)` : ""}${padRolls ? ` · ${padRolls} roll${padRolls === 1 ? "" : "s"}` : ""}`;
+  const order = lineOrderQty(l);
+  const shownQty = order > 0 ? order : qty;
+  const wastePhrase = orderWastePhrase({
+    quantity: qty,
+    unit: l.unit || unit,
+    wastePct: l.waste_pct,
+    sqftPerBox: l.sqft_per_box,
+  });
+  return `${shownQty.toFixed(2)} ${unit} × ${formatMoney(rate)}${wastePhrase ? ` · ${wastePhrase}` : ""}${cartons ? ` · 📦 ${cartons} carton(s)` : ""}${officePadTakeoff?.cartons ? ` · 📦 ${officePadTakeoff.cartons.cartonCount} carton(s)` : ""}${padRolls ? ` · ${padRolls} roll${padRolls === 1 ? "" : "s"}` : ""}`;
 }
 
 export default async function EstimatePage({

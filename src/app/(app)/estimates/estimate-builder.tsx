@@ -88,6 +88,7 @@ import {
   boxedCartonAreaTakeoffAllowed,
   builderAreaFallbackLabel,
   salespersonTakeoffDisplayRows,
+  orderWastePhrase,
 } from "@/lib/flooring-knowledge";
 import { saveEstimate, saveEstimateBuilderDraft, clearEstimateBuilderDraft, sendEstimateById } from "./actions";
 import {
@@ -3110,6 +3111,15 @@ export function EstimateBuilder({
                                 {sUnit ? ` ${sUnit}` : ""}
                                 {/* Exclusive carpet-tile Builder collapsed carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
                                 {/* Hard-surface Builder collapsed carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                                {(() => {
+                                  const wastePhrase = orderWastePhrase({
+                                    quantity: sQty,
+                                    unit: summ.unit,
+                                    wastePct: num(line.waste_pct),
+                                    sqftPerBox: num(line.sqft_per_box),
+                                  });
+                                  return wastePhrase ? ` · ${wastePhrase}` : "";
+                                })()}
                                 {sCartons ? ` · 📦 ${sCartons} carton(s)` : ""}
                                 {/* Exclusive carpet-tile Builder collapsed pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
                                 {/* Hard-surface Builder collapsed pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
