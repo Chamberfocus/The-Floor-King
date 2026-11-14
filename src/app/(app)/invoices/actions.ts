@@ -53,7 +53,11 @@ import {
   resolveBlankInvoiceIdempotencyKey,
   resolveCardPaymentIdempotencyKey,
   resolveInvoicePaymentIdempotencyKey,
+  resolveVisitDepositIdempotencyKey,
+  VISIT_DEPOSIT_IDEMPOTENCY_REQUIRED_MESSAGE,
 } from "@/lib/financial-idempotency";
+import { customerIsArchived } from "@/lib/customer-operational";
+import { visitDepositAmount, visitDepositMethod } from "@/lib/in-home-close";
 import {
   ensureInvoiceIssued,
   finalizeInvoiceSafe,
@@ -213,6 +217,8 @@ async function rpcRecordCustomerDeposit(
     notes: string | null;
     createdBy: string | null;
     idempotencyKey: string | null;
+    jobId?: string | null;
+    estimateId?: string | null;
   },
 ): Promise<{
   error: string | null;
@@ -225,6 +231,8 @@ async function rpcRecordCustomerDeposit(
     p_received_on: args.receivedOn,
     p_method: args.method,
     p_classification: "pre_invoice_deposit",
+    p_job_id: args.jobId ?? null,
+    p_estimate_id: args.estimateId ?? null,
     p_notes: args.notes,
     p_created_by: args.createdBy,
     p_idempotency_key: args.idempotencyKey,
@@ -1213,6 +1221,109 @@ export async function recordPayment(formData: FormData): Promise<void> {
 
   revalidatePath(`/invoices/${invoiceId}`);
   refreshMoneyViews();
+}
+
+function depositBack(estimateId: string, query: string): never {
+  redirect(`/estimates/${estimateId}?${query}`);
+}
+
+/**
+ * Cash, check, card, or financing collected on the visit, before an invoice.
+ * The safe deposit RPC tags the estimate and the job when one already exists.
+ * Open invoices then receive the deposit through the same apply path as a payment.
+ */
+export async function recordVisitDeposit(formData: FormData): Promise<void> {
+  const estimateId = str(formData.get("estimate_id"));
+  const customerId = str(formData.get("customer_id"));
+  if (!estimateId) redirect("/estimates");
+  if (!customerId) depositBack(estimateId, "deposit_error=Missing%20customer.");
+
+  try {
+    await assertRole(INVOICE_PAYMENT_ROLES);
+  } catch {
+    depositBack(estimateId, "deposit_error=You%20don%E2%80%99t%20have%20permission%20to%20record%20a%20deposit.");
+  }
+
+  const amount = visitDepositAmount(str(formData.get("amount")));
+  const method = visitDepositMethod(str(formData.get("method")));
+  const key = resolveVisitDepositIdempotencyKey(str(formData.get("idempotency_key")));
+  if (!amount) depositBack(estimateId, "deposit_error=Enter%20the%20deposit%20you%20collected.");
+  if (!method) depositBack(estimateId, "deposit_error=Choose%20how%20the%20deposit%20was%20collected.");
+  if (!key) {
+    depositBack(
+      estimateId,
+      `deposit_error=${encodeURIComponent(VISIT_DEPOSIT_IDEMPOTENCY_REQUIRED_MESSAGE)}`,
+    );
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const [{ data: est }, { data: cust }, { data: job }] = await Promise.all([
+    supabase
+      .from("estimates")
+      .select("id, customer_id, status")
+      .eq("id", estimateId)
+      .maybeSingle(),
+    supabase.from("customers").select("cancelled_at").eq("id", customerId).maybeSingle(),
+    supabase.from("jobs").select("id").eq("estimate_id", estimateId).maybeSingle(),
+  ]);
+  if (!est || est.customer_id !== customerId) {
+    depositBack(estimateId, "deposit_error=This%20estimate%20is%20not%20on%20that%20customer.");
+  }
+  if (est.status === "declined") {
+    depositBack(estimateId, "deposit_error=This%20estimate%20was%20declined.");
+  }
+  if (customerIsArchived(cust?.cancelled_at as string | null | undefined)) {
+    depositBack(estimateId, "deposit_error=This%20customer%20is%20archived.%20A%20deposit%20is%20not%20recorded.");
+  }
+
+  const note = str(formData.get("notes")).slice(0, 240);
+  const dep = await rpcRecordCustomerDeposit(supabase, {
+    customerId,
+    amount,
+    method,
+    receivedOn: today(),
+    notes: note || "Deposit collected on the visit",
+    createdBy: user?.id ?? null,
+    idempotencyKey: key,
+    jobId: (job?.id as string | null) ?? null,
+    estimateId,
+  });
+  if (dep.error) {
+    depositBack(estimateId, `deposit_error=${encodeURIComponent(dep.error)}`);
+  }
+
+  const { data: openInvoices } = await supabase
+    .from("invoices")
+    .select("id")
+    .eq("customer_id", customerId)
+    .neq("status", "void");
+  for (const inv of openInvoices ?? []) {
+    await applyEligibleDepositsToInvoice(supabase, {
+      invoiceId: inv.id as string,
+      createdBy: user?.id ?? null,
+      appliedOn: today(),
+    });
+    await recomputeStatus(supabase, inv.id as string);
+  }
+
+  await advanceFromAutoAction(customerId, "collect_deposit");
+  void (async () => {
+    const { onMoneyReceivedOps } = await import("@/lib/data/ops-automation");
+    await onMoneyReceivedOps({
+      customerId,
+      jobId: (job?.id as string | null) ?? null,
+      actorId: user?.id ?? null,
+    });
+  })();
+
+  revalidatePath(`/estimates/${estimateId}`);
+  revalidatePath(`/customers/${customerId}`);
+  if (job?.id) revalidatePath(`/jobs/${job.id}`);
+  refreshMoneyViews();
+  depositBack(estimateId, dep.duplicate ? "deposit=duplicate" : "deposit=ok");
 }
 
 /**
