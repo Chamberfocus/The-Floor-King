@@ -2050,12 +2050,11 @@ export function EstimateBuilder({
     });
   };
 
-  // Finish the build and send it to the customer in one step: save, then mark
-  // it sent + email the customer their portal link (advances the pipeline). If
-  // there's no email on file, don't silently mark it sent — save and open the
-  // estimate so an email can be added first.
+  // Save first. Email and text wait until the estimate page, where the
+  // salesperson previews the customer copy and confirms each recipient.
+  // "Save, no email" still marks it sent without a message.
   const saveAndSend = (sendEmail = true) => {
-    if (!claimCommit(sendEmail ? "Saving, then sending…" : "Saving…")) return;
+    if (!claimCommit("Saving…")) return;
     discardUnsavedRooms();
     startTransition(async () => {
       try {
@@ -2068,35 +2067,20 @@ export function EstimateBuilder({
         }
         await flushDefaultRates();
         void clearEstimateBuilderDraft(estimate.id);
-        const sent = await sendEstimateById(estimate.id, sendEmail);
         if (!sendEmail) {
+          await sendEstimateById(estimate.id, false);
           toast.success(
             res.reapprovalRequired
               ? "Revised estimate saved & marked sent (needs reapproval; no email)"
               : "Estimate saved & marked sent (no email)",
           );
           finishCommit({ kind: "saved", text: "Saved and marked sent" });
-        } else if (sent.notify.status === "success") {
-          toast.success(
-            res.reapprovalRequired
-              ? `Revised estimate sent for reapproval to ${customer?.full_name || "the customer"}`
-              : `Estimate sent to ${customer?.full_name || "the customer"}`,
-          );
-          finishCommit({ kind: "saved", text: "Sent" });
-        } else if (sent.notify.status === "failed") {
-          const text = `Email failed. The estimate was not marked sent. ${sent.notify.error ?? ""}`.trim();
-          toast.error(text);
-          finishCommit({ kind: "error", text: "Not sent — the email did not go through." });
-          router.push(`/estimates/${estimate.id}`);
-          return;
-        } else {
-          const text = `The estimate was not marked sent. ${sent.notify.reason ?? "Add an email address first."}`;
-          toast.error(text);
-          finishCommit({ kind: "error", text: "Not sent." });
           router.push(`/estimates/${estimate.id}`);
           return;
         }
-        router.push(`/estimates/${estimate.id}`);
+        toast.success("Saved. Preview it and confirm the email and phone before it goes out.");
+        finishCommit({ kind: "saved", text: "Saved — confirm who gets it" });
+        router.push(`/estimates/${estimate.id}?send=1`);
       } catch {
         const text = "This estimate did not save, so it was not sent.";
         toast.error(text);
@@ -4530,9 +4514,9 @@ export function EstimateBuilder({
           <SendToClient
             clientName={customer?.full_name}
             email={customer?.email}
-            title="Send this estimate to the customer?"
-            description="We'll save it first. It is marked sent only after the email goes through, unless you choose no email."
-            sendLabel="Save & send"
+            title="Save this estimate and preview it?"
+            description="We'll save it first, then open the customer copy so you can confirm the email and phone, change them, or add someone else. Nothing is emailed or texted until you send from that preview."
+            sendLabel="Save & preview"
             skipLabel="Save, no email"
             className="min-h-11"
             disabled={isPending || commitNote?.kind === "saving"}

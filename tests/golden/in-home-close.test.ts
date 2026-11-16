@@ -122,8 +122,9 @@ describe("in-home close", () => {
     const cron = read("src/app/api/cron/daily/route.ts");
     expect(page).toContain("Text the quote");
     expect(page).toContain("Record deposit");
-    expect(page).toContain("textEstimate");
+    expect(page).toContain("EstimateSendDialog");
     expect(page).toContain("recordVisitDeposit");
+    expect(text).toContain("export async function textEstimate");
     expect(text).toContain("quoteText");
     expect(text).toContain("thankyou_sent_at: sentAt");
     expect(text).toContain('advanceFromAutoAction(est.customer_id as string, "build_quote")');

@@ -13,10 +13,10 @@ import type { JobStatus } from "@/lib/types";
  * The checklist steps that are a DECISION, not a tool.
  *
  * Fourteen steps spread across eight screens was the complaint, and most of the
- * bouncing wasn't for real work — it was to press one button. Sending a quote,
- * marking it approved, handing a job to the warehouse, saying the install is
- * done: each of those is a single action, and each sent you to another page to
- * do it and left you there.
+ * bouncing wasn't for real work — it was to press one button. Sending a quote
+ * opens the estimate preview so the email and phone are confirmed first.
+ * Marking it approved, handing a job to the warehouse, and saying the install
+ * is done stay on the row.
  *
  * They're buttons on the row now. The steps that genuinely need a tool — build
  * the estimate, raise the PO, record a payment, close the job out — still open
@@ -48,25 +48,14 @@ export function buildChecklistSlots({
 }): Record<string, ReactNode> {
   const slots: Record<string, ReactNode> = {};
 
-  const estimateForm = (status: string, children: ReactNode, confirm: string, extra?: ReactNode) => (
-    <form action={setEstimateStatus}>
-      <input type="hidden" name="id" value={estimate!.id} />
-      <input type="hidden" name="status" value={status} />
-      <input type="hidden" name="redirect_to" value={backTo} />
-      {extra}
-      <SubmitButton size="sm" confirm={confirm} pendingText="Saving…">
-        {children}
-      </SubmitButton>
-    </form>
-  );
-
   if (estimate && estimate.status === "draft") {
-    slots.send = estimateForm(
-      "sent",
-      <>
+    slots.send = (
+      <Link
+        href={`/estimates/${estimate.id}?send=1`}
+        className="inline-flex h-8 items-center gap-1 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:bg-primary/80"
+      >
         <Send className="size-3.5" /> Send it
-      </>,
-      "Send this estimate? This marks it sent. Email only goes out if sending is configured and customer notifications are on.",
+      </Link>
     );
   }
 

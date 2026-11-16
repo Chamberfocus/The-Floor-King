@@ -7,7 +7,6 @@ import { getCustomerSourceStatus } from "@/lib/data/lead-sources";
 import { leadEstimateBlock } from "@/lib/lead-acceptance-guard";
 import type { LineMeasurement, ProductCategory } from "@/lib/types";
 import { lineDisplayUnit, lineSkipsAreaCartonMath } from "@/lib/units";
-import { sendEstimateById } from "./actions";
 import { employeeDbError } from "@/lib/employee-error";
 
 /** Clear a saved flooring-type default. */
@@ -272,12 +271,8 @@ export async function createSmartEstimate(
   // itemized draft before finalizing (never auto-sends).
   if (input.openEdit) redirect(`/estimates/${est.id}/edit`);
 
-  // Save & send: email the customer, advance their stage, then land on the
-  // dashboard. Otherwise land on the finished quote.
-  if (input.send) {
-    await sendEstimateById(est.id as string);
-    redirect("/dashboard");
-  }
+  // Save & send opens the preview so the email and phone are confirmed first.
+  if (input.send) redirect(`/estimates/${est.id}?send=1`);
   // Land on the finished, printable quote — totals, Print, Send, and an Edit
   // button if anything needs adjusting. ("Print" opens the print dialog.)
   redirect(`/estimates/${est.id}${input.print ? "?print=1" : ""}`);

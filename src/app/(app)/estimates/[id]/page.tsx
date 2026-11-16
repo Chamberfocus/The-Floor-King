@@ -11,7 +11,6 @@ import {
   Receipt,
   LayoutDashboard,
   Copy,
-  Send,
   Sparkles,
 } from "lucide-react";
 import {
@@ -23,7 +22,6 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
-import { SendToClient } from "@/components/send-to-client";
 import { EstimateStatusBadge } from "@/components/estimate-status-badge";
 import { EstimateDeliveryCard } from "@/components/estimate-delivery-card";
 import { getEstimateDelivery } from "@/lib/data/estimate-delivery";
@@ -72,7 +70,7 @@ import { cn } from "@/lib/utils";
 import type { EstimateLineItem, EstimateOption, UserRole } from "@/lib/types";
 import { PAYMENT_METHOD_LABELS } from "@/lib/types";
 import { setEstimateStatus, duplicateOption, unapproveEstimate } from "../actions";
-import { textEstimate } from "../close-visit-actions";
+import { EstimateSendDialog } from "../estimate-send-dialog";
 import { recordVisitDeposit } from "@/app/(app)/invoices/actions";
 import { PaymentIdempotencyField } from "@/app/(app)/invoices/payment-idempotency-field";
 import { VISIT_DEPOSIT_METHODS } from "@/lib/in-home-close";
@@ -151,11 +149,12 @@ export default async function EstimatePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ print?: string; preview?: string; approval_error?: string; invoice_error?: string; job_error?: string; delete_error?: string; undo?: string; why?: string; notify?: string; notify_detail?: string; text?: string; text_detail?: string; deposit?: string; deposit_error?: string }>;
+  searchParams: Promise<{ print?: string; preview?: string; send?: string; approval_error?: string; invoice_error?: string; job_error?: string; delete_error?: string; undo?: string; why?: string; notify?: string; notify_detail?: string; text?: string; text_detail?: string; deposit?: string; deposit_error?: string }>;
 }) {
   const { id } = await params;
-  const { print, preview: previewParam, approval_error: approvalError, invoice_error: invoiceError, job_error: jobError, delete_error: deleteError, undo, why, notify, notify_detail: notifyDetail, text: textResult, text_detail: textDetail, deposit: depositResult, deposit_error: depositError } = await searchParams;
+  const { print, preview: previewParam, send: sendParam, approval_error: approvalError, invoice_error: invoiceError, job_error: jobError, delete_error: deleteError, undo, why, notify, notify_detail: notifyDetail, text: textResult, text_detail: textDetail, deposit: depositResult, deposit_error: depositError } = await searchParams;
   const preview = previewParam === "1";
+  const sendPreviewRequested = sendParam === "1";
   const profilePromise = requireProfile();
   const estimate = await getEstimate(id);
   if (!estimate) notFound();
@@ -206,6 +205,11 @@ export default async function EstimatePage({
     city: string | null; state: string | null; zip: string | null;
   } | null;
   const options = estimate.options ?? [];
+  const nextCardCanSend =
+    options.length > 0 &&
+    (estimate.status === "draft" ||
+      estimate.status === "sent" ||
+      estimate.status === "changes_requested");
   const detailed = estimate.presentation === "detailed";
   const billSettings = {
     fuelCharge: bizAll.job_fuel_charge,
@@ -529,8 +533,9 @@ export default async function EstimatePage({
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Text the quote while you are with the customer, then record the deposit
-              they hand you. Approving the estimate still builds the work order.
+              Preview the quote, confirm the email and phone, then text or email it
+              while you are with the customer. Record the deposit they hand you.
+              Approving the estimate still builds the work order.
             </p>
             {depositSummary && depositSummary.available > 0.005 ? (
               <p className="text-sm">
@@ -540,22 +545,21 @@ export default async function EstimatePage({
                 </span>
               </p>
             ) : null}
-            {customer?.phone ? (
-              <form action={textEstimate}>
-                <input type="hidden" name="id" value={estimate.id} />
-                <SubmitButton variant="outline" confirm="Quote texted">
-                  <Send className="size-4" /> Text the quote
-                </SubmitButton>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Sends the review link to {customer.phone}. A draft is marked sent
-                  after the text goes through.
-                </p>
-              </form>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Add a phone number on the customer file to text this quote.
-              </p>
-            )}
+            <EstimateSendDialog
+              estimateId={estimate.id}
+              customerName={customer?.full_name ?? null}
+              email={customer?.email ?? null}
+              phone={customer?.phone ?? null}
+              label="Text the quote"
+              textFirst
+              variant="outline"
+              startOpen={sendPreviewRequested && !nextCardCanSend}
+            />
+            <p className="text-xs text-muted-foreground">
+              Opens the customer copy first. Change the phone or email, or add
+              another recipient, before anything is sent. A draft is marked sent
+              after a message goes through.
+            </p>
             <form action={recordVisitDeposit} className="space-y-3 border-t pt-4">
               <input type="hidden" name="estimate_id" value={estimate.id} />
               <input type="hidden" name="customer_id" value={estimate.customer_id} />
@@ -677,68 +681,40 @@ export default async function EstimatePage({
               Add at least one priced option to send or approve this estimate.
             </p>
           ) : estimate.status === "draft" ? (
-            customer?.email ? (
-              // Draft with an email on file → the next action is SEND.
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="font-semibold">Ready to send?</div>
-                  <p className="text-sm text-muted-foreground">
-                    Email this estimate to {customer.full_name} at {customer.email}{" "}
-                    so they can review, approve, decline, or ask to discuss it.
-                  </p>
-                </div>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="font-semibold">Ready to send?</div>
+                <p className="text-sm text-muted-foreground">
+                  Preview the customer copy for {customer?.full_name ?? "this customer"}
+                  {customer?.email ? ` at ${customer.email}` : ""}.
+                  {customer?.phone ? ` Phone on file: ${customer.phone}.` : ""} Change
+                  the email or phone, or add someone else, before it goes out.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <EstimateSendDialog
+                  estimateId={estimate.id}
+                  customerName={customer?.full_name ?? null}
+                  email={customer?.email ?? null}
+                  phone={customer?.phone ?? null}
+                  startOpen={sendPreviewRequested}
+                />
                 <form action={setEstimateStatus}>
                   <input type="hidden" name="id" value={estimate.id} />
                   <input type="hidden" name="status" value="sent" />
-                  <SendToClient
+                  <input type="hidden" name="send_email" value="no" />
+                  <ConfirmButton
+                    variant="outline"
                     size="lg"
-                    clientName={customer.full_name}
-                    email={customer.email}
-                    title={`Send this estimate to ${customer.full_name}?`}
-                    description="They'll get your branded estimate email with a link to review, approve, decline, or ask to discuss it."
-                    sendLabel="Send estimate"
-                    skipLabel="Mark sent, no email"
+                    title="Mark this estimate as sent?"
+                    description="Flips the estimate to Sent and advances the customer's pipeline stage, without emailing or texting anything."
+                    confirmLabel="Mark as sent"
                   >
-                    <Send className="size-4" /> Send to customer
-                  </SendToClient>
+                    Mark sent, no email
+                  </ConfirmButton>
                 </form>
               </div>
-            ) : (
-              // Draft with NO email → don't pretend it can be emailed.
-              <div className="space-y-3">
-                <div>
-                  <div className="font-semibold text-amber-700 dark:text-amber-500">
-                    No email on file for {customer?.full_name ?? "this customer"}
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    This estimate can&apos;t be emailed. Add an email to send it, or
-                    print/PDF it to hand off — then mark it sent.
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Link
-                    href={`/customers/${estimate.customer_id}`}
-                    className={buttonVariants({ size: "lg" })}
-                  >
-                    <Send className="size-4" /> Add an email
-                  </Link>
-                  <PrintEstimateButton />
-                  <form action={setEstimateStatus}>
-                    <input type="hidden" name="id" value={estimate.id} />
-                    <input type="hidden" name="status" value="sent" />
-                    <ConfirmButton
-                      variant="outline"
-                      size="lg"
-                      title="Mark this estimate as sent?"
-                      description="Flips the estimate to Sent and advances the customer's pipeline stage, without emailing anything."
-                      confirmLabel="Mark as sent"
-                    >
-                      Mark as sent anyway
-                    </ConfirmButton>
-                  </form>
-                </div>
-              </div>
-            )
+            </div>
           ) : estimate.status === "sent" || estimate.status === "changes_requested" ? (
             // Sent → waiting on the customer; approving lives in the workflow card
             // (option picker). Do not duplicate Approve here — that locked option 1.
@@ -759,6 +735,14 @@ export default async function EstimatePage({
                       : "When they approve (or you approve the chosen option in Status & workflow below), the job, PO & invoice unlock."}
                 </p>
               </div>
+              <EstimateSendDialog
+                estimateId={estimate.id}
+                customerName={customer?.full_name ?? null}
+                email={customer?.email ?? null}
+                phone={customer?.phone ?? null}
+                label="Preview & send again"
+                startOpen={sendPreviewRequested}
+              />
             </div>
           ) : (
             <div className="flex flex-wrap items-center justify-between gap-3">
