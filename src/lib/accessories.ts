@@ -236,7 +236,7 @@ export function defaultsForType(typeName: string): {
 export function variesByRun(typeName: string): boolean {
   // Stair nose is one piece per step. A Linear ft box was swallowing the count
   // and the review never saw a quantity.
-  return !/stair tread|stair riser|stair\s*-?\s*nose|stairnose|\briser\b|\btread\b/i.test(typeName);
+  return !/stair tread|stair riser|stair\s*-?\s*nose|stairnose|\briser\b|\btread\b|white\s*board/i.test(typeName);
 }
 
 /** Suggested sizes for the size-axis millwork types. */

@@ -135,6 +135,19 @@ export function stairStepCountFromAnswers(
   return n;
 }
 
+/**
+ * Shop allowance when the stair is covered with the flooring, not a tread.
+ * 8 sq ft covers the step and the riser. 4 sq ft is the tread only.
+ * This is the order quantity. Room waste is not applied on top of it.
+ */
+export const HS_STAIR_FLOOR_SQFT_WITH_RISER = 8;
+export const HS_STAIR_FLOOR_SQFT_TREAD = 4;
+
+export type HsStairCover = "treads" | "material";
+export type HsStairRiserFinish = "white_board" | "leave";
+
+export const HS_STAIR_WHITE_BOARD_LABEL = "White board" as const;
+
 /** Existing TRIM_TYPES labels — do not invent Versatrim SKUs or prices. */
 export const HARD_SURFACE_STAIR_TRIM_LABELS = ["Stair tread", "Stair riser", "Stair nose"] as const;
 
@@ -168,6 +181,146 @@ export function applyHardSurfaceStairTrimFill<T extends { type: string; qty: str
     }
   }
   return rs;
+}
+
+export function hsStairCoverOf(answer: unknown): HsStairCover | null {
+  if (!answer || typeof answer !== "object") return null;
+  const cover = (answer as { cover?: unknown }).cover;
+  return cover === "treads" || cover === "material" ? cover : null;
+}
+
+export function hsStairRiserFinishOf(answer: unknown): HsStairRiserFinish | null {
+  if (!answer || typeof answer !== "object") return null;
+  const finish = (answer as { riserFinish?: unknown }).riserFinish;
+  return finish === "white_board" || finish === "leave" ? finish : null;
+}
+
+/**
+ * Square feet to order when the stairs are covered with the flooring.
+ * Stair treads, an unchosen cover, and a zero step count add nothing.
+ */
+export function hsStairMaterialOrder(args: {
+  steps: number;
+  cover: HsStairCover | null;
+  coverRiser: boolean;
+}): { sqft: number; perStep: number; label: string } | null {
+  if (args.cover !== "material") return null;
+  const steps = Math.ceil(Number(args.steps));
+  if (!(steps > 0)) return null;
+  const perStep = args.coverRiser ? HS_STAIR_FLOOR_SQFT_WITH_RISER : HS_STAIR_FLOOR_SQFT_TREAD;
+  return {
+    sqft: steps * perStep,
+    perStep,
+    label: args.coverRiser ? "tread + riser" : "tread only",
+  };
+}
+
+/** A white board is the riser only when the flooring is not already covering it. */
+export function hsStairRiserWantsWhiteBoard(args: {
+  cover: HsStairCover | null;
+  coverRiser: boolean;
+  riserFinish: HsStairRiserFinish | null;
+}): boolean {
+  if (args.riserFinish !== "white_board") return false;
+  if (args.cover === "treads") return true;
+  return args.cover === "material" && !args.coverRiser;
+}
+
+/**
+ * Trim pieces for a chosen stair plan.
+ * Null means the cover is still unchosen — the caller keeps the legacy
+ * tread + riser + nose fill and does not add square feet.
+ */
+export function hardSurfaceStairPiecesForPlan(args: {
+  cover: HsStairCover | null;
+  coverRiser: boolean;
+  riserFinish: HsStairRiserFinish | null;
+}): string[] | null {
+  if (!args.cover) return null;
+  if (args.cover === "treads") {
+    const labels = ["Stair tread", "Stair nose"];
+    if (args.riserFinish === "white_board") labels.splice(1, 0, HS_STAIR_WHITE_BOARD_LABEL);
+    return labels;
+  }
+  const labels = ["Stair nose"];
+  if (hsStairRiserWantsWhiteBoard(args)) labels.unshift(HS_STAIR_WHITE_BOARD_LABEL);
+  return labels;
+}
+
+export function hsStairReviewPhrase(args: {
+  steps: number;
+  cover: HsStairCover | null;
+  coverRiser: boolean;
+  riserFinish: HsStairRiserFinish | null;
+}): string {
+  const steps = Math.ceil(Number(args.steps));
+  if (!(steps > 0)) return "";
+  const stepWord = `${steps} step${steps === 1 ? "" : "s"}`;
+  if (!args.cover) {
+    return `${stepWord} (${args.coverRiser ? "tread + riser" : "tread only"})`;
+  }
+  if (args.cover === "treads") {
+    const riser =
+      args.riserFinish === "white_board"
+        ? "white board on the riser"
+        : args.riserFinish === "leave"
+          ? "riser left as-is"
+          : "riser not chosen";
+    return `${stepWord} · stair treads · ${riser}`;
+  }
+  const order = hsStairMaterialOrder(args);
+  const riser = args.coverRiser
+    ? ""
+    : args.riserFinish === "white_board"
+      ? " · white board on the riser"
+      : args.riserFinish === "leave"
+        ? " · riser left as-is"
+        : " · riser not chosen";
+  return `${stepWord} · flooring on the stairs · ${order?.sqft ?? 0} sq ft (${order?.perStep ?? 0} sq ft × ${steps}, ${order?.label ?? "tread"})${riser}`;
+}
+
+export interface HsStairPlan {
+  steps: number;
+  cover: HsStairCover | null;
+  coverRiser: boolean;
+  riserFinish: HsStairRiserFinish | null;
+}
+
+/** The hard-surface stair answer, if the job has one. Carpet stairs are ignored. */
+export function hsStairPlanFromAnswers(
+  answers: Record<string, unknown> | unknown[] | null | undefined,
+): HsStairPlan {
+  const empty: HsStairPlan = { steps: 0, cover: null, coverRiser: true, riserFinish: null };
+  if (!answers) return empty;
+  const values = Array.isArray(answers) ? answers : Object.values(answers);
+  for (const a of values) {
+    if (!a || typeof a !== "object") continue;
+    const ans = a as { kind?: string; steps?: unknown; treadRiser?: unknown };
+    if (ans.kind !== "hs_stairs") continue;
+    return {
+      steps: positiveCount(typeof ans.steps === "string" ? ans.steps : ans.steps == null ? undefined : String(ans.steps)),
+      cover: hsStairCoverOf(a),
+      coverRiser: ans.treadRiser !== false,
+      riserFinish: hsStairRiserFinishOf(a),
+    };
+  }
+  return empty;
+}
+
+/**
+ * Count line for a stair piece that Trims has not added yet.
+ * Price stays empty. Square feet are never used.
+ */
+export function stairPieceQuoteWhenMissing(
+  stepCount: number,
+  rows: { type?: string | null }[],
+  label: "Stair tread" | "White board",
+): { description: "Stair tread" | "White board"; quantity: number; unit: "each" } | null {
+  const steps = Math.ceil(Number(stepCount));
+  if (!(steps > 0)) return null;
+  const match = label === "White board" ? /white\s*board/i : /\btread\b/i;
+  if (rows.some((r) => match.test(r.type || ""))) return null;
+  return { description: label, quantity: steps, unit: "each" };
 }
 
 /** True when a trims answer already has a row matching `type` (e.g. stair nose). */
