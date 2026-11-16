@@ -166,6 +166,13 @@ import {
   transitionTrimUnitClause,
   HS_BASE_OPTION_TO_TRIM,
   stairNoseQuoteWhenMissing,
+  stairPieceQuoteWhenMissing,
+  hsStairMaterialOrder,
+  hsStairPlanFromAnswers,
+  hsStairReviewPhrase,
+  hsStairRiserWantsWhiteBoard,
+  hardSurfaceStairPiecesForPlan,
+  HS_STAIR_WHITE_BOARD_LABEL,
   quoteTrimReviewExtras,
   trimRowsFromAnswers,
   orderWastePhrase,
@@ -312,6 +319,22 @@ const isStairnose = (type: string): boolean => /stair\s*nose/i.test(type);
 
 const VERSATRIM_FLOOR_FAMILIES = new Set(["lvp", "hardwood", "laminate", "vinyl", "tile"]);
 
+function hsFloorProduct(answers: Record<string, Answer>): ProductAns | null {
+  for (const answer of Object.values(answers)) {
+    if (answer.kind === "product" && answer.product) {
+      if (VERSATRIM_FLOOR_FAMILIES.has(familyFromCatalogCategory(answer.product.category))) {
+        return answer.product;
+      }
+    }
+    if (answer.kind === "floor_map") {
+      for (const room of Object.values(answer.byRoom)) {
+        if (room && VERSATRIM_FLOOR_FAMILIES.has(familyFromCatalogCategory(room.category))) return room;
+      }
+    }
+  }
+  return null;
+}
+
 function versatrimFloors(answers: Record<string, Answer>): VersatrimQuery[] {
   const out: VersatrimQuery[] = [];
   const seen = new Set<string>();
@@ -378,6 +401,7 @@ const TRIM_TYPES: { label: string; unit: string; sized?: boolean }[] = [
   { label: "Stair nose", unit: "each", sized: true },
   { label: "Stair tread", unit: "each", sized: true },
   { label: "Stair riser", unit: "each", sized: true },
+  { label: "White board", unit: "each" },
   { label: "J-channel", unit: "lnft", sized: true },
   { label: "T-mold", unit: "each" },
   { label: "Reducer", unit: "each" },
@@ -413,7 +437,7 @@ type Answer =
   | { kind: "choice_areas"; rows: DemoRow[] }
   | { kind: "cuts"; same: boolean; product: ProductAns | null; groups: CarpetGroup[] }
   | { kind: "stairs"; groups: StairGroup[] }
-  | { kind: "hs_stairs"; steps: string; treadRiser: boolean; product: ProductAns | null; laborRate: string; qty?: string }
+  | { kind: "hs_stairs"; steps: string; treadRiser: boolean; product: ProductAns | null; laborRate: string; qty?: string; cover?: "treads" | "material"; riserFinish?: "white_board" | "leave" }
   | { kind: "subfloor"; thickness: string }
   | { kind: "selflevel"; thickness: string }
   | { kind: "text"; text: string };
@@ -2309,8 +2333,55 @@ export function Questionnaire({
         const steps = Math.ceil(numv(a.steps));
         if (steps > 0) {
           const scopeLabel = a.treadRiser ? "tread + riser" : "tread only";
+          const material = hsStairMaterialOrder({
+            steps,
+            cover: a.cover ?? null,
+            coverRiser: a.treadRiser,
+          });
+          if (material) {
+            const floor = hsFloorProduct(answers);
+            const money = floor
+              ? materialMoney(
+                  floor,
+                  rateFor(floor.materialRate, floor.unit, false, {
+                    category: floor.category,
+                    sqft_per_box: numv(floor.sqftPerBox) > 0 ? numv(floor.sqftPerBox) : null,
+                  }),
+                )
+              : { material_rate: 0, material_cost: 0, sell_locked: false };
+            const name = floor?.label ? `${floor.label} on stairs` : "Stair flooring";
+            out.push({
+              room: null,
+              description: `${name} — ${material.sqft} sq ft (${steps} steps × ${material.perStep} sq ft, ${material.label})`,
+              category: floor?.category || "other",
+              measure_unit: "sqft",
+              sqft: material.sqft,
+              quantity: material.sqft,
+              length_in: null,
+              width_in: null,
+              unit: "sq ft",
+              material_rate: money.material_rate,
+              labor_rate: 0,
+              material_cost: money.material_cost,
+              sell_locked: money.sell_locked,
+              labor_cost: 0,
+              waste_pct: 0,
+              product_id: floor?.productId || null,
+              manufacturer:
+                floor && floor.source === "order" && floor.vendor.trim()
+                  ? floor.vendor.trim()
+                  : floor?.manufacturer ?? null,
+              style: floor?.style ?? null,
+              color: floor?.color ?? null,
+              from_stock: !!floor && floor.source === "stock",
+              sqft_per_box: floor && numv(floor.sqftPerBox) > 0 ? numv(floor.sqftPerBox) : null,
+            });
+          }
           const p = a.product;
-          if (p && (p.productId || p.label)) {
+          // Flooring-on-the-stairs already ordered the allowance. An area-unit
+          // wrap of the same idea would be a second blank line.
+          const skipAreaWrap = a.cover === "material" && !!p && isAreaUnit(p.unit);
+          if (p && (p.productId || p.label) && !skipAreaWrap) {
             const wrapMoney = materialMoney(p, rateFor(p.materialRate, p.unit, false));
             const wrapFam = familyFromCatalogCategory(p.category);
             // Count wrap SKU emits How many in that unit — not leftover sq ft and not 8 sq ft/step. Area-unit wrap stays wrap qty TBD.
@@ -2525,6 +2596,17 @@ export function Questionnaire({
       stairStepCountFromAnswers(answers, ["hs_stairs"]),
       trimRowsFromAnswers(answers),
     );
+    const stairPlan = hsStairPlanFromAnswers(answers);
+    const pieceRows = trimRowsFromAnswers(answers);
+    const extraPieces: { description: "Stair tread" | "White board"; quantity: number; unit: "each" }[] = [];
+    if (stairPlan.cover === "treads") {
+      const tread = stairPieceQuoteWhenMissing(stairPlan.steps, pieceRows, "Stair tread");
+      if (tread) extraPieces.push(tread);
+    }
+    if (hsStairRiserWantsWhiteBoard(stairPlan)) {
+      const board = stairPieceQuoteWhenMissing(stairPlan.steps, pieceRows, HS_STAIR_WHITE_BOARD_LABEL);
+      if (board) extraPieces.push(board);
+    }
     if (nose && !out.some((l) => /stair\s*-?\s*nose|stairnose/i.test(l.description))) {
       out.push({
         room: null,
@@ -2536,6 +2618,30 @@ export function Questionnaire({
         length_in: null,
         width_in: null,
         unit: nose.unit,
+        material_rate: 0,
+        labor_rate: 0,
+        material_cost: 0,
+        labor_cost: 0,
+        waste_pct: 0,
+        product_id: null,
+        manufacturer: null,
+        style: null,
+        color: null,
+        from_stock: false,
+      });
+    }
+    for (const piece of extraPieces) {
+      if (out.some((l) => l.description === piece.description)) continue;
+      out.push({
+        room: null,
+        description: piece.description,
+        category: "trim",
+        measure_unit: "sqft",
+        sqft: null,
+        quantity: piece.quantity,
+        length_in: null,
+        width_in: null,
+        unit: piece.unit,
         material_rate: 0,
         labor_rate: 0,
         material_cost: 0,
@@ -2611,9 +2717,12 @@ export function Questionnaire({
           .map((g) => `${g.count} ${g.type || "steps"}`)
           .join("; ");
       if (q.kind === "hs_stairs" && a?.kind === "hs_stairs") {
-        const n = Math.ceil(numv(a.steps));
-        if (n <= 0) return "";
-        return `${n} step${n === 1 ? "" : "s"} (${a.treadRiser ? "tread + riser" : "tread only"})`;
+        return hsStairReviewPhrase({
+          steps: numv(a.steps),
+          cover: a.cover ?? null,
+          coverRiser: a.treadRiser,
+          riserFinish: a.riserFinish ?? null,
+        });
       }
       return "";
     };
@@ -3170,9 +3279,12 @@ export function Questionnaire({
           .map((g) => `${g.count} ${g.type || "steps"}`)
           .join("; ");
       if (q.kind === "hs_stairs" && a?.kind === "hs_stairs") {
-        const n = Math.ceil(numv(a.steps));
-        if (n <= 0) return "";
-        return `${n} step${n === 1 ? "" : "s"} (${a.treadRiser ? "tread + riser" : "tread only"})`;
+        return hsStairReviewPhrase({
+          steps: numv(a.steps),
+          cover: a.cover ?? null,
+          coverRiser: a.treadRiser,
+          riserFinish: a.riserFinish ?? null,
+        });
       }
       if (q.kind === "product" && a?.kind === "trims") {
         const stairSteps = stairStepCountFromAnswers(answers, ["hs_stairs"]);
@@ -4494,14 +4606,29 @@ function QuestionBody({
     // Set qty on Stair tread + Stair riser + Stair nose (adding any missing) —
     // one of each per hard-surface step. Noses are EACH, never square feet.
     // Carpet-only jobs hide this fill; waterfall/upholstered stairs are labor.
+    const stairPlan = hsStairPlanFromAnswers(jobAnswers);
+    const plannedPieces = hardSurfaceStairPiecesForPlan(stairPlan);
     const fillStairs = () => {
       const n = numv(stairCount);
       if (n <= 0) return;
+      if (!plannedPieces) {
+        upd(
+          applyHardSurfaceStairTrimFill(rows, n, (label) => {
+            const t = TRIM_TYPES.find((x) => x.label === label);
+            return newTrimRow(t);
+          }),
+        );
+        return;
+      }
+      const qty = String(Math.ceil(n));
+      const seeded = applyTrimTypeSeed(rows, plannedPieces, (label) => {
+        const t = TRIM_TYPES.find((x) => x.label === label);
+        return newTrimRow(t ?? { label, unit: "each" });
+      });
       upd(
-        applyHardSurfaceStairTrimFill(rows, n, (label) => {
-          const t = TRIM_TYPES.find((x) => x.label === label);
-          return newTrimRow(t);
-        }),
+        seeded.map((row) =>
+          plannedPieces.some((label) => row.type === label) ? { ...row, qty } : row,
+        ),
       );
     };
     const showHsStairFill =
@@ -4556,10 +4683,12 @@ function QuestionBody({
               />
             </div>
             <Button type="button" variant="outline" size="sm" onClick={fillStairs}>
-              Add treads, risers &amp; noses
+              {plannedPieces ? `Add ${plannedPieces.join(", ").toLowerCase()}` : "Add treads, risers & noses"}
             </Button>
             <span className="text-xs text-muted-foreground">
-              One tread, one riser, and one stair nose (each) per step — then pick the product.
+              {plannedPieces
+                ? `${plannedPieces.join(", ")} — each, price stays blank until you pick the piece.`
+                : "One tread, one riser, and one stair nose (each) per step — then pick the product."}
               {derivedHsStairSteps > 0 ? " Count came from the stair question." : ""}
             </span>
           </div>
@@ -5986,6 +6115,12 @@ function QuestionBody({
     const upd = (p: Partial<Extract<Answer, { kind: "hs_stairs" }>>) => set({ ...a, ...p });
     const steps = Math.max(0, Math.floor(numv(a.steps)));
     const scopeLabel = a.treadRiser ? "tread + riser" : "tread only";
+    const material = hsStairMaterialOrder({
+      steps,
+      cover: a.cover ?? null,
+      coverRiser: a.treadRiser,
+    });
+    const askRiserFinish = a.cover === "treads" || (a.cover === "material" && !a.treadRiser);
     const lr = numv(a.laborRate) || (Number(q.config.labor_per_step) > 0 ? Number(q.config.labor_per_step) : 0);
     const p = a.product;
     const wrapFam = familyFromCatalogCategory(p?.category);
@@ -6009,23 +6144,54 @@ function QuestionBody({
             <Input value={a.steps} onChange={(e) => upd({ steps: e.target.value })} inputMode="numeric" placeholder="0 = no stairs" className="h-11 w-28 text-base md:h-10" />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-muted-foreground">Scope</label>
-            <div className="inline-flex overflow-hidden rounded-md border">
-              <button type="button" onClick={() => upd({ treadRiser: true })}
-                className={cn("px-3 py-2 text-sm font-medium", a.treadRiser ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
-                Tread + riser
-              </button>
-              <button type="button" onClick={() => upd({ treadRiser: false })}
-                className={cn("px-3 py-2 text-sm font-medium", !a.treadRiser ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
-                Tread only
-              </button>
-            </div>
-          </div>
-          <div>
             <label className="mb-1 block text-xs text-muted-foreground">Stair labor $ / step</label>
             <Input value={a.laborRate} onChange={(e) => upd({ laborRate: e.target.value })} inputMode="decimal" placeholder="TBD" className="h-11 w-24 text-base md:h-10" />
           </div>
         </div>
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">How are the stairs finished?</label>
+          <div className="inline-flex overflow-hidden rounded-md border">
+            <button type="button" onClick={() => upd({ cover: "treads" })}
+              className={cn("px-3 py-2 text-sm font-medium", a.cover === "treads" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
+              Stair treads
+            </button>
+            <button type="button" onClick={() => upd({ cover: "material" })}
+              className={cn("px-3 py-2 text-sm font-medium", a.cover === "material" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
+              Flooring on the stairs
+            </button>
+          </div>
+        </div>
+        {a.cover === "material" ? (
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">Does the flooring cover the riser?</label>
+            <div className="inline-flex overflow-hidden rounded-md border">
+              <button type="button" onClick={() => upd({ treadRiser: true, riserFinish: undefined })}
+                className={cn("px-3 py-2 text-sm font-medium", a.treadRiser ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
+                Yes — 8 sq ft / step
+              </button>
+              <button type="button" onClick={() => upd({ treadRiser: false })}
+                className={cn("px-3 py-2 text-sm font-medium", !a.treadRiser ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
+                No — 4 sq ft / step
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {askRiserFinish ? (
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">What happens to the riser?</label>
+            <div className="inline-flex overflow-hidden rounded-md border">
+              <button type="button" onClick={() => upd({ riserFinish: "white_board" })}
+                className={cn("px-3 py-2 text-sm font-medium", a.riserFinish === "white_board" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
+                White board
+              </button>
+              <button type="button" onClick={() => upd({ riserFinish: "leave" })}
+                className={cn("px-3 py-2 text-sm font-medium", a.riserFinish === "leave" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
+                Leave it
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {a.cover === "material" ? null : (
         <div>
           <label className="mb-1 block text-xs text-muted-foreground">Wrap product (optional — qty is not automatic)</label>
           <ProductPicker
@@ -6039,7 +6205,8 @@ function QuestionBody({
             onUseOnce={(input) => setWrapProduct(customToProductAns(input))}
           />
         </div>
-        {wrapAsksCount ? (
+        )}
+        {a.cover !== "material" && wrapAsksCount ? (
           <div className="flex flex-wrap items-center gap-2">
             <label className="text-xs text-muted-foreground">{EXTRA_AREA_COUNT_QTY_LABEL}</label>
             <Input
@@ -6065,11 +6232,24 @@ function QuestionBody({
         ) : null}
         {steps > 0 ? (
           <div className="rounded-md border border-dashed p-2.5 text-sm">
-            <span className="font-semibold tabular-nums">{steps}</span> step{steps === 1 ? "" : "s"} · {scopeLabel}
-            {" · "}noses / treads / risers fill on Trims in EACH
-            {p && wrapAsksCount && numv(a.qty ?? "") > 0 ? (
+            {material ? (
+              <>
+                <span className="font-semibold tabular-nums">{material.sqft} sq ft</span>
+                {" "}of flooring ({steps} × {material.perStep} sq ft, {scopeLabel}). Room measurements stay as entered. This allowance is not wasted again.
+              </>
+            ) : a.cover === "treads" ? (
+              <>
+                <span className="font-semibold tabular-nums">{steps}</span> stair tread{steps === 1 ? "" : "s"} and {steps} stair nose{steps === 1 ? "" : "s"}, each. No flooring square feet.
+                {a.riserFinish === "white_board" ? " White board on each riser." : a.riserFinish === "leave" ? " Riser left as-is." : " Choose the riser."}
+              </>
+            ) : (
+              <>
+                <span className="font-semibold tabular-nums">{steps}</span> step{steps === 1 ? "" : "s"}. Choose stair treads or flooring on the stairs before square feet are added.
+              </>
+            )}
+            {a.cover !== "material" && p && wrapAsksCount && numv(a.qty ?? "") > 0 ? (
               <> · {extraCountReviewLine({ family: wrapFam, productUnit: p.unit, qty: numv(a.qty ?? ""), label: p.label })}</>
-            ) : p ? (
+            ) : a.cover !== "material" && p ? (
               <> · {p.label} — enter how many to order</>
             ) : null}
             {lr > 0 ? (

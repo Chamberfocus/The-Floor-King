@@ -70,6 +70,17 @@ export {
   stairStepCountFromAnswers,
   applyHardSurfaceStairTrimFill,
   HARD_SURFACE_STAIR_TRIM_LABELS,
+  HS_STAIR_FLOOR_SQFT_WITH_RISER,
+  HS_STAIR_FLOOR_SQFT_TREAD,
+  HS_STAIR_WHITE_BOARD_LABEL,
+  hsStairCoverOf,
+  hsStairRiserFinishOf,
+  hsStairMaterialOrder,
+  hsStairRiserWantsWhiteBoard,
+  hardSurfaceStairPiecesForPlan,
+  hsStairReviewPhrase,
+  hsStairPlanFromAnswers,
+  stairPieceQuoteWhenMissing,
   answersHaveTrimType,
   HS_TRANSITION_OPTION_TO_TRIM,
   HS_TRANSITION_JCHANNEL_LABEL,
@@ -102,6 +113,9 @@ export {
   type GateAnswer,
   type StairAnswerKind,
   type HardSurfaceStairTrimLabel,
+  type HsStairCover,
+  type HsStairRiserFinish,
+  type HsStairPlan,
 } from "./answers";
 
 export {
