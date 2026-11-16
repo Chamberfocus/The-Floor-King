@@ -1,3 +1,4 @@
+import { stairAllowanceSqftFromText } from "@/lib/flooring-knowledge/answers";
 import {
   isHardSurfaceCategory,
   isRollGoodCategory,
@@ -311,11 +312,17 @@ function wasteMult(line: CalcLine): number {
  * never drift apart.
  */
 export function lineOrderQty(line: CalcLine): number {
-  return lineQty(line) * wasteMult(line);
+  const qty = lineQty(line);
+  const stampedSqft = stairAllowanceSqftFromText(line.description);
+  if (stampedSqft <= 0 || qty <= 0) return qty * wasteMult(line);
+  const labelled = normalizeUnit(line.unit);
+  const areaUnit = labelled || (line.measure_unit === "sqyd" ? "sqyd" : "sqft");
+  const allowance = Math.min(areaUnit === "sqyd" ? stampedSqft / 9 : stampedSqft, qty);
+  if (allowance <= 0) return qty * wasteMult(line);
+  return (qty - allowance) * wasteMult(line) + allowance;
 }
 
 export function lineTotal(line: CalcLine): number {
-  const qty = lineQty(line);
   switch (line.line_type) {
     case "mat_labor":
       // Waste rides on the WHOLE area line, labor included. This shop sells —
@@ -324,12 +331,11 @@ export function lineTotal(line: CalcLine): number {
       // waste-inclusive footage under-charged every job that had any waste.
       // A labor line charges labor only — a stray material rate is not added.
       return (
-        wasteMult(line) *
-        ((isLaborLine(line) ? 0 : qty * num(line.material_rate)) +
-          qty * num(line.labor_rate))
+        (isLaborLine(line) ? 0 : lineOrderQty(line) * num(line.material_rate)) +
+        lineOrderQty(line) * num(line.labor_rate)
       );
     case "installed":
-      return qty * num(line.installed_rate) * wasteMult(line);
+      return lineOrderQty(line) * num(line.installed_rate);
     case "flat":
       return num(line.flat_amount);
     default:
@@ -345,11 +351,8 @@ export function lineCost(line: CalcLine): number {
   if (line.line_type === "flat") {
     return (labor ? 0 : num(line.material_cost)) + num(line.labor_cost); // flat = a single lump cost
   }
-  const qty = lineQty(line);
-  return (
-    wasteMult(line) *
-    ((labor ? 0 : qty * num(line.material_cost)) + qty * num(line.labor_cost))
-  );
+  const billed = lineOrderQty(line);
+  return (labor ? 0 : billed * num(line.material_cost)) + billed * num(line.labor_cost);
 }
 
 export function lineProfit(line: CalcLine): number {
