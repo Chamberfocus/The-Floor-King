@@ -28,6 +28,23 @@ export type GuidedProductRates = {
   sellLocked: boolean;
 };
 
+/**
+ * A price typed on a trim row or on stair labor is the customer sell.
+ * It is not catalog cost, and it is not marked up again on the way into Builder.
+ */
+export function guidedTypedCustomerSell(typed: string | number | null | undefined): {
+  material_rate: number;
+  material_cost: number;
+  sellLocked: boolean;
+} {
+  const sell = cents(num(typed));
+  return {
+    material_rate: sell > 0 ? sell : 0,
+    material_cost: 0,
+    sellLocked: sell > 0,
+  };
+}
+
 export function resolveGuidedProductRates(args: {
   /** Catalog cost already converted into the line billing unit. Ignored when missing. */
   catalogCostInLineUnit: number;

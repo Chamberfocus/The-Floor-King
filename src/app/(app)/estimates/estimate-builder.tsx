@@ -35,7 +35,7 @@ import {
   flooringBaseForCustomerTotal,
   presentCustomerBill,
 } from "@/lib/bill-recovery";
-import { recoverAreaSqftFromQuantity } from "@/lib/questionnaire-emit";
+import { builderSqftFromGuidedLine, recoverAreaSqftFromQuantity } from "@/lib/questionnaire-emit";
 import { isPresentCommissionOverride } from "@/lib/estimate-commission";
 import { CustomerScopeView } from "@/components/customer-scope-view";
 import { buildCustomerScope, customerCopyNarrative } from "@/lib/customer-scope";
@@ -705,6 +705,34 @@ export function EstimateBuilder({
         const savedMeasures = Array.isArray(l.measurements) ? l.measurements : [];
         const isFlooring =
           isRollGoodCategory(l.category) || isHardSurfaceCategory(l.category);
+        const identity = lineSkipsAreaCartonMath({ description: desc, unit: l.unit }) ||
+          (!(isRollGoodCategory(l.category) || isHardSurfaceCategory(l.category)) &&
+            isCountPricedLine({ unit: l.unit, sqft: null }));
+        const savedAreaRaw = identity
+          ? ""
+          : recoverAreaSqftFromQuantity({
+              unit: l.unit,
+              sqft: l.sqft,
+              quantity: l.quantity,
+              description: desc,
+              category: l.category,
+            });
+        const savedAreaN = parseFloat(savedAreaRaw);
+        const savedSqft = Number.isFinite(savedAreaN) ? savedAreaN : 0;
+        const seedRow: MeasureRow | null =
+          !savedMeasures.length && isFlooring && lenIn && widIn
+            ? {
+                ...newMeasureRow(l.room ?? ""),
+                len_ft: inToFt(lenIn),
+                len_in: inToIn(lenIn),
+                wid_ft: inToFt(widIn),
+                wid_in: inToIn(widIn),
+              }
+            : null;
+        const seedPiece = seedRow ? rowsSqft([seedRow]) : 0;
+        // One stored rectangle is the first room. A larger saved total
+        // (stairs, landings, extra sections) stays the priced square feet.
+        const keepGuidedTotal = seedPiece > 0 && savedSqft > seedPiece + 0.05;
         const measurements: MeasureRow[] = savedMeasures.length
           ? savedMeasures.map((m) => ({
               ...newMeasureRow(),
@@ -715,29 +743,15 @@ export function EstimateBuilder({
               wid_in: inToIn(m.width_in),
               op: m.op === "subtract" ? "subtract" : "add",
             }))
-          : isFlooring && lenIn && widIn
-            ? [{
-                ...newMeasureRow(l.room ?? ""),
-                len_ft: inToFt(lenIn),
-                len_in: inToIn(lenIn),
-                wid_ft: inToFt(widIn),
-                wid_in: inToIn(widIn),
-              }]
+          : seedRow && !keepGuidedTotal
+            ? [seedRow]
             : [];
-        const identity = lineSkipsAreaCartonMath({ description: desc, unit: l.unit }) ||
-          (!(isRollGoodCategory(l.category) || isHardSurfaceCategory(l.category)) &&
-            isCountPricedLine({ unit: l.unit, sqft: null }));
-        const sqftStr = identity
-          ? ""
-          : measurements.length
-            ? String(rowsSqft(measurements))
-            : recoverAreaSqftFromQuantity({
-                unit: l.unit,
-                sqft: l.sqft,
-                quantity: l.quantity,
-                description: desc,
-                category: l.category,
-              });
+        const keptSqft = builderSqftFromGuidedLine({
+          savedSqft,
+          pieceSqft: measurements.length ? rowsSqft(measurements) : 0,
+          synthesizedFromLineDims: !!seedRow && measurements.length === 0,
+        });
+        const sqftStr = identity ? "" : keptSqft > 0 ? String(keptSqft) : "";
         return {
         key: newKey(),
         id: l.id,
@@ -1547,9 +1561,18 @@ export function EstimateBuilder({
   // them (the list is the source of truth). The primary cut (first add-piece) is
   // mirrored onto len/wid so the single-cut readers stay in sync.
   const setLineMeasurements = (oi: number, li: number, rows: MeasureRow[]) => {
+    const line = options[oi]?.lines[li];
+    const prevPieces = line?.measurements.some(rowHasDims) ? rowsSqft(line.measurements) : 0;
+    const prevSqft = num(line?.sqft);
+    const extra =
+      prevPieces > 0 && prevSqft > prevPieces + 0.05
+        ? Math.round((prevSqft - prevPieces) * 100) / 100
+        : 0;
     const patch: Partial<LineState> = { measurements: rows };
-    if (rows.length) {
-      patch.sqft = String(rowsSqft(rows));
+    // An empty new row must not wipe the guided total. A real piece updates
+    // the area and keeps square feet that were not in the previous pieces.
+    if (rows.some(rowHasDims)) {
+      patch.sqft = String(Math.round((rowsSqft(rows) + extra) * 100) / 100);
       patch.quantity = ""; // area drives the line again
       const first = rows.find((r) => r.op === "add" && rowHasDims(r)) ?? rows[0];
       if (first) {
@@ -1832,11 +1855,18 @@ export function EstimateBuilder({
         description: l.description,
         note: l.note,
         line_type: l.line_type,
-        // The measurement list is the source of truth for a flooring line's area.
+        // Saved square feet win when they are larger than the piece list.
+        // That is the guided total (stairs and landings included).
         sqft: skipLeftoverArea
           ? null
           : l.measurements.some(rowHasDims)
-            ? String(rowsSqft(l.measurements))
+            ? String(
+                builderSqftFromGuidedLine({
+                  savedSqft: num(l.sqft),
+                  pieceSqft: rowsSqft(l.measurements),
+                  synthesizedFromLineDims: num(l.sqft) > rowsSqft(l.measurements) + 0.05,
+                }),
+              )
             : l.sqft || null,
         length_in: skipLeftoverArea
           ? null
