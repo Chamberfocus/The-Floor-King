@@ -10,6 +10,7 @@ import { catalogRateInLineUnit, catalogUnitCost, PRICE_NEEDED } from "@/lib/cata
 import {
   guidedLineSellForSave,
   guidedMaterialPriceLabel,
+  guidedTypedCustomerSell,
   resolveGuidedProductRates,
 } from "@/lib/guided-estimate-price";
 import {
@@ -125,6 +126,7 @@ import {
   resolveQuestionVisibility,
   hideUnkeyedLabelDuplicates,
   hideDuplicateQuestionKeys,
+  hideLegacyDoorwayTransitionQuestions,
   hideDuplicateQuestionLabels,
   hideNonCarpetSectionsWhenCarpetOnly,
   simplifyCarpetQuestionnaire,
@@ -416,6 +418,9 @@ const showTrimLinearFt = (row: TrimRow): boolean => {
 
 /** The trims you click to add. Units are real (lnft / each) — prices are not.
  *  Pick a catalog item or type a rate; do not invent $1/lnft or $45/nose. */
+/** Pieces the doorway-transitions question already asks for. Hidden on Trims when that question is in the walk. */
+const DOORWAY_TRANSITION_TRIM_LABELS = new Set(Object.values(HS_TRANSITION_OPTION_TO_TRIM));
+
 const TRIM_TYPES: { label: string; unit: string; sized?: boolean }[] = [
   { label: "Baseboard", unit: "lnft", sized: true },
   { label: "Shoe molding", unit: "lnft" },
@@ -878,6 +883,7 @@ export function Questionnaire({
   // first render is skipped so simply opening the page doesn't overwrite a draft.
   // Status is shown on screen so you can SEE it saving as you go (no silent loss).
   const firstSave = useRef(true);
+  const seededTransitionLabels = useRef(new Set<string>());
   const [draftStatus, setDraftStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   useEffect(() => {
     if (firstSave.current) {
@@ -893,6 +899,7 @@ export function Questionnaire({
     return () => clearTimeout(t);
   }, [customerId, serviceAddressId, answers, overrides, step, cashCarry]);
   const startOver = () => {
+    seededTransitionLabels.current.clear();
     setAnswers(buildDefaults());
     setOverrides({});
     setStep(0);
@@ -960,9 +967,12 @@ export function Questionnaire({
     // One key, then one label. Carpet jobs also drop hard-surface leftovers
     // (radiant heat, 6-mil vapor, plank stairs) and unkeyed tile/hardwood rows.
     const exclusive = jobIsExclusiveCarpetOnly(installContextFromValByKey(valByKey));
-    const deduped = hideDuplicateQuestionLabels(
+    const deduped = hideLegacyDoorwayTransitionQuestions(
       questions,
-      hideUnkeyedLabelDuplicates(questions, hideDuplicateQuestionKeys(questions, vis)),
+      hideDuplicateQuestionLabels(
+        questions,
+        hideUnkeyedLabelDuplicates(questions, hideDuplicateQuestionKeys(questions, vis)),
+      ),
     );
     return hideCarpetPadAndTackDuplicates(
       questions,
@@ -1040,6 +1050,30 @@ export function Questionnaire({
       ),
     [questions, answers],
   );
+  const doorwayTransitionsAsked = useMemo(
+    () => questions.some((q) => q.key === "hs_transitions" && visible[q.id]),
+    [questions, visible],
+  );
+  // The doorway question is the only transitions ask. Seed those pieces onto
+  // the trim list once so quantity and selling price are filled there.
+  useEffect(() => {
+    if (!doorwayTransitionsAsked || hsTransitionTrims.length === 0) return;
+    const fresh = hsTransitionTrims.filter((label) => !seededTransitionLabels.current.has(label));
+    if (!fresh.length) return;
+    const trimQ = questions.find((q) => q.kind === "product" && q.config.trim_list);
+    if (!trimQ) return;
+    for (const label of fresh) seededTransitionLabels.current.add(label);
+    setAnswers((prev) => {
+      const current = prev[trimQ.id];
+      const rows = current?.kind === "trims" ? current.rows : [];
+      const next = applyTrimTypeSeed(rows, fresh, (label) => {
+        const t = TRIM_TYPES.find((x) => x.label === label);
+        return newTrimRow(t ?? { label, unit: accessoryUnitForType(label) });
+      });
+      if (next.length === rows.length) return prev;
+      return { ...prev, [trimQ.id]: { kind: "trims", rows: next } };
+    });
+  }, [doorwayTransitionsAsked, hsTransitionTrims, questions]);
 
   const cutsSqftByCategory = useMemo(() => {
     const out: Record<string, number> = {};
@@ -1943,8 +1977,10 @@ export function Questionnaire({
           const rrLabor = row.rr ? numv(row.rrRate ?? "") : 0;
           const productMoney =
             p && !row.rr ? materialMoney(p, rateFor(p.materialRate, p.unit, false)) : null;
-          const matCost = row.rr ? 0 : productMoney ? productMoney.material_cost : numv(row.cost);
-          const matSell = row.rr ? 0 : productMoney ? productMoney.material_rate : sellMat(matCost);
+          // A typed trim price is the customer sell. It is not marked up again.
+          const typedTrim = guidedTypedCustomerSell(row.cost);
+          const matCost = row.rr ? 0 : productMoney ? productMoney.material_cost : typedTrim.material_cost;
+          const matSell = row.rr ? 0 : productMoney ? productMoney.material_rate : typedTrim.material_rate;
           const laborCost = (p && !row.rr ? p.laborRate : 0) + rrLabor;
           const desc =
             (p?.label ||
@@ -1964,7 +2000,7 @@ export function Questionnaire({
             material_rate: matSell,
             labor_rate: sellLab(laborCost),
             material_cost: matCost,
-            sell_locked: productMoney?.sell_locked ?? false,
+            sell_locked: productMoney ? productMoney.sell_locked : typedTrim.sellLocked,
             labor_cost: laborCost,
             waste_pct: 0,
             product_id: p?.productId || null,
@@ -2453,15 +2489,12 @@ export function Questionnaire({
               });
             }
           }
-          const typedRate = numv(a.laborRate);
+          const typedStair = guidedTypedCustomerSell(a.laborRate);
           const configPerStep = Number(q.config.labor_per_step);
-          const lr =
-            typedRate > 0
-              ? typedRate
-              : Number.isFinite(configPerStep) && configPerStep > 0
-                ? configPerStep
-                : 0;
-          if (lr > 0) {
+          const configOk = !typedStair.sellLocked && Number.isFinite(configPerStep) && configPerStep > 0;
+          const laborSell = typedStair.sellLocked ? typedStair.material_rate : configOk ? sellLab(configPerStep) : 0;
+          const laborCost = typedStair.sellLocked ? 0 : configOk ? configPerStep : 0;
+          if (laborSell > 0) {
             out.push({
               room: null,
               description: `Stair install — ${steps} step${steps === 1 ? "" : "s"} (${scopeLabel})`,
@@ -2473,9 +2506,9 @@ export function Questionnaire({
               width_in: null,
               unit: "step",
               material_rate: 0,
-              labor_rate: sellLab(lr),
+              labor_rate: laborSell,
               material_cost: 0,
-              labor_cost: lr,
+              labor_cost: laborCost,
               waste_pct: 0,
               product_id: null,
               manufacturer: null,
@@ -3863,6 +3896,7 @@ export function Questionnaire({
               flooringCtx={flooringCtx}
               hsTransitionTrims={hsTransitionTrims}
               hsBaseTrims={hsBaseTrims}
+              doorwayTransitionsAsked={doorwayTransitionsAsked}
               cutsSqftByCategory={cutsSqftByCategory}
               goToAreas={() => {
                 const i = stepQuestions.findIndex((sq) => sq.kind === "areas");
@@ -4167,6 +4201,7 @@ function QuestionBody({
   cutsSqftByCategory = {},
   hsTransitionTrims = [],
   hsBaseTrims = [],
+  doorwayTransitionsAsked = false,
 }: {
   q: EstimateQuestion;
   answer: Answer | undefined;
@@ -4196,6 +4231,8 @@ function QuestionBody({
   hsTransitionTrims?: string[];
   /** TRIM_TYPES labels the salesperson already picked on hs_base_trim. */
   hsBaseTrims?: string[];
+  /** Doorway transitions were already asked. Do not ask again on Trims. */
+  doorwayTransitionsAsked?: boolean;
 }) {
   // How many stairs? — seeded from hs_plank_stairs when the salesperson already
   // counted steps. Declared unconditionally so hook order is stable across kinds.
@@ -4826,7 +4863,10 @@ function QuestionBody({
       <div className="space-y-3">
         {/* Quick-add: click the trims you need. */}
         <div className="flex flex-wrap gap-1.5">
-          {TRIM_TYPES.map((t) => (
+          {(doorwayTransitionsAsked
+            ? TRIM_TYPES.filter((t) => !DOORWAY_TRANSITION_TRIM_LABELS.has(t.label))
+            : TRIM_TYPES
+          ).map((t) => (
             <button
               key={t.label}
               type="button"
@@ -4873,15 +4913,10 @@ function QuestionBody({
           </div>
         ) : null}
 
-        {hsTransitionTrims.length ? (
-          <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed bg-primary/5 p-2.5">
-            <Button type="button" variant="outline" size="sm" onClick={() => fillFromPicks(hsTransitionTrims)}>
-              Add selected transitions
-            </Button>
-            <span className="text-xs text-muted-foreground">
-              {hsTransitionTrims.join(", ")} — {transitionTrimUnitClause(hsTransitionTrims)}. Then pick the catalog piece.
-            </span>
-          </div>
+        {doorwayTransitionsAsked && hsTransitionTrims.length ? (
+          <p className="text-xs text-muted-foreground">
+            {hsTransitionTrims.join(", ")} came from the doorway question. Enter the quantity and the selling price here — {transitionTrimUnitClause(hsTransitionTrims)}.
+          </p>
         ) : null}
 
         {hsBaseTrims.length ? (
@@ -5001,14 +5036,14 @@ function QuestionBody({
               ) : null}
               {!row.product && !row.rr ? (
                 <div>
-                  <label className="mb-1 block text-xs text-muted-foreground">$ / {row.unit}</label>
+                  <label className="mb-1 block text-xs text-muted-foreground">Selling price / {row.unit}</label>
                   {/* catalog or type — do not invent */}
                   <Input
                     value={row.cost}
                     onChange={(e) => patch(row.id, { cost: e.target.value })}
                     inputMode="decimal"
-                    placeholder="catalog price or your cost"
-                    className="h-10 w-20 text-base"
+                    placeholder="customer sell"
+                    className="h-10 w-28 text-base"
                   />
                 </div>
               ) : null}
@@ -6386,7 +6421,14 @@ function QuestionBody({
       coverRiser: a.treadRiser,
     });
     const askRiserFinish = a.cover === "treads" || (a.cover === "material" && !a.treadRiser);
-    const lr = numv(a.laborRate) || (Number(q.config.labor_per_step) > 0 ? Number(q.config.labor_per_step) : 0);
+    const typedStairPreview = numv(a.laborRate);
+    const configStair = Number(q.config.labor_per_step);
+    const lr =
+      typedStairPreview > 0
+        ? typedStairPreview
+        : Number.isFinite(configStair) && configStair > 0
+          ? sellLab(configStair)
+          : 0;
     const p = a.product;
     const wrapFam = familyFromCatalogCategory(p?.category);
     const wrapAsksCount = extraAsksCountQty({ family: wrapFam, productUnit: p?.unit });
@@ -6518,7 +6560,7 @@ function QuestionBody({
               <> · {p.label} — enter how many to order</>
             ) : null}
             {lr > 0 ? (
-              <> · labor <span className="tabular-nums">{formatMoney(sellLab(lr) * steps)}</span> ({steps} × {formatMoney(sellLab(lr))}/step)</>
+              <> · labor <span className="tabular-nums">{formatMoney(lr * steps)}</span> ({steps} × {formatMoney(lr)}/step)</>
             ) : (
               <>
                 {" · enter a labor price per step"}

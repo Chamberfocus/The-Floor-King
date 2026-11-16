@@ -100,6 +100,39 @@ export function hideDuplicateQuestionLabels<
 }
 
 /**
+ * Doorway transitions are one question: `hs_transitions`.
+ * An older unkeyed "Transitions needed" choice is the same ask.
+ * The trim list stays — that is where quantity and selling price are entered.
+ * Carpet metals ("Metals / transitions") stay; they are a different doorway.
+ */
+export function hideLegacyDoorwayTransitionQuestions<
+  T extends {
+    id: string;
+    key?: string | null;
+    kind?: string | null;
+    label?: string | null;
+    config?: { trim_list?: boolean } | null;
+  },
+>(questions: T[], visible: Record<string, boolean>): Record<string, boolean> {
+  const hasKeyed = questions.some(
+    (q) => (q.key ?? "").trim() === "hs_transitions" && visible[q.id],
+  );
+  if (!hasKeyed) return visible;
+  const next: Record<string, boolean> = { ...visible };
+  for (const q of questions) {
+    if (!next[q.id]) continue;
+    if ((q.key ?? "").trim() === "hs_transitions") continue;
+    if (q.config?.trim_list) continue;
+    if ((q.kind ?? "") !== "choice") continue;
+    const label = (q.label ?? "").trim();
+    if (!/transition/i.test(label)) continue;
+    if (/metal/i.test(label)) continue;
+    next[q.id] = false;
+  }
+  return next;
+}
+
+/**
  * Two active rows with the same key are the same question. Keep the earlier
  * one. The later copy does not drive a second answer.
  */

@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { lineQty, lineTotal, type CalcLine } from "@/lib/estimate-calc";
 import {
+  builderSqftFromGuidedLine,
   questionnaireEmitToLineQty,
   recoverAreaSqftFromQuantity,
   smartLineToCalcLine,
@@ -319,6 +320,38 @@ describe("reload hydration recovers Amount stored only on quantity", () => {
         description: "Rebond pad",
       }),
     ).toBe("");
+  });
+});
+
+describe("guided total survives the builder when the first room is smaller", () => {
+  it("keeps stairs and landings on the priced square feet", () => {
+    expect(
+      builderSqftFromGuidedLine({
+        savedSqft: 640,
+        pieceSqft: 500,
+        synthesizedFromLineDims: true,
+      }),
+    ).toBe(640);
+  });
+
+  it("keeps a saved cut list as the area", () => {
+    expect(
+      builderSqftFromGuidedLine({
+        savedSqft: 640,
+        pieceSqft: 500,
+        synthesizedFromLineDims: false,
+      }),
+    ).toBe(500);
+  });
+
+  it("uses the rectangle when it is the whole total", () => {
+    expect(
+      builderSqftFromGuidedLine({
+        savedSqft: 500,
+        pieceSqft: 500,
+        synthesizedFromLineDims: false,
+      }),
+    ).toBe(500);
   });
 });
 

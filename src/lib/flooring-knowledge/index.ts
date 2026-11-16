@@ -57,6 +57,7 @@ export {
   hideUnkeyedLabelDuplicates,
   hideDuplicateQuestionLabels,
   hideDuplicateQuestionKeys,
+  hideLegacyDoorwayTransitionQuestions,
   hideNonCarpetSectionsWhenCarpetOnly,
   simplifyCarpetQuestionnaire,
   hideCarpetPadAndTackDuplicates,

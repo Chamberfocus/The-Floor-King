@@ -137,6 +137,27 @@ export function recoverAreaSqftFromQuantity(args: {
   return String(q);
 }
 
+/**
+ * Square feet the builder should price.
+ *
+ * Guided flooring stores the priced total on `sqft`. `length_in` / `width_in`
+ * are only the first room. A measurement row invented from that one rectangle
+ * must not replace a larger total (stairs, landings, extra sections).
+ * A saved measurement list (warehouse cuts) stays the area.
+ */
+export function builderSqftFromGuidedLine(args: {
+  savedSqft: number;
+  pieceSqft: number;
+  synthesizedFromLineDims: boolean;
+}): number {
+  const saved = Number.isFinite(args.savedSqft) && args.savedSqft > 0 ? args.savedSqft : 0;
+  const piece = Number.isFinite(args.pieceSqft) && args.pieceSqft > 0 ? args.pieceSqft : 0;
+  const keepSaved =
+    args.synthesizedFromLineDims && saved > 0 && (piece <= 0 || saved > piece + 0.05);
+  const n = keepSaved ? saved : piece > 0 ? piece : saved;
+  return Math.round(n * 100) / 100;
+}
+
 /** Shape the review step / tests feed into canonical `lineTotal`. */
 export function smartLineToCalcLine(l: {
   category: string;

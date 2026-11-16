@@ -75,6 +75,7 @@ import {
   installSystemFromLabel,
   matchesShowIf,
   hideUnkeyedLabelDuplicates,
+  hideLegacyDoorwayTransitionQuestions,
   hardSurfaceInstallMethodOptions,
   jobNeedsMixedInstallMethodPicks,
   solePermittedInstallSystem,
@@ -123581,12 +123582,43 @@ describe("0199 hard-surface transitions and base trim without invented SKUs", ()
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/applyTrimTypeSeed/);
     expect(q).toMatch(/hsTransitionTrims/);
+    expect(q).toMatch(/doorwayTransitionsAsked/);
+    expect(q).not.toMatch(/Add selected transitions/);
     expect(q).toMatch(/ensureJChannelTransitionOption/);
     expect(q).toMatch(/ensureVinylCoveBaseOption/);
     expect(q).toMatch(/hsBaseTrims/);
     expect(q).toMatch(/Vinyl cove base/);
     expect(q).toMatch(/orderWastePhrase/);
     expect(q).toMatch(/trimReviewPhrase/);
+  });
+
+  it("asks doorway transitions once and leaves carpet metals alone", () => {
+    const questions = [
+      { id: "hs", key: "hs_transitions", kind: "choice", label: "Doorway transitions needed?" },
+      { id: "old", key: null, kind: "choice", label: "Transitions needed" },
+      { id: "what", key: null, kind: "choice", label: "Transitions — transition to what?" },
+      { id: "metals", key: "metals_needed", kind: "yesno", label: "Metals / transitions needed?" },
+      {
+        id: "trims",
+        key: null,
+        kind: "product",
+        label: "Trims, moldings & transitions",
+        config: { trim_list: true },
+      },
+    ];
+    const visible = Object.fromEntries(questions.map((q) => [q.id, true]));
+    const next = hideLegacyDoorwayTransitionQuestions(questions, visible);
+    expect(next.hs).toBe(true);
+    expect(next.old).toBe(false);
+    expect(next.what).toBe(false);
+    expect(next.metals).toBe(true);
+    expect(next.trims).toBe(true);
+    expect(
+      hideLegacyDoorwayTransitionQuestions(
+        questions.filter((q) => q.id !== "hs"),
+        visible,
+      ).old,
+    ).toBe(true);
   });
 
   it("offers vinyl cove base and keeps stair nose and J-channel on the review", () => {

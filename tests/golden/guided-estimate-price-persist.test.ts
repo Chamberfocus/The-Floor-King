@@ -10,6 +10,7 @@ import { formatMoney } from "@/lib/format";
 import {
   guidedLineSellForSave,
   guidedMaterialPriceLabel,
+  guidedTypedCustomerSell,
   hydrateBuilderMaterialRate,
   resolveGuidedProductRates,
   roundTripGuidedMaterialPrice,
@@ -115,6 +116,22 @@ describe("entered selling price persists into Builder", () => {
     );
     expect(label).toBe(PRICE_NEEDED);
     expect(label).not.toBe(formatMoney(0));
+  });
+
+  it("keeps a typed trim or stair price as the sell, without marking it up", () => {
+    const typed = guidedTypedCustomerSell("25");
+    const markedUp = Math.round(sellMaterialFromTargetMargin(25, 40, 0) * 100) / 100;
+    expect(typed.material_rate).toBe(25);
+    expect(typed.material_cost).toBe(0);
+    expect(typed.sellLocked).toBe(true);
+    expect(typed.material_rate).not.toBe(markedUp);
+    expect(guidedLineSellForSave({ material_rate: typed.material_rate })).toBe(25);
+    expect(hydrateBuilderMaterialRate(25, 0, "trim", 0)).toBe("25");
+    expect(guidedTypedCustomerSell("")).toEqual({
+      material_rate: 0,
+      material_cost: 0,
+      sellLocked: false,
+    });
   });
 
   it("keeps a catalog-derived sell when the salesperson did not type one", () => {
