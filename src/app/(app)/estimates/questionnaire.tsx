@@ -4,6 +4,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } 
 import { billedQtyToSqft, catalogRateToBillingUnit, isAreaUnit, lineDisplayUnit, lineSkipsAreaCartonMath, normalizeUnit, pickedProductUnit, unitIsSqyd, unitLabel } from "@/lib/units";
 import { lineColorFromCatalog } from "@/lib/catalog-identity";
 import { productLabel } from "@/lib/product-label";
+import { versatrimTrimProfile, type VersatrimQuery } from "@/lib/versatrim";
+import { VersatrimMatchCard } from "./versatrim-match";
 import { catalogRateInLineUnit, catalogUnitCost, PRICE_NEEDED } from "@/lib/catalog-pricing";
 import {
   guidedLineSellForSave,
@@ -307,6 +309,36 @@ interface TrimRow {
 const isRnREligible = (type: string): boolean => /base|shoe/i.test(type);
 // A matching stairnose: source Versatrim first, else the flooring manufacturer.
 const isStairnose = (type: string): boolean => /stair\s*nose/i.test(type);
+
+const VERSATRIM_FLOOR_FAMILIES = new Set(["lvp", "hardwood", "laminate", "vinyl", "tile"]);
+
+function versatrimFloors(answers: Record<string, Answer>): VersatrimQuery[] {
+  const out: VersatrimQuery[] = [];
+  const seen = new Set<string>();
+  const add = (p: ProductAns | null | undefined) => {
+    if (!p) return;
+    if (!VERSATRIM_FLOOR_FAMILIES.has(familyFromCatalogCategory(p.category))) return;
+    const query = {
+      manufacturer: p.manufacturer,
+      style: p.style,
+      color: p.color,
+      label: p.label,
+    };
+    const key = [query.manufacturer, query.style, query.color, query.label]
+      .map((part) => (part ?? "").trim().toLowerCase())
+      .join("|");
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(query);
+  };
+  for (const answer of Object.values(answers)) {
+    if (answer.kind === "product") add(answer.product);
+    if (answer.kind === "floor_map") {
+      for (const room of Object.values(answer.byRoom)) add(room);
+    }
+  }
+  return out;
+}
 
 /**
  * The stick length of an accessory sold by the piece, or null when the row is
@@ -3632,6 +3664,12 @@ export function Questionnaire({
               </div>
               );
             })}
+            {versatrimFloors(answers).map((floor) => (
+              <VersatrimMatchCard
+                key={[floor.manufacturer, floor.style, floor.color, floor.label].join("|")}
+                product={floor}
+              />
+            ))}
             <div className="text-sm font-semibold">Estimate lines</div>
             {lines.length ? (
               <div className="divide-y text-sm">
@@ -4324,6 +4362,11 @@ function QuestionBody({
                 onCreated={(prod) => setRoom(key, toProductAns(prod))}
                 onUseOnce={(input) => setRoom(key, customToProductAns(input))}
               />
+              {p && VERSATRIM_FLOOR_FAMILIES.has(family) ? (
+                <div className="mt-2">
+                  <VersatrimMatchCard product={p} />
+                </div>
+              ) : null}
               {p ? (
                 <div className="mt-1.5 text-xs text-muted-foreground">
                   {p.label} ·{" "}
@@ -4711,11 +4754,26 @@ function QuestionBody({
             ) : null}
             {/* Matching stairnose sourcing rule — Versatrim first, else match the
                 flooring's own manufacturer. */}
-            {isStairnose(row.type) ? (
-              <div className="rounded border border-primary/30 bg-primary/5 px-2 py-1 text-xs">
-                <span className="font-semibold">Matching stairnose:</span> default to{" "}
-                <span className="font-semibold">Versatrim</span>. If Versatrim doesn&apos;t make it,
-                order the matching stairnose from the flooring&apos;s manufacturer.
+            {versatrimTrimProfile(row.type) ? (
+              <div className="space-y-1.5">
+                {versatrimFloors(jobAnswers).length ? (
+                  versatrimFloors(jobAnswers).map((floor) => (
+                    <VersatrimMatchCard
+                      key={[floor.manufacturer, floor.style, floor.color, floor.label].join("|")}
+                      product={floor}
+                      profile={versatrimTrimProfile(row.type)}
+                      onUse={(hit) =>
+                        patch(row.id, {
+                          color: [floor.color || floor.style || "", hit.sku].filter(Boolean).join(" "),
+                        })
+                      }
+                    />
+                  ))
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Pick the flooring product first. Versatrim is checked from that color. If they do not list it, order the match from the flooring manufacturer.
+                  </p>
+                )}
               </div>
             ) : null}
             {/* Optional: attach a specific catalog / Versatrim product. */}
@@ -4838,6 +4896,7 @@ function QuestionBody({
           onCreated={(prod) => setMain(toProductAns(prod))}
           onUseOnce={(input) => setMain(customToProductAns(input))}
         />
+        {p && VERSATRIM_FLOOR_FAMILIES.has(family) ? <VersatrimMatchCard product={p} /> : null}
         {p ? (
           <>
             <div className="rounded-md border bg-muted/30 p-2.5 text-sm">
