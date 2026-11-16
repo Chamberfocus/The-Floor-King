@@ -159,7 +159,7 @@ export function salespersonHelpFor(q: HelpQuestion, ctx: InstallContext): string
   if (key === "acclimation") return "Hardwood, glue-down, and carpet tile need time in the space before install.";
   if (key === "construction_grade") return "Above, on, or below grade can limit the product and the adhesive.";
   if (key === "moisture_test") return "Test concrete before glue-down, carpet tile, or hardwood. If you cannot test yet, leave the result blank.";
-  if (key === "stair_landings") return "Count landings. They need extra pieces and nosing.";
+  if (key === "stair_landings") return "Measure each landing. Its square feet join the flooring total.";
   if (key === "stair_open_sides") return "Open sides change wrapped carpet ends and hard-surface nosing.";
   if (key === "stairs") return "Stairs change material, labor, and trim. Answer the stair questions for the flooring on those steps.";
   if (key === "asbestos_risk") return "Old tile or sheet vinyl can contain asbestos. Possible or confirmed is a warning for the crew, not a price.";

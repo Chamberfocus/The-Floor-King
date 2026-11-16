@@ -75,6 +75,10 @@ export function answerGateValues(a: unknown): string[] {
     }
     case "hs_stairs":
       return positiveCount(ans.steps) > 0 ? ["Yes"] : [];
+    case "landings": {
+      const takeoff = landingTakeoffFromAnswer(a);
+      return takeoff.count > 0 || takeoff.sqft > 0 ? ["Yes"] : [];
+    }
     default:
       return [];
   }
@@ -215,6 +219,214 @@ export function hsStairMaterialOrder(args: {
   };
 }
 
+/**
+ * Stamp on the flooring line so the stair allowance is part of that line's
+ * square footage, and room waste is not applied to it again.
+ */
+export function stairAllowanceStamp(sqft: number): string {
+  const n = Math.round(sqft * 100) / 100;
+  return `stair allowance ${n} sq ft unwasted`;
+}
+
+export function stairAllowanceSqftFromText(text: string | null | undefined): number {
+  const match = /stair allowance (\d+(?:\.\d+)?) sq ft unwasted/i.exec(text ?? "");
+  if (!match) return 0;
+  const n = Number(match[1]);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+export interface LandingSizeInput {
+  lf?: string;
+  li?: string;
+  wf?: string;
+  wi?: string;
+  /** Direct square feet when the landing is not a simple rectangle. */
+  sqft?: string;
+}
+
+function landingNum(raw: string | undefined): number {
+  const n = Number(String(raw ?? "").trim());
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Square feet of one landing. A blank size is 0 — never invent a landing. */
+export function landingPieceSqft(row: LandingSizeInput): number {
+  const direct = landingNum(row.sqft);
+  if (direct > 0) return Math.round(direct * 100) / 100;
+  const length = landingNum(row.lf) + landingNum(row.li) / 12;
+  const width = landingNum(row.wf) + landingNum(row.wi) / 12;
+  if (length > 0 && width > 0) return Math.round(length * width * 100) / 100;
+  return 0;
+}
+
+export interface LandingTakeoff {
+  /** Landings the salesperson counted, sized or not. */
+  count: number;
+  /** Sized landings only. This joins the flooring square footage. */
+  sqft: number;
+  /** Counted landings with no size yet. They are not added to the total. */
+  unsized: number;
+}
+
+/** Landings from the stair-landings answer. A bare count does not invent square feet. */
+export function landingTakeoffFromAnswer(answer: unknown): LandingTakeoff {
+  const empty: LandingTakeoff = { count: 0, sqft: 0, unsized: 0 };
+  if (!answer || typeof answer !== "object") return empty;
+  const ans = answer as { kind?: string; value?: string; rows?: LandingSizeInput[] };
+  if (ans.kind === "number") {
+    const n = Math.ceil(landingNum(ans.value));
+    const count = Number.isFinite(n) && n > 0 ? n : 0;
+    return { count, sqft: 0, unsized: count };
+  }
+  if (ans.kind !== "landings") return empty;
+  const rows = ans.rows ?? [];
+  let sqft = 0;
+  let unsized = 0;
+  let count = 0;
+  for (const row of rows) {
+    const piece = landingPieceSqft(row);
+    const touched =
+      piece > 0 ||
+      [row.lf, row.li, row.wf, row.wi, row.sqft].some((part) => String(part ?? "").trim() !== "");
+    if (!touched && rows.length > 1) continue;
+    if (!touched) continue;
+    count += 1;
+    if (piece > 0) sqft += piece;
+    else unsized += 1;
+  }
+  return { count, sqft: Math.round(sqft * 100) / 100, unsized };
+}
+
+export function landingTakeoffFromAnswers(
+  answers: Record<string, unknown> | unknown[] | null | undefined,
+): LandingTakeoff {
+  const empty: LandingTakeoff = { count: 0, sqft: 0, unsized: 0 };
+  if (!answers) return empty;
+  const values = Array.isArray(answers) ? answers : Object.values(answers);
+  let count = 0;
+  let sqft = 0;
+  let unsized = 0;
+  for (const value of values) {
+    const one = landingTakeoffFromAnswer(value);
+    count += one.count;
+    sqft += one.sqft;
+    unsized += one.unsized;
+  }
+  return { count, sqft: Math.round(sqft * 100) / 100, unsized };
+}
+
+/**
+ * Sized landings are walked floor. They join prep, foam, and — on a carpet-only
+ * job — the carpet pad. They do not join a hard-surface job's carpet pad, and
+ * the stair allowance is not prep area.
+ */
+export function landingJoinsQuestionCover(args: {
+  key?: string | null;
+  kind?: string | null;
+  hardSurfaceFloor: boolean;
+}): boolean {
+  const key = args.key ?? "";
+  const kind = args.kind ?? "";
+  if (kind === "selflevel" || kind === "subfloor") return true;
+  if (
+    key === "hs_underlayment" ||
+    key === "hs_prep" ||
+    key === "selflevel_needed" ||
+    key === "subfloor_needed" ||
+    key === "moisture_mitigation" ||
+    key === "vapor_barrier" ||
+    key === "vinyl_skim"
+  ) {
+    return true;
+  }
+  if (key === "carpet_pad") return !args.hardSurfaceFloor;
+  return false;
+}
+
+export function landingReviewPhrase(takeoff: LandingTakeoff): string {
+  if (takeoff.count <= 0 && takeoff.sqft <= 0) return "";
+  const sized =
+    takeoff.sqft > 0
+      ? `${takeoff.sqft} sq ft included in the flooring total`
+      : "size not entered — not added to the square footage";
+  const count = takeoff.count > 0 ? `${takeoff.count} landing${takeoff.count === 1 ? "" : "s"}` : "Landings";
+  const missing =
+    takeoff.unsized > 0 && takeoff.sqft > 0
+      ? ` · ${takeoff.unsized} still need a size`
+      : "";
+  return `${count} — ${sized}${missing}`;
+}
+
+export interface FloorTotalLine {
+  description: string;
+  category: string;
+  unit: string;
+  sqft: number | null;
+  quantity: number | null;
+  room: string | null;
+}
+
+function lineHostsFloorTotal(line: FloorTotalLine, label: string, category: string): boolean {
+  if (line.category === "labor") return false;
+  if (/wrap qty TBD|not an automatic sq ft\/step order/i.test(line.description)) return false;
+  if (/stair allowance \d+(?:\.\d+)? sq ft unwasted/i.test(line.description)) return false;
+  const unit = line.unit.trim().toLowerCase();
+  if (unit && !/sq/.test(unit)) return false;
+  if (!(Number(line.sqft) > 0)) return false;
+  if (category && line.category !== category) return false;
+  if (!label) return true;
+  return (
+    line.description === label ||
+    line.description.startsWith(`${label} `) ||
+    line.description.startsWith(`${label}(`)
+  );
+}
+
+/**
+ * Add landing square feet and the stair allowance onto the flooring line.
+ * Landings take the line's waste. The stair allowance is stamped so it is
+ * not wasted again. Returns the same lines when there is no host line.
+ */
+export function foldFloorAdditionsIntoLines<T extends FloorTotalLine>(
+  lines: T[],
+  args: {
+    landingSqft: number;
+    stairAllowanceSqft: number;
+    productLabel: string | null;
+    productCategory: string | null;
+  },
+): { lines: T[]; folded: boolean } {
+  const landing = Math.round(Math.max(0, args.landingSqft) * 100) / 100;
+  const stair = Math.round(Math.max(0, args.stairAllowanceSqft) * 100) / 100;
+  if (landing <= 0 && stair <= 0) return { lines, folded: false };
+  const label = (args.productLabel ?? "").trim();
+  const category = (args.productCategory ?? "").trim();
+  const bundled = lines.findIndex(
+    (line) => !line.room && lineHostsFloorTotal(line, label, category),
+  );
+  const idx =
+    bundled >= 0
+      ? bundled
+      : lines.findIndex((line) => lineHostsFloorTotal(line, label, category));
+  if (idx < 0) return { lines, folded: false };
+  const line = lines[idx];
+  const add = landing + stair;
+  const nextSqft = Math.round(((line.sqft ?? 0) + add) * 100) / 100;
+  const qty = line.quantity;
+  const yards = /sq\s*yd|sqyd/.test(line.unit);
+  const nextQty =
+    qty != null && qty > 0
+      ? Math.round((qty + (yards ? add / 9 : add)) * 100) / 100
+      : qty;
+  let description = line.description;
+  if (stair > 0 && !/stair allowance /i.test(description)) {
+    description = `${description} (includes ${stair} sq ft of stairs — ${stairAllowanceStamp(stair)})`;
+  }
+  const next = lines.slice();
+  next[idx] = { ...line, sqft: nextSqft, quantity: nextQty, description };
+  return { lines: next, folded: true };
+}
+
 /** A white board is the riser only when the flooring is not already covering it. */
 export function hsStairRiserWantsWhiteBoard(args: {
   cover: HsStairCover | null;
@@ -276,7 +488,7 @@ export function hsStairReviewPhrase(args: {
       : args.riserFinish === "leave"
         ? " · riser left as-is"
         : " · riser not chosen";
-  return `${stepWord} · flooring on the stairs · ${order?.sqft ?? 0} sq ft (${order?.perStep ?? 0} sq ft × ${steps}, ${order?.label ?? "tread"})${riser}`;
+  return `${stepWord} · flooring on the stairs · ${order?.sqft ?? 0} sq ft (${order?.perStep ?? 0} sq ft × ${steps}, ${order?.label ?? "tread"}) included in the flooring total${riser}`;
 }
 
 export interface HsStairPlan {

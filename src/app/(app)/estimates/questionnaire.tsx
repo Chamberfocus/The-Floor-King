@@ -170,6 +170,12 @@ import {
   hsStairMaterialOrder,
   hsStairPlanFromAnswers,
   hsStairReviewPhrase,
+  landingPieceSqft,
+  landingReviewPhrase,
+  landingJoinsQuestionCover,
+  landingTakeoffFromAnswers,
+  foldFloorAdditionsIntoLines,
+  stairAllowanceStamp,
   hsStairRiserWantsWhiteBoard,
   hardSurfaceStairPiecesForPlan,
   HS_STAIR_WHITE_BOARD_LABEL,
@@ -319,6 +325,23 @@ const isStairnose = (type: string): boolean => /stair\s*nose/i.test(type);
 
 const VERSATRIM_FLOOR_FAMILIES = new Set(["lvp", "hardwood", "laminate", "vinyl", "tile"]);
 
+function carpetFloorProduct(answers: Record<string, Answer>): ProductAns | null {
+  for (const answer of Object.values(answers)) {
+    if (answer.kind === "product" && answer.product) {
+      if (familyFromCatalogCategory(answer.product.category) === "carpet") return answer.product;
+    }
+    if (answer.kind === "cuts" && answer.product) {
+      if (familyFromCatalogCategory(answer.product.category) === "carpet") return answer.product;
+    }
+    if (answer.kind === "floor_map") {
+      for (const room of Object.values(answer.byRoom)) {
+        if (room && familyFromCatalogCategory(room.category) === "carpet") return room;
+      }
+    }
+  }
+  return null;
+}
+
 function hsFloorProduct(answers: Record<string, Answer>): ProductAns | null {
   for (const answer of Object.values(answers)) {
     if (answer.kind === "product" && answer.product) {
@@ -426,6 +449,14 @@ interface CarpetGroup {
 }
 // A run of stairs of one wrap style (allow more than one on a job).
 interface StairGroup { id: string; type: string; count: string }
+interface LandingRow {
+  id: string;
+  lf: string;
+  li: string;
+  wf: string;
+  wi: string;
+  sqft: string;
+}
 type Answer =
   | { kind: "areas"; rooms: AreaRow[] }
   | { kind: "floor_map"; byRoom: Record<string, ProductAns | null> }
@@ -438,14 +469,27 @@ type Answer =
   | { kind: "cuts"; same: boolean; product: ProductAns | null; groups: CarpetGroup[] }
   | { kind: "stairs"; groups: StairGroup[] }
   | { kind: "hs_stairs"; steps: string; treadRiser: boolean; product: ProductAns | null; laborRate: string; qty?: string; cover?: "treads" | "material"; riserFinish?: "white_board" | "leave" }
+  | { kind: "landings"; rows: LandingRow[] }
   | { kind: "subfloor"; thickness: string }
   | { kind: "selflevel"; thickness: string }
   | { kind: "text"; text: string };
 
-let cgid = 0, ctid = 0, sgid = 0;
+let cgid = 0, ctid = 0, sgid = 0, ldid = 0;
 const newCutRow = (width = ""): CutRow => ({ id: `c${ctid++}`, lf: "", li: "", width });
 const newCarpetGroup = (width = ""): CarpetGroup => ({ id: `g${cgid++}`, area: "", product: null, cuts: [newCutRow(width)] });
 const newStairGroup = (type = "Waterfall"): StairGroup => ({ id: `s${sgid++}`, type, count: "" });
+const newLanding = (): LandingRow => ({ id: `ld${ldid++}`, lf: "", li: "", wf: "", wi: "", sqft: "" });
+const blankLanding = (id: string): LandingRow => ({ id, lf: "", li: "", wf: "", wi: "", sqft: "" });
+
+/** Rows for the landing page. A saved count with no sizes stays unsized. */
+function landingRowsForEditor(answer: Answer | undefined): LandingRow[] {
+  if (answer?.kind === "landings") {
+    return answer.rows.length ? answer.rows : [blankLanding("ld-blank")];
+  }
+  const raw = answer?.kind === "number" ? answer.value.trim() : "";
+  const n = raw === "" ? 1 : Math.min(24, Math.max(1, Math.ceil(numv(raw))));
+  return Array.from({ length: n }, (_, i) => blankLanding(`legacy-${i}`));
+}
 
 let did = 0;
 const newDemoRow = (): DemoRow => ({ id: `d${did++}`, option: "", sqft: "" });
@@ -635,6 +679,8 @@ function rekeyAnswer(a: Answer): Answer {
       return { ...a, rows: a.rows.map((r) => ({ ...r, id: `d${did++}` })) };
     case "product":
       return { ...a, extras: a.extras.map((e) => ({ ...e, id: `x${xpid++}` })) };
+    case "landings":
+      return { ...a, rows: a.rows.map((r) => ({ ...r, id: `ld${ldid++}` })) };
     default:
       return a;
   }
@@ -1317,6 +1363,13 @@ export function Questionnaire({
   const lines: SmartLine[] = useMemo(() => {
     const out: SmartLine[] = [];
     const carpetSystems = carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall);
+    const landingJob = landingTakeoffFromAnswers(answers);
+    const landingOnHardSurface = !!hsFloorProduct(answers);
+    const plusLanding = (q: { key?: string | null; kind?: string | null }, base: number) =>
+      landingJob.sqft > 0 &&
+      landingJoinsQuestionCover({ key: q.key, kind: q.kind, hardSurfaceFloor: landingOnHardSurface })
+        ? r2(base + landingJob.sqft)
+        : base;
     // Roll-goods SKU with no cuts: keep the product, do not invent yardage.
     // sqft / L×W stay null so Builder lineQty cannot price taped area as an order.
     const rollGoodsTbdLine = (
@@ -1637,7 +1690,7 @@ export function Questionnaire({
           // a second whole-job (or all-room) line for the same SKU.
           const floorMapOwnsFlooring =
             floorMapActive && cat !== "underlayment" && cat !== "trim" && cat !== "other";
-          const coverSf = questionCoverSf({ kind: q.kind, key: q.key, category: cat });
+          const coverSf = plusLanding(q, questionCoverSf({ kind: q.kind, key: q.key, category: cat }));
           const coverRooms = roomsAssignedToFamilies({
             rooms: floorMapAssignments.rooms.length
               ? floorMapAssignments.rooms
@@ -2333,50 +2386,8 @@ export function Questionnaire({
         const steps = Math.ceil(numv(a.steps));
         if (steps > 0) {
           const scopeLabel = a.treadRiser ? "tread + riser" : "tread only";
-          const material = hsStairMaterialOrder({
-            steps,
-            cover: a.cover ?? null,
-            coverRiser: a.treadRiser,
-          });
-          if (material) {
-            const floor = hsFloorProduct(answers);
-            const money = floor
-              ? materialMoney(
-                  floor,
-                  rateFor(floor.materialRate, floor.unit, false, {
-                    category: floor.category,
-                    sqft_per_box: numv(floor.sqftPerBox) > 0 ? numv(floor.sqftPerBox) : null,
-                  }),
-                )
-              : { material_rate: 0, material_cost: 0, sell_locked: false };
-            const name = floor?.label ? `${floor.label} on stairs` : "Stair flooring";
-            out.push({
-              room: null,
-              description: `${name} — ${material.sqft} sq ft (${steps} steps × ${material.perStep} sq ft, ${material.label})`,
-              category: floor?.category || "other",
-              measure_unit: "sqft",
-              sqft: material.sqft,
-              quantity: material.sqft,
-              length_in: null,
-              width_in: null,
-              unit: "sq ft",
-              material_rate: money.material_rate,
-              labor_rate: 0,
-              material_cost: money.material_cost,
-              sell_locked: money.sell_locked,
-              labor_cost: 0,
-              waste_pct: 0,
-              product_id: floor?.productId || null,
-              manufacturer:
-                floor && floor.source === "order" && floor.vendor.trim()
-                  ? floor.vendor.trim()
-                  : floor?.manufacturer ?? null,
-              style: floor?.style ?? null,
-              color: floor?.color ?? null,
-              from_stock: !!floor && floor.source === "stock",
-              sqft_per_box: floor && numv(floor.sqftPerBox) > 0 ? numv(floor.sqftPerBox) : null,
-            });
-          }
+          // Flooring on the stairs is included in the flooring total below.
+          // It is not a second material line. The 8 / 4 allowance is not wasted again.
           const p = a.product;
           // Flooring-on-the-stairs already ordered the allowance. An area-unit
           // wrap of the same idea would be a second blank line.
@@ -2492,11 +2503,16 @@ export function Questionnaire({
           jobFamilies: flooringCtx.families,
         });
         const prepCover = questionCoverSf({ kind: q.kind, key: q.key, category: q.config.category });
-        const rooms = prepRooms.length
-          ? prepRooms
-          : prepCover > 0
-            ? [{ name: "", sqft: prepCover, lenIn: null, widIn: null }]
-            : [];
+        const rooms = [
+          ...(prepRooms.length
+            ? prepRooms
+            : prepCover > 0
+              ? [{ name: "", sqft: prepCover, lenIn: null, widIn: null }]
+              : []),
+          ...(landingJob.sqft > 0
+            ? [{ name: "Landings", sqft: landingJob.sqft, lenIn: null, widIn: null }]
+            : []),
+        ];
         if (sheetSqft != null) {
         for (const rm of rooms) {
           const sheets = subfloorSheets(rm.sqft, sheetSqft);
@@ -2536,7 +2552,10 @@ export function Questionnaire({
         const pour = selfLevelPourThicknessIn(q.config, a.thickness);
         const bagCost = q.config.bag_cost ?? 0;
         const suffix = prepQuantitySuffix(flooringCtx.prepConfidence);
-        const prepCover = questionCoverSf({ kind: q.kind, key: q.key, category: q.config.category });
+        const prepCover = plusLanding(
+          q,
+          questionCoverSf({ kind: q.kind, key: q.key, category: q.config.category }),
+        );
         if (cov > 0 && prepCover > 0) {
           const bags = bagsNeeded(prepCover, cov, covT > 0 ? covT : null, covT > 0 ? pour : null);
           if (bags > 0)
@@ -2571,14 +2590,17 @@ export function Questionnaire({
         // one room-scoped line per flagged room (its own answer/area). Otherwise
         // one job-level line. Prep labor uses HS rooms on a mixed job — demo /
         // haul stay whole-job (the old floor is not the new family).
-        const emitArea = emitAreaSqftForQuestion({
-          key: q.key,
-          kind: q.kind,
-          purpose: questionPurpose(q),
-          totalSqft,
-          byFamily: floorMapAssignments.byFamily,
-          jobFamilies: flooringCtx.families,
-        });
+        const emitArea = plusLanding(
+          q,
+          emitAreaSqftForQuestion({
+            key: q.key,
+            kind: q.kind,
+            purpose: questionPurpose(q),
+            totalSqft,
+            byFamily: floorMapAssignments.byFamily,
+            jobFamilies: flooringCtx.families,
+          }),
+        );
         if (q.config.per_room && flaggedRooms.length) {
           const flaggedArea = flaggedRooms.reduce((s, r) => s + rowSqft(r), 0);
           const remaining = r2(Math.max(0, emitArea - flaggedArea));
@@ -2685,15 +2707,127 @@ export function Questionnaire({
     // Cash & carry: strip ALL labor — drop dedicated labor lines, and zero any
     // labor embedded on a surviving material/trim line (e.g. trim R&R). The one
     // guarantee that a cash & carry quote is materials only.
+    const landing = landingJob;
+    const stairOrder = hsStairMaterialOrder(stairPlan);
+    const floor = hsFloorProduct(answers);
+    const stairSqft = stairOrder?.sqft ?? 0;
+    const rollNoteFloor = floor && isRollGoodCategory(floor.category) ? floor : !floor ? carpetFloorProduct(answers) : null;
+    let built = out;
+    // Roll goods stay on their cut list. Do not invent a stair cut or a second
+    // square-footage line. The measured note on the TBD line carries the total.
+    if (rollNoteFloor && (landing.sqft > 0 || (floor ? stairSqft : 0) > 0)) {
+      const noteStair = floor ? stairSqft : 0;
+      const extra = [
+        landing.sqft > 0 ? `${landing.sqft} sq ft of landings` : "",
+        noteStair > 0 ? `${noteStair} sq ft of stairs` : "",
+      ].filter(Boolean).join(" and ");
+      built = built.map((line) => {
+        if (line.category !== rollNoteFloor.category || !rollNoteFloor.label) return line;
+        if (!line.description.startsWith(rollNoteFloor.label) || !/order TBD/i.test(line.description)) return line;
+        if (/included in this measured total/i.test(line.description)) return line;
+        const measured = /Measured ([\d.]+) sq ft/i.exec(line.description);
+        const prev = measured ? Number(measured[1]) : 0;
+        const next = r2(prev + landing.sqft + noteStair);
+        const sentence = `Measured ${next} sq ft (${extra} included in this measured total)`;
+        const description = measured
+          ? line.description.replace(/Measured [\d.]+ sq ft \([^)]*\)/i, sentence)
+          : `${line.description}. ${sentence}`;
+        return { ...line, description };
+      });
+    }
+    if (floor && !isRollGoodCategory(floor.category) && (landing.sqft > 0 || stairSqft > 0)) {
+      const folded = foldFloorAdditionsIntoLines(built, {
+        landingSqft: landing.sqft,
+        stairAllowanceSqft: stairSqft,
+        productLabel: floor.label,
+        productCategory: floor.category,
+      });
+      if (folded.folded) {
+        built = folded.lines;
+      } else if (
+        areaDerivedMaterialAllowed(
+          familyFromCatalogCategory(floor.category),
+          floor.unit,
+          carpetSystems,
+        )
+      ) {
+        const money = materialMoney(
+          floor,
+          rateFor(floor.materialRate, floor.unit, false, {
+            category: floor.category,
+            sqft_per_box: numv(floor.sqftPerBox) > 0 ? numv(floor.sqftPerBox) : null,
+          }),
+        );
+        const waste =
+          floor.wastePct.trim() !== ""
+            ? numv(floor.wastePct)
+            : profileFor(floor.category || "")?.waste ?? 0;
+        const total = r2(landing.sqft + stairSqft);
+        const stairNote =
+          stairSqft > 0
+            ? ` (includes ${stairSqft} sq ft of stairs — ${stairAllowanceStamp(stairSqft)})`
+            : "";
+        built = [
+          ...built,
+          {
+            room: null,
+            description: `${floor.label || "Flooring"}${stairNote}`,
+            category: floor.category || "other",
+            measure_unit: "sqft" as const,
+            sqft: total,
+            quantity: total,
+            length_in: null,
+            width_in: null,
+            unit: "sq ft",
+            material_rate: money.material_rate,
+            labor_rate: 0,
+            material_cost: money.material_cost,
+            sell_locked: money.sell_locked,
+            labor_cost: 0,
+            waste_pct: waste,
+            product_id: floor.productId || null,
+            manufacturer:
+              floor.source === "order" && floor.vendor.trim()
+                ? floor.vendor.trim()
+                : floor.manufacturer,
+            style: floor.style,
+            color: floor.color,
+            from_stock: floor.source === "stock",
+            sqft_per_box: numv(floor.sqftPerBox) > 0 ? numv(floor.sqftPerBox) : null,
+          },
+        ];
+      }
+    }
+    if (landing.sqft > 0) {
+      const laborIdx = built.findIndex(
+        (line) =>
+          line.category === "labor" &&
+          ((floor?.label && line.description.toLowerCase().includes(floor.label.toLowerCase())) ||
+            (!floor && /carpet installation/i.test(line.description))),
+      );
+      if (laborIdx >= 0) {
+        const labor = built[laborIdx];
+        const yards = /sq\s*yd|sqyd/i.test(labor.unit);
+        built = built.slice();
+        built[laborIdx] = {
+          ...labor,
+          sqft: r2((labor.sqft ?? 0) + landing.sqft),
+          quantity:
+            labor.quantity != null && labor.quantity > 0
+              ? r2(labor.quantity + (yards ? landing.sqft / 9 : landing.sqft))
+              : labor.quantity,
+        };
+      }
+    }
     return cashCarry
-      ? out
+      ? built
           .filter((l) => l.category !== "labor")
           .map((l) =>
             l.labor_rate || l.labor_cost
               ? { ...l, labor_rate: 0, labor_cost: 0 }
               : l,
           )
-      : out;
+      : built;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questions, answers, totalSqft, goal, visible, flaggedRooms, overrides, allRooms, cashCarry, cutsSqftByCategory, flooringCtx, addonDefaults, floorMapAssignments]);
 
@@ -2710,6 +2844,7 @@ export function Questionnaire({
       }
       if (q.kind === "choice" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
       if (q.kind === "yesno" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
+      if (q.key === "stair_landings") return landingReviewPhrase(landingTakeoffFromAnswers([a]));
       if (q.kind === "number" && a?.kind === "number") return a.value.trim();
       if (q.kind === "stairs" && a?.kind === "stairs")
         return a.groups
@@ -2923,6 +3058,17 @@ export function Questionnaire({
         rooms.push({ name: r.name || "Room", measuredSqft: sf, sections });
       }
     }
+    const landing = landingTakeoffFromAnswers(answers);
+    if (landing.sqft > 0) {
+      rooms.push({
+        name: "Landings",
+        measuredSqft: landing.sqft,
+        sections: [{ name: "Landings", length: "", width: "", sqft: landing.sqft }],
+      });
+    }
+    const stairOrder = hsStairMaterialOrder(hsStairPlanFromAnswers(answers));
+    const floorForTotal = hsFloorProduct(answers);
+    let foldedIntoTakeoff = false;
     const products: string[] = [];
     const extraCountReview: string[] = [];
     const prepCountReview: string[] = [];
@@ -2986,6 +3132,20 @@ export function Questionnaire({
         return;
       }
       const waste = wastePct.trim() !== "" ? numv(wastePct) : isPadOrFoam ? 0 : undefined;
+      const landingJoinsCover =
+        landing.sqft > 0 &&
+        landingJoinsQuestionCover({
+          key,
+          kind: "product",
+          hardSurfaceFloor: !!floorForTotal,
+        });
+      const includeJobAdditions =
+        !foldedIntoTakeoff &&
+        !isPadOrFoam &&
+        !!floorForTotal &&
+        label === floorForTotal.label &&
+        (landing.sqft > 0 || (stairOrder?.sqft ?? 0) > 0);
+      if (includeJobAdditions) foldedIntoTakeoff = true;
       const cover = isPadOrFoam
         ? measuredSqft != null && measuredSqft > 0
           ? measuredSqft
@@ -3001,7 +3161,8 @@ export function Questionnaire({
       takeoffs.push(
         computeMaterialTakeoff({
           family,
-          measuredSqft: cover,
+          measuredSqft: includeJobAdditions || landingJoinsCover ? cover + landing.sqft : cover,
+          includedAllowanceSqft: includeJobAdditions ? stairOrder?.sqft ?? 0 : 0,
           wastePct: waste,
           cutsSqft: family === "carpet" ? cutsSqftByCategory.carpet ?? 0 : family === "vinyl" ? cutsSqftByCategory.vinyl ?? 0 : null,
           sqftPerBox: numv(sqftPerBox) > 0 ? numv(sqftPerBox) : null,
@@ -3198,11 +3359,13 @@ export function Questionnaire({
           const cov = qq.config.coverage_sqft ?? 0;
           const covT = qq.config.coverage_thickness_in ?? 0;
           const pour = selfLevelPourThicknessIn(qq.config, a.thickness);
-          const prepCover = questionCoverSf({
-            kind: qq.kind,
-            key: qq.key,
-            category: qq.config.category,
-          });
+          const prepCover = r2(
+            questionCoverSf({
+              kind: qq.kind,
+              key: qq.key,
+              category: qq.config.category,
+            }) + landing.sqft,
+          );
           const bags =
             cov > 0 && prepCover > 0
               ? bagsNeeded(prepCover, cov, covT > 0 ? covT : null, covT > 0 ? pour : null)
@@ -3230,11 +3393,16 @@ export function Questionnaire({
               key: qq.key,
               category: qq.config.category,
             });
-            const rooms = prepRooms.length
-              ? prepRooms
-              : prepCover > 0
-                ? [{ name: "", sqft: prepCover, lenIn: null, widIn: null }]
-                : [];
+            const rooms = [
+              ...(prepRooms.length
+                ? prepRooms
+                : prepCover > 0
+                  ? [{ name: "", sqft: prepCover, lenIn: null, widIn: null }]
+                  : []),
+              ...(landing.sqft > 0
+                ? [{ name: "Landings", sqft: landing.sqft, lenIn: null, widIn: null }]
+                : []),
+            ];
             let sheets = 0;
             for (const rm of rooms) sheets += subfloorSheets(rm.sqft, sheetSqft);
             const sheetLine = prepCountReviewLine({
@@ -3272,6 +3440,7 @@ export function Questionnaire({
       if (q.kind === "choice" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
       if (q.kind === "yesno" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
       if (q.kind === "text" && a?.kind === "text") return a.text.trim();
+      if (q.key === "stair_landings") return landingReviewPhrase(landingTakeoffFromAnswers([a]));
       if (q.kind === "number" && a?.kind === "number") return a.value.trim();
       if (q.kind === "stairs" && a?.kind === "stairs")
         return a.groups
@@ -4036,7 +4205,7 @@ function QuestionBody({
     stairCountTyped ?? (derivedHsStairSteps > 0 ? String(derivedHsStairSteps) : "");
   const { unit: measureUnit } = useMeasureAreaUnit();
   const showArea = (n: number) => formatMeasureAreaLabel(n, measureUnit);
-  const coverSf = measuredSqftForQuestionCover({
+  const coverBase = measuredSqftForQuestionCover({
     kind: q.kind,
     key: q.key,
     category: q.config.category,
@@ -4044,6 +4213,16 @@ function QuestionBody({
     byFamily: familySqft,
     jobFamilies: flooringCtx.families,
   });
+  const coverLanding = landingTakeoffFromAnswers(jobAnswers).sqft;
+  const coverSf =
+    coverLanding > 0 &&
+    landingJoinsQuestionCover({
+      key: q.key,
+      kind: q.kind,
+      hardSurfaceFloor: !!hsFloorProduct(jobAnswers),
+    })
+      ? coverBase + coverLanding
+      : coverBase;
   const mixedUnassigned =
     totalSqft > 0 &&
     coverSf <= 0 &&
@@ -4995,6 +5174,19 @@ function QuestionBody({
         carpetInstallSystems: carpetSystems,
       });
     };
+    const floorPick = hsFloorProduct(jobAnswers);
+    const thisIsFloorTotal =
+      isFlooring &&
+      !!p &&
+      !!floorPick &&
+      (p.productId && floorPick.productId
+        ? p.productId === floorPick.productId
+        : p.label === floorPick.label && (p.category || cat) === floorPick.category);
+    const landingNow = thisIsFloorTotal ? landingTakeoffFromAnswers(jobAnswers) : { sqft: 0, count: 0, unsized: 0 };
+    const stairNow = thisIsFloorTotal
+      ? (hsStairMaterialOrder(hsStairPlanFromAnswers(jobAnswers))?.sqft ?? 0)
+      : 0;
+    const floorMeasured = coverSf + landingNow.sqft + stairNow;
     const mainAsksCount = extraAsksCountQty({
       family,
       productUnit: p?.unit,
@@ -5039,8 +5231,8 @@ function QuestionBody({
                 <SellPriceEditor p={p} unitLabel={b.unitLabel} onChange={setMain} />
                 {mainAsksCount
                   ? ""
-                  : coverSf > 0
-                  ? ` · measured ${showArea(coverSf)}`
+                  : floorMeasured > 0
+                  ? ` · measured ${showArea(floorMeasured)}`
                   : mixedUnassigned
                     ? " · assign rooms to this product — mixed jobs do not clone whole-job sq ft"
                     : ""}
@@ -5051,7 +5243,8 @@ function QuestionBody({
               (() => {
                 const takeoff = computeMaterialTakeoff({
                   family,
-                  measuredSqft: coverSf,
+                  measuredSqft: isRoll ? floorMeasured : coverSf + landingNow.sqft,
+                  includedAllowanceSqft: isRoll ? 0 : stairNow,
                   wastePct: p.wastePct.trim() !== "" ? numv(p.wastePct) : defWasteForCat,
                   cutsSqft: needRollCuts
                     ? (cutsSqftByCategory[family] ?? 0)
@@ -5094,12 +5287,21 @@ function QuestionBody({
                         </p>
                       )}
                     </div>
-                    {coverSf > 0 ? (
+                    {floorMeasured > 0 ? (
                       <div className="space-y-0.5 text-sm">
                         <p>
                           Measured{" "}
                           <span className="font-semibold tabular-nums">{showArea(takeoff.measured.sqft)}</span>
                         </p>
+                        {landingNow.sqft > 0 || stairNow > 0 ? (
+                          <p className="text-xs text-muted-foreground">
+                            {[
+                              landingNow.sqft > 0 ? `${landingNow.sqft} sq ft of landings` : "",
+                              stairNow > 0 ? `${stairNow} sq ft of stairs` : "",
+                            ].filter(Boolean).join(" and ")}{" "}
+                            included in this total. Room sizes stay as entered. Stair square feet are not wasted again.
+                          </p>
+                        ) : null}
                         {!isRoll ? (
                         <p>
                           Waste{" "}
@@ -5444,6 +5646,69 @@ function QuestionBody({
             {lbl}
           </button>
         ))}
+      </div>
+    );
+  }
+
+  if (q.key === "stair_landings" && (answer?.kind === "landings" || answer?.kind === "number" || !answer)) {
+    const rows = landingRowsForEditor(answer);
+    const saveRows = (next: LandingRow[]) => set({ kind: "landings", rows: next.length ? next : [newLanding()] });
+    const patch = (id: string, p: Partial<LandingRow>) =>
+      saveRows(rows.map((row) => (row.id === id ? { ...row, ...p } : row)));
+    const sized = r2(rows.reduce((sum, row) => sum + landingPieceSqft(row), 0));
+    return (
+      <div className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Measure each landing. Width, then length, or type the square feet when it is not a rectangle. That size joins the flooring total and takes the same waste as the rooms. A landing with no size is not added.
+        </p>
+        {rows.map((row, i) => {
+          const piece = landingPieceSqft(row);
+          return (
+            <div key={row.id} className="space-y-2 rounded-lg border bg-muted/20 p-2.5">
+              <div className="flex items-center gap-2">
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                  {i + 1}
+                </span>
+                <span className="flex-1 text-sm font-medium">Landing {i + 1}</span>
+                {piece > 0 ? (
+                  <span className="text-sm tabular-nums text-muted-foreground">{piece} sq ft</span>
+                ) : (
+                  <span className="text-xs text-muted-foreground">Size needed</span>
+                )}
+                {rows.length > 1 ? (
+                  <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove landing" onClick={() => saveRows(rows.filter((x) => x.id !== row.id))}>
+                    <Trash2 className="size-4 text-destructive" />
+                  </Button>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
+                <FtInField label="Width" ft={row.wf} inch={row.wi}
+                  onFt={(v) => patch(row.id, { wf: v, sqft: "" })} onIn={(v) => patch(row.id, { wi: v, sqft: "" })} />
+                <span className="pb-2.5 text-muted-foreground">×</span>
+                <FtInField label="Length" ft={row.lf} inch={row.li}
+                  onFt={(v) => patch(row.id, { lf: v, sqft: "" })} onIn={(v) => patch(row.id, { li: v, sqft: "" })} />
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">Or square feet</label>
+                  <Input
+                    value={row.sqft}
+                    onChange={(e) => patch(row.id, { sqft: e.target.value })}
+                    inputMode="decimal"
+                    placeholder="sq ft"
+                    className="h-11 w-24 text-base md:h-10"
+                  />
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => saveRows([...rows, newLanding()])}>
+            <Plus className="size-4" /> Add landing
+          </Button>
+          <p className="text-sm tabular-nums">
+            {sized > 0 ? `${sized} sq ft added to the flooring total` : "No square feet yet"}
+          </p>
+        </div>
       </div>
     );
   }

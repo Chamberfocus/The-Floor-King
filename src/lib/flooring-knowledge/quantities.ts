@@ -397,6 +397,12 @@ export interface ComputeTakeoffInput {
    * roll goods. Hard-surface glue must not be passed here.
    */
   carpetSystems?: InstallSystem[] | null;
+  /**
+   * Stair allowance already included in the shop's 8 / 4 sq ft rule.
+   * It is part of the measured total the salesperson sees, and it is added
+   * to the order without a second waste percent.
+   */
+  includedAllowanceSqft?: number | null;
   /** When true, skip waste even without cuts (explicit 0 on the line). */
   wasteAlreadyInQuantity?: boolean;
   /**
@@ -435,6 +441,9 @@ export function takeoffDisplayTitle(
 export function computeMaterialTakeoff(input: ComputeTakeoffInput): MaterialTakeoff {
   const family = input.family;
   const measured = measuredArea(input.measuredSqft);
+  const allowanceRaw = Number(input.includedAllowanceSqft);
+  const allowance =
+    Number.isFinite(allowanceRaw) && allowanceRaw > 0 ? r2(allowanceRaw) : 0;
   const notes: string[] = [];
   const warnings: string[] = [];
   const billingUnit: "sqft" | "sqyd" =
@@ -459,7 +468,7 @@ export function computeMaterialTakeoff(input: ComputeTakeoffInput): MaterialTake
   let orderSqft: number;
   let orderBasis: OrderBasis;
 
-  if (measured.sqft <= 0 && !hasCuts) {
+  if (measured.sqft <= 0 && !hasCuts && allowance <= 0) {
     return {
       family,
       takeoffLabel,
@@ -514,9 +523,21 @@ export function computeMaterialTakeoff(input: ComputeTakeoffInput): MaterialTake
     orderBasis = "measured_plus_waste";
   }
 
+  // Stair allowance joins the total the salesperson reads. Waste stays on the
+  // room and landing area only — the allowance was already the order.
+  if (allowance > 0 && orderBasis === "measured_plus_waste") {
+    orderSqft = r2(orderSqft + allowance);
+  } else if (allowance > 0 && orderBasis === "none" && measured.sqft <= 0 && !needCuts) {
+    orderSqft = allowance;
+    orderBasis = "measured_plus_waste";
+    wastePct = 0;
+  }
+  const display =
+    allowance > 0 ? measuredArea(measured.sqft + allowance) : measured;
+
   // When cuts are the basis, or roll goods have no cuts yet, waste sq ft is
   // not a separate add-on on the takeoff.
-  const wasteSqftOut = orderBasis === "measured_plus_waste" ? r2(orderSqft - measured.sqft) : 0;
+  const wasteSqftOut = orderBasis === "measured_plus_waste" ? r2(orderSqft - display.sqft) : 0;
 
   const cartons = boxedLike ? cartonTakeoff(orderSqft, input.sqftPerBox) : null;
   if (boxedLike && !(Number(input.sqftPerBox) > 0)) {
@@ -543,7 +564,7 @@ export function computeMaterialTakeoff(input: ComputeTakeoffInput): MaterialTake
     family,
     takeoffLabel,
     billingUnit,
-    measured,
+    measured: display,
     wastePct,
     wasteSqft: wasteSqftOut,
     orderSqft: cartons ? cartons.orderedCoverageSqft : orderSqft,

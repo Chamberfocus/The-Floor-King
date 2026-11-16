@@ -4,14 +4,20 @@ import { join } from "node:path";
 import {
   HS_STAIR_FLOOR_SQFT_TREAD,
   HS_STAIR_FLOOR_SQFT_WITH_RISER,
+  computeMaterialTakeoff,
+  foldFloorAdditionsIntoLines,
   hardSurfaceStairPiecesForPlan,
   hsStairMaterialOrder,
   hsStairPlanFromAnswers,
   hsStairReviewPhrase,
   hsStairRiserWantsWhiteBoard,
+  landingJoinsQuestionCover,
+  landingPieceSqft,
+  landingReviewPhrase,
+  landingTakeoffFromAnswer,
   stairPieceQuoteWhenMissing,
 } from "@/lib/flooring-knowledge";
-import { lineOrderQty, lineQty } from "@/lib/estimate-calc";
+import { lineOrderQty, lineQty, lineTotal } from "@/lib/estimate-calc";
 
 const root = process.cwd();
 
@@ -78,6 +84,7 @@ describe("hard-surface stair material allowance", () => {
     });
     expect(hsStairMaterialOrder(chosen)?.sqft).toBe(40);
     expect(hsStairReviewPhrase(chosen)).toMatch(/40 sq ft \(4 sq ft × 10, tread only\)/);
+    expect(hsStairReviewPhrase(chosen)).toMatch(/included in the flooring total/);
     expect(hsStairReviewPhrase(chosen)).toMatch(/riser left as-is/);
 
     const allowance = lineOrderQty({
@@ -116,5 +123,102 @@ describe("hard-surface stair material allowance", () => {
     expect(q).toMatch(/wrap qty TBD/);
     expect(q).not.toMatch(/STAIR_SQFT_TREAD_RISER/);
     expect(q).not.toMatch(/sfPerStep/);
+    expect(q).toMatch(/stair allowance/);
+    expect(q).toMatch(/q\.key === "stair_landings"/);
+  });
+
+  it("adds sized landings and the stair allowance onto one flooring total", () => {
+    expect(landingJoinsQuestionCover({ key: "hs_underlayment", hardSurfaceFloor: true })).toBe(true);
+    expect(landingJoinsQuestionCover({ key: "carpet_pad", hardSurfaceFloor: true })).toBe(false);
+    expect(landingJoinsQuestionCover({ key: "carpet_pad", hardSurfaceFloor: false })).toBe(true);
+    expect(landingJoinsQuestionCover({ kind: "selflevel", hardSurfaceFloor: true })).toBe(true);
+    expect(landingPieceSqft({ lf: "6", wf: "6" })).toBe(36);
+    expect(landingPieceSqft({ sqft: "40", lf: "6", wf: "6" })).toBe(40);
+    expect(landingPieceSqft({})).toBe(0);
+
+    const legacy = landingTakeoffFromAnswer({ kind: "number", value: "2" });
+    expect(legacy).toEqual({ count: 2, sqft: 0, unsized: 2 });
+    expect(landingReviewPhrase(legacy)).toMatch(/size not entered — not added to the square footage/);
+
+    const sized = landingTakeoffFromAnswer({
+      kind: "landings",
+      rows: [
+        { lf: "6", li: "0", wf: "6", wi: "0" },
+        { lf: "", li: "", wf: "", wi: "", sqft: "" },
+      ],
+    });
+    expect(sized.sqft).toBe(36);
+    expect(sized.unsized).toBe(0);
+
+    const folded = foldFloorAdditionsIntoLines(
+      [
+        {
+          room: null,
+          description: "Oak",
+          category: "lvp",
+          unit: "sq ft",
+          sqft: 500,
+          quantity: 500,
+        },
+        {
+          room: null,
+          description: "Oak wrap — wrap qty TBD (not an automatic sq ft/step order)",
+          category: "lvp",
+          unit: "sq ft",
+          sqft: 104,
+          quantity: 0,
+        },
+      ],
+      { landingSqft: 36, stairAllowanceSqft: 104, productLabel: "Oak", productCategory: "lvp" },
+    );
+    expect(folded.folded).toBe(true);
+    expect(folded.lines[0].sqft).toBe(640);
+    expect(folded.lines[0].description).toMatch(/stair allowance 104 sq ft unwasted/);
+    expect(folded.lines[1].sqft).toBe(104);
+
+    const stamped = {
+      line_type: "mat_labor" as const,
+      category: "lvp",
+      unit: "sq ft",
+      measure_unit: "sqft" as const,
+      sqft: 640,
+      quantity: 640,
+      waste_pct: 10,
+      description: folded.lines[0].description,
+      material_rate: 2,
+      labor_rate: 0,
+    };
+    expect(lineOrderQty(stamped)).toBeCloseTo(693.6, 5);
+    expect(lineTotal(stamped)).toBeCloseTo(1387.2, 5);
+
+    const roomsOnly = computeMaterialTakeoff({
+      family: "lvp",
+      measuredSqft: 500,
+      wastePct: 10,
+      sqftPerBox: 23.64,
+    });
+    expect(roomsOnly.measured.sqft).toBe(500);
+    expect(roomsOnly.wasteSqft).toBe(50);
+    expect(roomsOnly.orderSqft).toBe(567.36);
+
+    const withStairs = computeMaterialTakeoff({
+      family: "lvp",
+      measuredSqft: 536,
+      includedAllowanceSqft: 104,
+      wastePct: 10,
+    });
+    expect(withStairs.measured.sqft).toBe(640);
+    expect(withStairs.wasteSqft).toBeCloseTo(53.6, 5);
+    expect(withStairs.orderSqft).toBeCloseTo(693.6, 5);
+
+    const sheet = computeMaterialTakeoff({
+      family: "vinyl",
+      measuredSqft: 0,
+      includedAllowanceSqft: 104,
+      wastePct: 10,
+    });
+    expect(sheet.orderBasis).toBe("none");
+    expect(sheet.orderSqft).toBe(0);
+    expect(sheet.measured.sqft).toBe(104);
   });
 });
