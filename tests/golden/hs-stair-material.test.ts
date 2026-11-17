@@ -4,6 +4,9 @@ import { join } from "node:path";
 import {
   HS_STAIR_FLOOR_SQFT_TREAD,
   HS_STAIR_FLOOR_SQFT_WITH_RISER,
+  areaPageCollectsLandings,
+  areaPageCollectsStairAllowance,
+  areaPageSquareFeet,
   computeMaterialTakeoff,
   foldFloorAdditionsIntoLines,
   hardSurfaceStairPiecesForPlan,
@@ -11,6 +14,7 @@ import {
   hsStairPlanFromAnswers,
   hsStairReviewPhrase,
   hsStairRiserWantsWhiteBoard,
+  installContextFromValByKey,
   landingJoinsQuestionCover,
   landingPieceSqft,
   landingReviewPhrase,
@@ -125,6 +129,9 @@ describe("hard-surface stair material allowance", () => {
     expect(q).not.toMatch(/sfPerStep/);
     expect(q).toMatch(/stair allowance/);
     expect(q).toMatch(/q\.key === "stair_landings"/);
+    expect(q).toMatch(/areaPageSquareFeet/);
+    expect(q).toMatch(/q\.key !== "stair_landings"/);
+    expect(q).toMatch(/Job square feet/);
   });
 
   it("adds sized landings and the stair allowance onto one flooring total", () => {
@@ -220,5 +227,38 @@ describe("hard-surface stair material allowance", () => {
     expect(sheet.orderBasis).toBe("none");
     expect(sheet.orderSqft).toBe(0);
     expect(sheet.measured.sqft).toBe(104);
+  });
+
+  it("puts rooms, landings, and the stair allowance on one area total", () => {
+    expect(
+      areaPageSquareFeet({ roomSqft: 500, landingSqft: 36, stairAllowanceSqft: 104 }),
+    ).toEqual({ rooms: 500, landings: 36, stairs: 104, total: 640 });
+    expect(
+      areaPageSquareFeet({ roomSqft: 500, landingSqft: 0, stairAllowanceSqft: 0 }),
+    ).toEqual({ rooms: 500, landings: 0, stairs: 0, total: 500 });
+
+    const open = installContextFromValByKey({});
+    expect(areaPageCollectsLandings(open)).toBe(true);
+    expect(areaPageCollectsStairAllowance(open)).toBe(true);
+
+    const carpet = installContextFromValByKey({
+      project_type: ["Carpet"],
+    });
+    expect(areaPageCollectsLandings(carpet)).toBe(true);
+    expect(areaPageCollectsStairAllowance(carpet)).toBe(false);
+
+    const wall = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Wall"],
+    });
+    expect(areaPageCollectsLandings(wall)).toBe(false);
+    expect(areaPageCollectsStairAllowance(wall)).toBe(false);
+
+    const mixed = installContextFromValByKey({
+      project_type: ["Carpet", "Hard surface"],
+      surface_type: ["LVP / LVT"],
+    });
+    expect(areaPageCollectsStairAllowance(mixed)).toBe(true);
   });
 });

@@ -84,7 +84,7 @@ export function salespersonHelpFor(q: HelpQuestion, ctx: InstallContext): string
     return "Quarter round, shoe, and base are linear feet. Stair noses, T-molds, and reducers are each. Pick a catalog item or enter the price you pay.";
   }
   if (q.kind === "areas") {
-    return "Enter each room in feet and inches, including closets and offsets. This is measured area. Order quantity is calculated from the product, and from the cuts for carpet.";
+    return "Enter each room in feet and inches, including closets and offsets. Landings and hard-surface stairs are on this page and join the square footage. Carpet stairs are not added here.";
   }
   if (q.kind === "floor_map") {
     return "Assign a product to each room. On a mixed job, carpet square feet are not also LVP square feet. Rooms without a product stay off the order.";
