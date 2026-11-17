@@ -156,6 +156,9 @@ import {
   applyHardSurfaceStairTrimFill,
   jobNeedsHardSurfaceStairTrim,
   jobIsExclusiveWallTile,
+  areaPageCollectsLandings,
+  areaPageCollectsStairAllowance,
+  areaPageSquareFeet,
   choiceOptionApplies,
   answersHaveTrimType,
   keyedChoiceSelections,
@@ -1116,9 +1119,13 @@ export function Questionnaire({
   // Steps the user walks: when prep is per-room, drop the per-room prep questions
   // as standalone steps (they're answered in the rooms step instead).
   const stepQuestions = useMemo(() => {
-    if (!prepByRoom) return visibleQuestions;
+    const hasAreas = visibleQuestions.some((q) => q.kind === "areas");
+    const withoutEmbedded = hasAreas
+      ? visibleQuestions.filter((q) => q.key !== "stair_landings")
+      : visibleQuestions;
+    if (!prepByRoom) return withoutEmbedded;
     const ids = new Set(perRoomQuestions.map((q) => q.id));
-    return visibleQuestions.filter((q) => !ids.has(q.id));
+    return withoutEmbedded.filter((q) => !ids.has(q.id));
   }, [visibleQuestions, perRoomQuestions, prepByRoom]);
   // Rooms that carry their own prep. In "by room" mode every measured room does;
   // otherwise prep is whole-job and no room is per-room.
@@ -3529,6 +3536,10 @@ export function Questionnaire({
     if (flooringCtx.installLabels.length)
       installation.unshift(`System: ${flooringCtx.installLabels.join(", ")}`);
     accessories.push(...extraCountReview);
+    const landingPhrase = landingReviewPhrase(landingTakeoffFromAnswers(answers));
+    if (landingPhrase && !accessories.some((line) => /landing/i.test(line))) {
+      accessories.push(`Landings: ${landingPhrase}`);
+    }
     const pickedTrims = [
       ...trimLabelsFromPicks(
         keyedChoiceSelections(questions, answers, "hs_transitions"),
@@ -3610,7 +3621,14 @@ export function Questionnaire({
   }, [stepQuestions, step]);
   const answered = (qq: EstimateQuestion): boolean => {
     const a = answers[qq.id];
-    if (qq.kind === "areas") return a?.kind === "areas" && a.rooms.some((r) => rowSqft(r) > 0);
+    if (qq.kind === "areas") {
+      if (a?.kind === "areas" && a.rooms.some((r) => rowSqft(r) > 0)) return true;
+      if (areaPageCollectsLandings(flooringCtx) && landingTakeoffFromAnswers(answers).sqft > 0) return true;
+      return (
+        areaPageCollectsStairAllowance(flooringCtx) &&
+        (hsStairMaterialOrder(hsStairPlanFromAnswers(answers))?.sqft ?? 0) > 0
+      );
+    }
     if (qq.kind === "floor_map")
       return a?.kind === "floor_map" && Object.values(a.byRoom).some(Boolean);
     if (qq.kind === "product")
@@ -3894,6 +3912,8 @@ export function Questionnaire({
                 jobFamilies: flooringCtx.families,
               })}
               flooringCtx={flooringCtx}
+              questions={questions}
+              onAnswer={(id, a) => set(id, a)}
               hsTransitionTrims={hsTransitionTrims}
               hsBaseTrims={hsBaseTrims}
               doorwayTransitionsAsked={doorwayTransitionsAsked}
@@ -4180,6 +4200,83 @@ export function Questionnaire({
   );
 }
 
+/** Area page starts empty. A saved count with no sizes still opens as blank size rows. */
+function landingRowsForArea(answer: Answer | undefined): LandingRow[] {
+  if (answer?.kind === "landings") return answer.rows;
+  if (answer?.kind === "number" && answer.value.trim()) return landingRowsForEditor(answer);
+  return [];
+}
+
+function LandingSizeFields({
+  rows,
+  onChange,
+  allowEmpty = false,
+}: {
+  rows: LandingRow[];
+  onChange: (rows: LandingRow[]) => void;
+  allowEmpty?: boolean;
+}) {
+  const patch = (id: string, p: Partial<LandingRow>) =>
+    onChange(rows.map((row) => (row.id === id ? { ...row, ...p } : row)));
+  const sized = r2(rows.reduce((sum, row) => sum + landingPieceSqft(row), 0));
+  return (
+    <div className="space-y-3 rounded-lg border bg-muted/20 p-2.5">
+      <div className="text-sm font-medium">Landings</div>
+      <p className="text-xs text-muted-foreground">
+        Measure each landing. Width, then length, or type the square feet when it is not a rectangle. That size joins this total and takes the same waste as the rooms. A landing with no size is not added.
+      </p>
+      {rows.map((row, i) => {
+        const piece = landingPieceSqft(row);
+        return (
+          <div key={row.id} className="space-y-2 rounded-lg border bg-background p-2.5">
+            <div className="flex items-center gap-2">
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                {i + 1}
+              </span>
+              <span className="flex-1 text-sm font-medium">Landing {i + 1}</span>
+              {piece > 0 ? (
+                <span className="text-sm tabular-nums text-muted-foreground">{piece} sq ft</span>
+              ) : (
+                <span className="text-xs text-muted-foreground">Size needed</span>
+              )}
+              {rows.length > 1 || allowEmpty ? (
+                <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove landing" onClick={() => onChange(rows.filter((x) => x.id !== row.id))}>
+                  <Trash2 className="size-4 text-destructive" />
+                </Button>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
+              <FtInField label="Width" ft={row.wf} inch={row.wi}
+                onFt={(v) => patch(row.id, { wf: v, sqft: "" })} onIn={(v) => patch(row.id, { wi: v, sqft: "" })} />
+              <span className="pb-2.5 text-muted-foreground">×</span>
+              <FtInField label="Length" ft={row.lf} inch={row.li}
+                onFt={(v) => patch(row.id, { lf: v, sqft: "" })} onIn={(v) => patch(row.id, { li: v, sqft: "" })} />
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">Or square feet</label>
+                <Input
+                  value={row.sqft}
+                  onChange={(e) => patch(row.id, { sqft: e.target.value })}
+                  inputMode="decimal"
+                  placeholder="sq ft"
+                  className="h-11 w-24 text-base md:h-10"
+                />
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Button type="button" variant="outline" size="sm" onClick={() => onChange([...rows, newLanding()])}>
+          <Plus className="size-4" /> Add landing
+        </Button>
+        <p className="text-sm tabular-nums">
+          {sized > 0 ? `${sized} sq ft added to the flooring total` : "No square feet yet"}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // --- One question's input, by kind -----------------------------------------
 function QuestionBody({
   q,
@@ -4202,6 +4299,8 @@ function QuestionBody({
   hsTransitionTrims = [],
   hsBaseTrims = [],
   doorwayTransitionsAsked = false,
+  questions = [],
+  onAnswer,
 }: {
   q: EstimateQuestion;
   answer: Answer | undefined;
@@ -4233,6 +4332,9 @@ function QuestionBody({
   hsBaseTrims?: string[];
   /** Doorway transitions were already asked. Do not ask again on Trims. */
   doorwayTransitionsAsked?: boolean;
+  questions?: EstimateQuestion[];
+  /** Write another question's answer. Stairs and landings on the area page use this. */
+  onAnswer?: (questionId: string, answer: Answer) => void;
 }) {
   // How many stairs? — seeded from hs_plank_stairs when the salesperson already
   // counted steps. Declared unconditionally so hook order is stable across kinds.
@@ -4270,6 +4372,38 @@ function QuestionBody({
     const patch = (id: string, p: Partial<AreaRow>) =>
       upd(rooms.map((x) => (x.id === id ? { ...x, ...p } : x)));
     const total = rooms.reduce((t, r) => t + rowSqft(r), 0);
+    const showLandings = areaPageCollectsLandings(flooringCtx);
+    const showStairSqft = areaPageCollectsStairAllowance(flooringCtx);
+    const landingQuestion = showLandings
+      ? questions.find((item) => item.key === "stair_landings")
+      : undefined;
+    const landingRows = landingQuestion
+      ? landingRowsForArea(jobAnswers[landingQuestion.id])
+      : [];
+    const landingSqft = landingRows.reduce((sum, row) => sum + landingPieceSqft(row), 0);
+    const stairQuestion = showStairSqft
+      ? questions.find((item) => item.kind === "hs_stairs")
+      : undefined;
+    const stairRaw = stairQuestion ? jobAnswers[stairQuestion.id] : undefined;
+    const stairAnswer: Extract<Answer, { kind: "hs_stairs" }> =
+      stairRaw?.kind === "hs_stairs"
+        ? stairRaw
+        : { kind: "hs_stairs", steps: "", treadRiser: true, product: null, laborRate: "" };
+    const setStair = (patch: Partial<Extract<Answer, { kind: "hs_stairs" }>>) => {
+      if (!stairQuestion) return;
+      onAnswer?.(stairQuestion.id, { ...stairAnswer, ...patch });
+    };
+    const stairSqft =
+      hsStairMaterialOrder({
+        steps: numv(stairAnswer.steps),
+        cover: stairAnswer.cover ?? null,
+        coverRiser: stairAnswer.treadRiser,
+      })?.sqft ?? 0;
+    const jobArea = areaPageSquareFeet({
+      roomSqft: total,
+      landingSqft,
+      stairAllowanceSqft: stairSqft,
+    });
     const floorMap = Object.values(jobAnswers).find(
       (a): a is Extract<Answer, { kind: "floor_map" }> => a?.kind === "floor_map",
     );
@@ -4551,9 +4685,87 @@ function QuestionBody({
               </Button>
             ) : null}
           </div>
-          <span className="rounded-md bg-primary/10 px-3 py-1.5 text-sm">
-            Total measured <span className="font-bold tabular-nums">{showArea(total)}</span>
-          </span>
+        </div>
+
+        {showLandings && landingQuestion ? (
+          <LandingSizeFields
+            rows={landingRows}
+            allowEmpty
+            onChange={(next) => onAnswer?.(landingQuestion.id, { kind: "landings", rows: next })}
+          />
+        ) : null}
+
+        {showStairSqft && stairQuestion ? (
+          <div className="space-y-2 rounded-lg border bg-muted/20 p-2.5">
+            <div className="text-sm font-medium">Stairs</div>
+            <p className="text-xs text-muted-foreground">
+              Flooring on the stairs is added to this total. 8 sq ft for each step with the riser covered, 4 sq ft for tread only. That allowance is not wasted again. Stair treads add no square feet. Carpet stairs stay in the cuts.
+            </p>
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">How many steps?</label>
+                <Input
+                  value={stairAnswer.steps}
+                  onChange={(e) => setStair({ steps: e.target.value })}
+                  inputMode="numeric"
+                  placeholder="0 = no stairs"
+                  className="h-11 w-28 text-base md:h-10"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-muted-foreground">How are the stairs finished?</label>
+              <div className="inline-flex overflow-hidden rounded-md border">
+                <button type="button" onClick={() => setStair({ cover: "treads" })}
+                  className={cn("px-3 py-2 text-sm font-medium", stairAnswer.cover === "treads" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
+                  Stair treads
+                </button>
+                <button type="button" onClick={() => setStair({ cover: "material" })}
+                  className={cn("px-3 py-2 text-sm font-medium", stairAnswer.cover === "material" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
+                  Flooring on the stairs
+                </button>
+              </div>
+            </div>
+            {stairAnswer.cover === "material" ? (
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">Does the flooring cover the riser?</label>
+                <div className="inline-flex overflow-hidden rounded-md border">
+                  <button type="button" onClick={() => setStair({ treadRiser: true, riserFinish: undefined })}
+                    className={cn("px-3 py-2 text-sm font-medium", stairAnswer.treadRiser ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
+                    Yes — 8 sq ft / step
+                  </button>
+                  <button type="button" onClick={() => setStair({ treadRiser: false })}
+                    className={cn("px-3 py-2 text-sm font-medium", !stairAnswer.treadRiser ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
+                    No — 4 sq ft / step
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {stairSqft > 0 ? (
+              <p className="text-sm tabular-nums">
+                <span className="font-semibold">{stairSqft} sq ft</span> added. Room measurements stay as entered.
+              </p>
+            ) : stairAnswer.cover === "treads" && numv(stairAnswer.steps) > 0 ? (
+              <p className="text-xs text-muted-foreground">No flooring square feet. Treads and noses stay each.</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">Choose flooring on the stairs to add square feet. Nothing is added until then.</p>
+            )}
+          </div>
+        ) : jobIsExclusiveCarpetOnly(flooringCtx) ? (
+          <p className="text-xs text-muted-foreground">
+            Carpet stairs are not added to this square footage. Include them in the cuts.
+          </p>
+        ) : null}
+
+        <div className="rounded-md bg-primary/10 px-3 py-2 text-sm">
+          <div>
+            Job square feet <span className="font-bold tabular-nums">{showArea(jobArea.total)}</span>
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Rooms {showArea(jobArea.rooms)}
+            {jobArea.landings > 0 ? ` · Landings ${showArea(jobArea.landings)}` : ""}
+            {jobArea.stairs > 0 ? ` · Stairs ${showArea(jobArea.stairs)}, not wasted again` : ""}
+          </p>
         </div>
       </div>
     );
@@ -5687,64 +5899,11 @@ function QuestionBody({
 
   if (q.key === "stair_landings" && (answer?.kind === "landings" || answer?.kind === "number" || !answer)) {
     const rows = landingRowsForEditor(answer);
-    const saveRows = (next: LandingRow[]) => set({ kind: "landings", rows: next.length ? next : [newLanding()] });
-    const patch = (id: string, p: Partial<LandingRow>) =>
-      saveRows(rows.map((row) => (row.id === id ? { ...row, ...p } : row)));
-    const sized = r2(rows.reduce((sum, row) => sum + landingPieceSqft(row), 0));
     return (
-      <div className="space-y-3">
-        <p className="text-xs text-muted-foreground">
-          Measure each landing. Width, then length, or type the square feet when it is not a rectangle. That size joins the flooring total and takes the same waste as the rooms. A landing with no size is not added.
-        </p>
-        {rows.map((row, i) => {
-          const piece = landingPieceSqft(row);
-          return (
-            <div key={row.id} className="space-y-2 rounded-lg border bg-muted/20 p-2.5">
-              <div className="flex items-center gap-2">
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                  {i + 1}
-                </span>
-                <span className="flex-1 text-sm font-medium">Landing {i + 1}</span>
-                {piece > 0 ? (
-                  <span className="text-sm tabular-nums text-muted-foreground">{piece} sq ft</span>
-                ) : (
-                  <span className="text-xs text-muted-foreground">Size needed</span>
-                )}
-                {rows.length > 1 ? (
-                  <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove landing" onClick={() => saveRows(rows.filter((x) => x.id !== row.id))}>
-                    <Trash2 className="size-4 text-destructive" />
-                  </Button>
-                ) : null}
-              </div>
-              <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
-                <FtInField label="Width" ft={row.wf} inch={row.wi}
-                  onFt={(v) => patch(row.id, { wf: v, sqft: "" })} onIn={(v) => patch(row.id, { wi: v, sqft: "" })} />
-                <span className="pb-2.5 text-muted-foreground">×</span>
-                <FtInField label="Length" ft={row.lf} inch={row.li}
-                  onFt={(v) => patch(row.id, { lf: v, sqft: "" })} onIn={(v) => patch(row.id, { li: v, sqft: "" })} />
-                <div>
-                  <label className="mb-1 block text-xs text-muted-foreground">Or square feet</label>
-                  <Input
-                    value={row.sqft}
-                    onChange={(e) => patch(row.id, { sqft: e.target.value })}
-                    inputMode="decimal"
-                    placeholder="sq ft"
-                    className="h-11 w-24 text-base md:h-10"
-                  />
-                </div>
-              </div>
-            </div>
-          );
-        })}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => saveRows([...rows, newLanding()])}>
-            <Plus className="size-4" /> Add landing
-          </Button>
-          <p className="text-sm tabular-nums">
-            {sized > 0 ? `${sized} sq ft added to the flooring total` : "No square feet yet"}
-          </p>
-        </div>
-      </div>
+      <LandingSizeFields
+        rows={rows}
+        onChange={(next) => set({ kind: "landings", rows: next.length ? next : [newLanding()] })}
+      />
     );
   }
 
@@ -6443,18 +6602,38 @@ function QuestionBody({
       const hs = flooringCtx.families.filter(isHardSurfaceFamily);
       return hs.length === 1 ? catalogCategoryForFamily(hs[0]) : undefined;
     })();
+    const stairsOnAreaPage =
+      areaPageCollectsStairAllowance(flooringCtx) && questions.some((item) => item.kind === "areas");
     return (
       <div className="space-y-3">
-        <div className="flex flex-wrap items-end gap-3">
+        {stairsOnAreaPage ? (
+          <div className="rounded-lg border bg-muted/20 p-3 text-sm">
+            {steps > 0 && material ? (
+              <span>
+                {steps} step{steps === 1 ? "" : "s"} · {material.sqft} sq ft already in the area total
+              </span>
+            ) : steps > 0 && a.cover === "treads" ? (
+              <span>{steps} step{steps === 1 ? "" : "s"} · stair treads, no square feet on the area total</span>
+            ) : (
+              <span>Stair square feet are entered with the rooms.</span>
+            )}
+            {goToAreas ? (
+              <button type="button" onClick={goToAreas} className="ml-2 font-medium text-primary hover:underline">
+                Edit on the area page
+              </button>
+            ) : null}
+          </div>
+        ) : (
           <div>
             <label className="mb-1 block text-xs text-muted-foreground">How many steps?</label>
             <Input value={a.steps} onChange={(e) => upd({ steps: e.target.value })} inputMode="numeric" placeholder="0 = no stairs" className="h-11 w-28 text-base md:h-10" />
           </div>
-          <div>
-            <label className="mb-1 block text-xs text-muted-foreground">Stair labor $ / step</label>
-            <Input value={a.laborRate} onChange={(e) => upd({ laborRate: e.target.value })} inputMode="decimal" placeholder="TBD" className="h-11 w-24 text-base md:h-10" />
-          </div>
+        )}
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">Stair labor $ / step</label>
+          <Input value={a.laborRate} onChange={(e) => upd({ laborRate: e.target.value })} inputMode="decimal" placeholder="TBD" className="h-11 w-24 text-base md:h-10" />
         </div>
+        {stairsOnAreaPage ? null : (
         <div>
           <label className="mb-1 block text-xs text-muted-foreground">How are the stairs finished?</label>
           <div className="inline-flex overflow-hidden rounded-md border">
@@ -6468,7 +6647,8 @@ function QuestionBody({
             </button>
           </div>
         </div>
-        {a.cover === "material" ? (
+        )}
+        {!stairsOnAreaPage && a.cover === "material" ? (
           <div>
             <label className="mb-1 block text-xs text-muted-foreground">Does the flooring cover the riser?</label>
             <div className="inline-flex overflow-hidden rounded-md border">
@@ -6548,6 +6728,10 @@ function QuestionBody({
               <>
                 <span className="font-semibold tabular-nums">{steps}</span> stair tread{steps === 1 ? "" : "s"} and {steps} stair nose{steps === 1 ? "" : "s"}, each. No flooring square feet.
                 {a.riserFinish === "white_board" ? " White board on each riser." : a.riserFinish === "leave" ? " Riser left as-is." : " Choose the riser."}
+              </>
+            ) : stairsOnAreaPage ? (
+              <>
+                <span className="font-semibold tabular-nums">{steps}</span> step{steps === 1 ? "" : "s"}. Set the stair finish on the area page. Nothing is added to the square feet until then.
               </>
             ) : (
               <>

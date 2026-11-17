@@ -343,6 +343,27 @@ export function landingJoinsQuestionCover(args: {
   return false;
 }
 
+/**
+ * Square feet shown on the area page. Rooms and sized landings are measured.
+ * The hard-surface stair allowance is included and is not wasted again.
+ * A zero stair allowance is stair treads, carpet stairs, or no steps — nothing invented.
+ */
+export function areaPageSquareFeet(args: {
+  roomSqft: number;
+  landingSqft: number;
+  stairAllowanceSqft: number;
+}): { rooms: number; landings: number; stairs: number; total: number } {
+  const rooms = Math.round(Math.max(0, args.roomSqft) * 100) / 100;
+  const landings = Math.round(Math.max(0, args.landingSqft) * 100) / 100;
+  const stairs = Math.round(Math.max(0, args.stairAllowanceSqft) * 100) / 100;
+  return {
+    rooms,
+    landings,
+    stairs,
+    total: Math.round((rooms + landings + stairs) * 100) / 100,
+  };
+}
+
 export function landingReviewPhrase(takeoff: LandingTakeoff): string {
   if (takeoff.count <= 0 && takeoff.sqft <= 0) return "";
   const sized =
