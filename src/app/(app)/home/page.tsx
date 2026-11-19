@@ -18,14 +18,19 @@ export default async function HomePage() {
     }),
     loadHomePeople({ role: profile.role, userId: profile.id }),
   ]);
-  const customersHref = [
+  const seesSchedule = [
     "admin",
     "office",
     "sales_manager",
     "salesman",
     "scheduler",
-  ].includes(profile.role)
-    ? "/customers"
-    : null;
-  return <HomeCenterView board={board} people={people} customersHref={customersHref} />;
+  ].includes(profile.role);
+  return (
+    <HomeCenterView
+      board={board}
+      people={people}
+      customersHref={seesSchedule ? "/customers" : null}
+      scheduleHref={seesSchedule ? "/calendar" : null}
+    />
+  );
 }

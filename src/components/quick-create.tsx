@@ -34,12 +34,12 @@ export function QuickCreate({
         render={
           <Button
             className={cn(fullWidth && "w-full", className)}
-            aria-label="New"
+            aria-label="Create"
           />
         }
       >
         <Plus className="size-5" />
-        <span className={fullWidth ? "inline" : "hidden lg:inline"}>New</span>
+        <span className={fullWidth ? "inline" : "hidden lg:inline"}>Create</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align={fullWidth ? "start" : "end"} className="min-w-44">
         {actions.map((action) => (
