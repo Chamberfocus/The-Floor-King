@@ -293,22 +293,29 @@ export type UxShellMode = "new" | "classic";
 
 /**
  * `fk_ux_shell=new|classic` overrides `NEXT_PUBLIC_UX_SHELL`.
- * Anything else, including an unset cookie and an unset env var, is classic.
+ * An unset cookie and an unset env var use the simple menu.
+ * A bad cookie falls through to the env var, then the simple menu.
  */
 export function resolveUxShell(cookieValue: string | undefined | null): UxShellMode {
   if (cookieValue === "new" || cookieValue === "classic") return cookieValue;
   const env = process.env.NEXT_PUBLIC_UX_SHELL;
   if (env === "new" || env === "classic") return env;
-  return "classic";
+  return "new";
 }
 
 export type ShellSectionId =
   | "home"
-  | "talk"
-  | "customers"
-  | "sales"
-  | "jobs"
   | "schedule"
+  | "customers"
+  | "jobs"
+  | "estimates"
+  | "invoices"
+  | "pricebook"
+  | "office"
+  | "talk"
+  | "sales"
+  | "field"
+  | "team"
   | "money"
   | "inventory"
   | "more";
@@ -345,13 +352,18 @@ const SHELL_BLUEPRINT: {
   items: { href: string; label?: string }[];
 }[] = [
   { id: "home", label: "Home", items: [] },
-  { id: "talk", label: "Shop talk", items: [{ href: "/shop-talk", label: "Shop talk" }] },
+  { id: "schedule", label: "Schedule", items: [{ href: "/calendar", label: "Schedule" }] },
   { id: "customers", label: "Customers", items: [{ href: "/customers" }] },
+  { id: "jobs", label: "Jobs", items: [{ href: "/jobs", label: "Jobs" }] },
+  { id: "estimates", label: "Estimates", items: [{ href: "/estimates", label: "Estimates" }] },
+  { id: "invoices", label: "Invoices", items: [{ href: "/invoices", label: "Invoices" }] },
+  { id: "pricebook", label: "Price book", items: [{ href: "/catalog", label: "Price book" }] },
+  { id: "office", label: "Office", items: [{ href: "/office", label: "Office" }] },
+  { id: "talk", label: "Shop talk", items: [{ href: "/shop-talk", label: "Shop talk" }] },
   {
     id: "sales",
     label: "Sales",
     items: [
-      { href: "/estimates" },
       { href: "/client-status", label: "Sales pipeline" },
       { href: "/samples" },
       { href: "/saved", label: "Saved for later" },
@@ -360,22 +372,20 @@ const SHELL_BLUEPRINT: {
     ],
   },
   {
-    id: "jobs",
-    label: "Jobs",
+    id: "field",
+    label: "Job tools",
     items: [
-      { href: "/jobs" },
-      { href: "/commissions", label: "True-up" },
       { href: "/tasks" },
       { href: "/service" },
       { href: "/board", label: "Job board" },
       { href: "/installer", label: "My Work" },
+      { href: "/commissions", label: "True-up" },
     ],
   },
   {
-    id: "schedule",
-    label: "Schedule",
+    id: "team",
+    label: "Team",
     items: [
-      { href: "/calendar", label: "Measures" },
       { href: "/install-scheduler", label: "Install schedule" },
       { href: "/team", label: "Who's working" },
     ],
@@ -384,8 +394,6 @@ const SHELL_BLUEPRINT: {
     id: "money",
     label: "Money",
     items: [
-      { href: "/office", label: "Office" },
-      { href: "/invoices" },
       { href: "/bills", label: "Bills" },
       { href: "/commissions/statement", label: "My commission" },
       { href: "/pulse", label: "Business pulse" },
@@ -393,9 +401,8 @@ const SHELL_BLUEPRINT: {
   },
   {
     id: "inventory",
-    label: "Inventory",
+    label: "Warehouse",
     items: [
-      { href: "/catalog", label: "Products" },
       { href: "/inventory" },
       { href: "/warehouse" },
       { href: "/orders", label: "Orders" },
@@ -404,7 +411,7 @@ const SHELL_BLUEPRINT: {
   },
   {
     id: "more",
-    label: "More",
+    label: "Reporting",
     items: [
       { href: "/commissions", label: "True-up" },
       { href: "/dashboard" },
@@ -579,21 +586,21 @@ export const QUICK_CREATE: QuickCreateAction[] = [
 
 const COLLAPSIBLE_SECTIONS: readonly ShellSectionId[] = [
   "sales",
-  "jobs",
-  "schedule",
+  "field",
+  "team",
   "money",
   "inventory",
   "more",
 ];
 
-/** Groups that unfold. Home and Customers stay one click, always visible. */
+/** Groups that unfold. The daily pages stay one click, always visible. */
 export function isCollapsibleShellSection(id: string): id is ShellSectionId {
   return (COLLAPSIBLE_SECTIONS as readonly string[]).includes(id);
 }
 
 /**
  * The one accordion group that owns the current page.
- * Home, Customers, and unknown routes open nothing.
+ * The daily pages and unknown routes open nothing.
  */
 export function openGroupForRoute(active: ShellSectionId | null): ShellSectionId | null {
   if (active && isCollapsibleShellSection(active)) return active;

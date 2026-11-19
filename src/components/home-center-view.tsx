@@ -6,10 +6,12 @@ export function HomeCenterView({
   board,
   people,
   customersHref,
+  scheduleHref,
 }: {
   board: HomeCommandBoard;
   people: HomePerson[];
   customersHref?: string | null;
+  scheduleHref?: string | null;
 }) {
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
@@ -29,6 +31,19 @@ export function HomeCenterView({
           ) : null}
         </div>
       </header>
+
+      {scheduleHref ? (
+        <Link
+          href={scheduleHref}
+          className="flex min-h-16 items-center justify-between gap-3 rounded-xl bg-primary px-4 py-3 text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <span>
+            <span className="block text-sm font-medium text-primary-foreground/80">Schedule</span>
+            <span className="block text-lg font-semibold">Open today's calendar</span>
+          </span>
+          <span className="text-sm font-semibold">View</span>
+        </Link>
+      ) : null}
 
       {board.unavailable ? (
         <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">

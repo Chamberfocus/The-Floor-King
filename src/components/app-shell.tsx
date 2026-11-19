@@ -299,7 +299,7 @@ function ShellSwitch({ shell }: { shell: UxShellMode }) {
         router.refresh();
       }}
     >
-      {shell === "new" ? "Use current navigation" : "Try new navigation"}
+      {shell === "new" ? "Use the full menu" : "Use the simple menu"}
     </Button>
   );
 }
@@ -410,7 +410,7 @@ export function AppShell({
   org?: OrgSettings;
   /** Read from the cookie on the server so there's no flash on first paint. */
   defaultCollapsed?: boolean;
-  /** Phase A shell. Classic stays the default until the cookie or env opts in. */
+  /** Simple menu is the default. Classic stays available from the cookie or env. */
   shell?: UxShellMode;
   children: React.ReactNode;
 }) {

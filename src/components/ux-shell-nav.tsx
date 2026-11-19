@@ -33,7 +33,7 @@ const linkClass = (active: boolean) =>
       : "font-medium text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
   );
 
-/** Desktop and mobile-sheet navigation. Home and Customers stay visible; other groups fold. */
+/** Desktop and mobile-sheet navigation. Daily pages stay visible; other groups fold. */
 export function UxShellNav({
   role,
   onNavigate,

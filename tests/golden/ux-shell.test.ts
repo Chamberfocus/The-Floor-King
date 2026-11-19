@@ -151,25 +151,34 @@ describe("Phase A shell grouping", () => {
   it("uses the approved top-level order for an admin", () => {
     expect(shellSectionsForRole("admin").map((section) => section.id)).toEqual([
       "home",
-      "talk",
-      "customers",
-      "sales",
-      "jobs",
       "schedule",
+      "customers",
+      "jobs",
+      "estimates",
+      "invoices",
+      "pricebook",
+      "office",
+      "talk",
+      "sales",
+      "field",
+      "team",
       "money",
       "inventory",
       "more",
     ]);
   });
 
-  it("puts purchase orders under Inventory and accounting under More", () => {
+  it("puts purchase orders under Warehouse and accounting under Reporting", () => {
     const sections = shellSectionsForRole("admin");
     const inventory = sections.find((section) => section.id === "inventory");
     const money = sections.find((section) => section.id === "money");
     const more = sections.find((section) => section.id === "more");
     expect(inventory?.items.map((item) => item.href)).toContain("/purchase-orders");
+    expect(inventory?.items.map((item) => item.href)).not.toContain("/catalog");
     expect(money?.items.map((item) => item.href)).not.toContain("/purchase-orders");
     expect(money?.items.map((item) => item.href)).not.toContain("/accounting");
+    expect(money?.items.map((item) => item.href)).not.toContain("/invoices");
+    expect(money?.items.map((item) => item.href)).not.toContain("/office");
     expect(more?.items.map((item) => item.href)).toEqual([
       "/commissions",
       "/dashboard",
@@ -178,30 +187,44 @@ describe("Phase A shell grouping", () => {
       "/settings",
     ]);
     expect(more?.items.find((item) => item.href === "/commissions")?.label).toBe("True-up");
-    const jobs = sections.find((section) => section.id === "jobs");
-    expect(jobs?.items.find((item) => item.href === "/commissions")?.label).toBe("True-up");
+    const field = sections.find((section) => section.id === "field");
+    expect(field?.items.find((item) => item.href === "/commissions")?.label).toBe("True-up");
     expect(money?.items.map((item) => item.href)).not.toContain("/commissions");
+    expect(sections.find((section) => section.id === "jobs")?.items.map((item) => item.href)).toEqual([
+      "/jobs",
+    ]);
+    expect(sections.find((section) => section.id === "estimates")?.items.map((item) => item.href)).toEqual([
+      "/estimates",
+    ]);
+    expect(sections.find((section) => section.id === "invoices")?.items.map((item) => item.href)).toEqual([
+      "/invoices",
+    ]);
+    expect(sections.find((section) => section.id === "pricebook")?.items[0]?.label).toBe("Price book");
   });
 
   it("uses employee-facing labels without changing the route", () => {
     const admin = shellSectionsForRole("admin");
     const sales = admin.find((section) => section.id === "sales");
     const schedule = admin.find((section) => section.id === "schedule");
+    const team = admin.find((section) => section.id === "team");
     expect(sales?.items.find((item) => item.href === "/client-status")).toMatchObject({
       label: "Sales pipeline",
       href: "/client-status",
     });
-    expect(schedule?.items.find((item) => item.href === "/calendar")?.label).toBe("Measures");
-    expect(schedule?.items.find((item) => item.href === "/install-scheduler")?.label).toBe(
+    expect(schedule?.items.find((item) => item.href === "/calendar")?.label).toBe("Schedule");
+    expect(team?.items.find((item) => item.href === "/install-scheduler")?.label).toBe(
       "Install schedule",
     );
     expect(schedule?.items.some((item) => item.href === "/schedule/route")).toBe(false);
+    expect(team?.items.some((item) => item.href === "/schedule/route")).toBe(false);
   });
 
-  it("keeps Home on the action center and My Work under Jobs for crew", () => {
+  it("keeps Home on the action center and My Work under Job tools for crew", () => {
     const jobs = shellSectionsForRole("crew").find((section) => section.id === "jobs");
-    expect(jobs?.items.map((item) => item.href)).toContain("/installer");
-    expect(jobs?.items.filter((item) => item.href === "/installer")).toHaveLength(1);
+    const field = shellSectionsForRole("crew").find((section) => section.id === "field");
+    expect(jobs?.items.map((item) => item.href)).toEqual(["/jobs"]);
+    expect(field?.items.map((item) => item.href)).toContain("/installer");
+    expect(field?.items.filter((item) => item.href === "/installer")).toHaveLength(1);
     expect(shellSectionsForRole("crew").find((section) => section.id === "home")?.items[0]?.href).toBe(
       "/home",
     );
@@ -217,14 +240,14 @@ describe("Phase A active navigation", () => {
       sectionId: "customers",
       href: "/customers",
     });
-    expect(activeShellSection("/estimates/1/edit", role)).toBe("sales");
+    expect(activeShellSection("/estimates/1/edit", role)).toBe("estimates");
     expect(activeShellSection("/client-status", role)).toBe("sales");
     expect(activeShellSection("/jobs/1", role)).toBe("jobs");
     expect(activeShellSection("/jobs/new", role)).toBe("jobs");
-    expect(activeShellSection("/install-scheduler", role)).toBe("schedule");
+    expect(activeShellSection("/install-scheduler", role)).toBe("team");
     expect(activeShellSection("/schedule/route", role)).toBe("schedule");
     expect(activeShellSection("/purchase-orders/9", role)).toBe("inventory");
-    expect(activeShellSection("/invoices/9", role)).toBe("money");
+    expect(activeShellSection("/invoices/9", role)).toBe("invoices");
     expect(activeShellSection("/accounting/general-ledger", role)).toBe("more");
     expect(activeShellSection("/settings/stages", role)).toBe("more");
     expect(activeShellSection("/reports/products", role)).toBe("more");
@@ -232,42 +255,36 @@ describe("Phase A active navigation", () => {
     expect(activeShellSection("/leads", role)).toBe("customers");
     expect(activeShellSection("/schedule", role)).toBe("schedule");
     expect(activeShellSection("/jobs/calendar", role)).toBe("jobs");
-    expect(activeShellSection("/invoices/quick", role)).toBe("money");
+    expect(activeShellSection("/invoices/quick", role)).toBe("invoices");
+    expect(activeShellSection("/office", role)).toBe("office");
+    expect(activeShellSection("/shop-talk", role)).toBe("talk");
+    expect(activeShellSection("/catalog/abc", role)).toBe("pricebook");
     expect(activeShellSection("/home", "crew")).toBe("home");
-    expect(activeShellSection("/installer", "crew")).toBe("jobs");
-    expect(activeShellSection("/installer", "admin")).toBe("jobs");
+    expect(activeShellSection("/installer", "crew")).toBe("field");
+    expect(activeShellSection("/installer", "admin")).toBe("field");
     expect(activeShellLink("/does-not-exist", role)).toBeNull();
     expect(activeShellSection("/does-not-exist", role)).toBeNull();
   });
 
   it("opens exactly the group that owns the current page", () => {
-    const routes: [string, "sales" | "jobs" | "schedule" | "money" | "inventory" | "more"][] = [
-      ["/estimates", "sales"],
-      ["/estimates/1/edit", "sales"],
+    const routes: [string, "sales" | "field" | "team" | "money" | "inventory" | "more"][] = [
       ["/client-status", "sales"],
       ["/orders", "inventory"],
       ["/samples", "sales"],
-      ["/jobs", "jobs"],
-      ["/jobs/new", "jobs"],
-      ["/jobs/1", "jobs"],
-      ["/service", "jobs"],
-      ["/tasks", "jobs"],
-      ["/board", "jobs"],
-      ["/installer", "jobs"],
-      ["/calendar", "schedule"],
-      ["/install-scheduler", "schedule"],
-      ["/team", "schedule"],
-      ["/invoices", "money"],
+      ["/service", "field"],
+      ["/tasks", "field"],
+      ["/board", "field"],
+      ["/installer", "field"],
+      ["/install-scheduler", "team"],
+      ["/team", "team"],
       ["/bills", "money"],
       ["/pulse", "money"],
-      ["/catalog", "inventory"],
-      ["/catalog/abc", "inventory"],
       ["/inventory", "inventory"],
       ["/warehouse", "inventory"],
       ["/purchase-orders", "inventory"],
-      ["/commissions", "jobs"],
-      ["/commissions/statement", "jobs"],
-      ["/commissions/profitability", "jobs"],
+      ["/commissions", "field"],
+      ["/commissions/statement", "field"],
+      ["/commissions/profitability", "field"],
       ["/dashboard", "more"],
       ["/reports", "more"],
       ["/accounting", "more"],
@@ -284,10 +301,17 @@ describe("Phase A active navigation", () => {
       }
     }
     expect(openGroupForRoute(activeShellSection("/customers", role))).toBeNull();
+    expect(openGroupForRoute(activeShellSection("/jobs", role))).toBeNull();
+    expect(openGroupForRoute(activeShellSection("/estimates", role))).toBeNull();
+    expect(openGroupForRoute(activeShellSection("/invoices", role))).toBeNull();
+    expect(openGroupForRoute(activeShellSection("/calendar", role))).toBeNull();
+    expect(openGroupForRoute(activeShellSection("/catalog", role))).toBeNull();
+    expect(openGroupForRoute(activeShellSection("/office", role))).toBeNull();
+    expect(openGroupForRoute(activeShellSection("/shop-talk", role))).toBeNull();
     expect(openGroupForRoute(activeShellSection("/", role))).toBeNull();
     expect(openGroupForRoute(activeShellSection("/home", "crew"))).toBeNull();
-    expect(openGroupForRoute(activeShellSection("/installer", "crew"))).toBe("jobs");
-    expect(openGroupForRoute(activeShellSection("/jobs", "crew"))).toBe("jobs");
+    expect(openGroupForRoute(activeShellSection("/installer", "crew"))).toBe("field");
+    expect(openGroupForRoute(activeShellSection("/jobs", "crew"))).toBeNull();
     expect(openGroupForRoute(null)).toBeNull();
     expect(() => shellSectionsForRole("admin")).not.toThrow();
     expect(() => activeShellLink("/nope", "warehouse")).not.toThrow();
@@ -373,27 +397,36 @@ describe("Phase A mobile tabs and + New", () => {
 
   it("lets only one navigation group stay open", () => {
     expect(isCollapsibleShellSection("sales")).toBe(true);
-    expect(isCollapsibleShellSection("jobs")).toBe(true);
-    expect(isCollapsibleShellSection("schedule")).toBe(true);
+    expect(isCollapsibleShellSection("field")).toBe(true);
+    expect(isCollapsibleShellSection("team")).toBe(true);
     expect(isCollapsibleShellSection("money")).toBe(true);
     expect(isCollapsibleShellSection("inventory")).toBe(true);
     expect(isCollapsibleShellSection("more")).toBe(true);
     expect(isCollapsibleShellSection("home")).toBe(false);
     expect(isCollapsibleShellSection("customers")).toBe(false);
+    expect(isCollapsibleShellSection("jobs")).toBe(false);
+    expect(isCollapsibleShellSection("schedule")).toBe(false);
+    expect(isCollapsibleShellSection("estimates")).toBe(false);
+    expect(isCollapsibleShellSection("invoices")).toBe(false);
+    expect(isCollapsibleShellSection("pricebook")).toBe(false);
+    expect(isCollapsibleShellSection("office")).toBe(false);
+    expect(isCollapsibleShellSection("talk")).toBe(false);
     expect(openGroupForRoute("sales")).toBe("sales");
     expect(openGroupForRoute("customers")).toBeNull();
+    expect(openGroupForRoute("jobs")).toBeNull();
     expect(openGroupForRoute("home")).toBeNull();
-    expect(nextOpenGroup("sales", "jobs")).toBe("jobs");
-    expect(nextOpenGroup("jobs", "schedule")).toBe("schedule");
-    expect(nextOpenGroup("schedule", "money")).toBe("money");
+    expect(nextOpenGroup("sales", "field")).toBe("field");
+    expect(nextOpenGroup("field", "team")).toBe("team");
+    expect(nextOpenGroup("team", "money")).toBe("money");
     expect(nextOpenGroup("money", "inventory")).toBe("inventory");
     expect(nextOpenGroup("inventory", "more")).toBe("more");
     expect(nextOpenGroup("more", "sales")).toBe("sales");
     expect(nextOpenGroup("sales", "sales")).toBeNull();
-    expect(nextOpenGroup(null, "jobs")).toBe("jobs");
-    expect(nextOpenGroup("jobs", "home")).toBe("jobs");
-    expect(shellSectionsForRole("admin").find((s) => s.id === "inventory")?.items.map((i) => i.label)).toContain(
-      "Products",
+    expect(nextOpenGroup(null, "field")).toBe("field");
+    expect(nextOpenGroup("field", "home")).toBe("field");
+    expect(nextOpenGroup("field", "jobs")).toBe("field");
+    expect(shellSectionsForRole("admin").find((s) => s.id === "pricebook")?.items.map((i) => i.label)).toContain(
+      "Price book",
     );
     expect(shellSectionsForRole("office").find((s) => s.id === "money")?.items.map((i) => i.label)).toContain(
       "Bills",
@@ -402,17 +435,17 @@ describe("Phase A mobile tabs and + New", () => {
 });
 
 describe("Phase A flag, redirects, and shell tools", () => {
-  it("defaults to the classic shell and lets the cookie win", () => {
+  it("defaults to the simple menu and lets the cookie win", () => {
     const previous = process.env.NEXT_PUBLIC_UX_SHELL;
     delete process.env.NEXT_PUBLIC_UX_SHELL;
-    expect(resolveUxShell(undefined)).toBe("classic");
-    expect(resolveUxShell(null)).toBe("classic");
-    expect(resolveUxShell("nope")).toBe("classic");
+    expect(resolveUxShell(undefined)).toBe("new");
+    expect(resolveUxShell(null)).toBe("new");
+    expect(resolveUxShell("nope")).toBe("new");
     expect(resolveUxShell("new")).toBe("new");
     expect(resolveUxShell("classic")).toBe("classic");
-    process.env.NEXT_PUBLIC_UX_SHELL = "new";
-    expect(resolveUxShell(undefined)).toBe("new");
-    expect(resolveUxShell("classic")).toBe("classic");
+    process.env.NEXT_PUBLIC_UX_SHELL = "classic";
+    expect(resolveUxShell(undefined)).toBe("classic");
+    expect(resolveUxShell("new")).toBe("new");
     if (previous === undefined) delete process.env.NEXT_PUBLIC_UX_SHELL;
     else process.env.NEXT_PUBLIC_UX_SHELL = previous;
   });

@@ -83,16 +83,15 @@
 }
 
 :root {
-  /* Showroom stone. The page is a quiet light workspace, like JobNimbus and
-     Jobber: the customer and the next action carry the color, not the chrome.
-     One blue is the action. Honey stays off prices and customer documents. */
+  /* Light workspace. One clear blue is the action, the way a field-service
+     home screen keeps the next job easy to see. Honey stays off prices. */
   --background: oklch(0.972 0.004 255);
   --foreground: oklch(0.22 0.02 260);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.22 0.02 260);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.22 0.02 260);
-  --primary: oklch(0.46 0.15 256);
+  --primary: oklch(0.5 0.17 260);
   --primary-foreground: oklch(0.99 0.002 256);
   --secondary: oklch(0.955 0.006 255);
   --secondary-foreground: oklch(0.28 0.02 260);
@@ -103,8 +102,8 @@
   --destructive: oklch(0.55 0.2 25);
   --border: oklch(0.91 0.006 255);
   --input: oklch(0.91 0.006 255);
-  --ring: oklch(0.46 0.15 256);
-  --chart-1: oklch(0.46 0.15 256);
+  --ring: oklch(0.5 0.17 260);
+  --chart-1: oklch(0.5 0.17 260);
   --chart-2: oklch(0.62 0.12 160);
   --chart-3: oklch(0.62 0.1 75);
   --chart-4: oklch(0.7 0.12 55);
@@ -123,12 +122,12 @@
   /* Light navigation. The active row is a blue wash, not a dark bar. */
   --sidebar: oklch(0.995 0.002 255);
   --sidebar-foreground: oklch(0.28 0.02 260);
-  --sidebar-primary: oklch(0.46 0.15 256);
+  --sidebar-primary: oklch(0.5 0.17 260);
   --sidebar-primary-foreground: oklch(0.99 0 0);
   --sidebar-accent: oklch(0.945 0.03 256);
   --sidebar-accent-foreground: oklch(0.36 0.14 256);
   --sidebar-border: oklch(0.91 0.006 255);
-  --sidebar-ring: oklch(0.46 0.15 256);
+  --sidebar-ring: oklch(0.5 0.17 260);
 }
 
 .dark {
