@@ -29,7 +29,8 @@ import { SegmentedField } from "@/components/ui/segmented-field";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { foldCatalogColor, colorNumberFromText } from "@/lib/catalog-identity";
-import { fileToGrid, chunkText } from "@/lib/pdf-client";
+import { fileToGrid, fileToSheets, chunkText } from "@/lib/pdf-client";
+import { parseOvfWorkbook } from "@/lib/ovf-price";
 import {
   buildCatalogTemplate,
   mapCategory,
@@ -126,7 +127,10 @@ export function validateRow(
     return { level: "flag", reason: "price didn't parse — fix it or map a different price column" };
   const p = Number(r.material_rate);
   if (!(p > 0)) return { level: "flag", reason: "price is $0" };
-  if (p >= 200)
+  const u = r.unit;
+  // A carton, a pail, or a commercial box can cost more than $200.
+  // A square-foot or square-yard figure that large is a roll length in the price column.
+  if ((u === "sqft" || u === "sqyd" || !u) && p >= 200)
     return { level: "flag", reason: `$${p} looks like a roll size, not the unit price` };
   if (r.roll_rate != null && r.roll_rate !== undefined) {
     const roll = Number(r.roll_rate);
@@ -138,7 +142,6 @@ export function validateRow(
       };
     }
   }
-  const u = r.unit;
   if (r.category === "carpet") {
     // Carpet is always sq yd here. A plausible sq ft price was already
     // converted upstream, so anything still arriving as sq ft is a sq yd price
@@ -365,6 +368,18 @@ export function SmartImporter({
 
           if (isSheet) {
             setStatus("Reading the spreadsheet…");
+            const isExcel = name.endsWith(".xlsx") || name.endsWith(".xls");
+            if (isExcel) {
+              const ovf = parseOvfWorkbook(await fileToSheets(file));
+              if (ovf?.rows.length) {
+                preserveRef.current = true;
+                setMixedBook(true);
+                setDefSupplier(ovf.distributor);
+                setUpdateMode(true);
+                finishRows(ovf.rows, { name: file.name, how: "spreadsheet" }, { sheet: false });
+                return;
+              }
+            }
             const g = await fileToGrid(file);
             if (g.length < 2) {
               toast.error("That file has no data rows.");
