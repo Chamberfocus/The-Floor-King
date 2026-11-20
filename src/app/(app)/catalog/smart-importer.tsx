@@ -208,6 +208,8 @@ export function SmartImporter({
   /** This read came from a price sheet: style, color, cut, roll — nothing else. */
   const [sheetRead, setSheetRead] = useState(false);
   const sheetFlag = useRef(false);
+  /** This file already priced each product (carpet, LVP, trim). Do not force one category. */
+  const preserveRef = useRef(false);
   // Row indices selected for a bulk change (editable / AI-rows path).
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulkCat, setBulkCat] = useState("carpet");
@@ -229,6 +231,7 @@ export function SmartImporter({
     setRows(null);
     setSheetRead(false);
     sheetFlag.current = false;
+    preserveRef.current = false;
     setSelected(new Set());
     setShown(60);
     setStatus(null);
@@ -256,7 +259,9 @@ export function SmartImporter({
   ): Promise<PriceRow[]> => {
     const read = readPriceText(text);
     if (read?.rows.length) {
-      sheetFlag.current = read.sheet || shape === "sheet";
+      const preserve = Boolean(read.preserveCategories);
+      preserveRef.current = preserve;
+      sheetFlag.current = !preserve && (read.sheet || shape === "sheet");
       setStatus(
         read.sheet
           ? `Found ${read.rows.length} colors — style, color, cut, and roll.`
@@ -378,9 +383,10 @@ export function SmartImporter({
               return;
             }
             setStatus("Reading the PDF…");
-            const { text, structured } = await extractStoragePdfText(path);
+            const { text, structured, preserveCategories } = await extractStoragePdfText(path);
             if (structured?.length) {
-              finishRows(structured, { name: file.name, how: "pdf" }, { sheet: true });
+              preserveRef.current = Boolean(preserveCategories);
+              finishRows(structured, { name: file.name, how: "pdf" }, { sheet: !preserveCategories });
               return;
             }
             if (text && text.trim().length >= 20) {
@@ -553,7 +559,9 @@ export function SmartImporter({
     unit: effectiveUnit,
     note: defNote,
   };
-  const sheetMode = sheetRead || source?.how === "pdf" || source?.how === "image";
+  const sheetMode =
+    !preserveRef.current &&
+    (sheetRead || source?.how === "pdf" || source?.how === "image");
   const factsReady =
     Boolean(defManufacturer.trim()) &&
     Boolean(defSupplier.trim()) &&
