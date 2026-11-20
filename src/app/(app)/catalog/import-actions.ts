@@ -18,7 +18,9 @@ import {
   sheetLinesToPriceRows,
 } from "@/lib/price-sheet";
 import { specFieldsFor } from "@/lib/product-fields";
-import { parseBishopPriceList, type BishopPriceBook } from "@/lib/bishop-price";
+import { parseBishopPriceList } from "@/lib/bishop-price";
+import { parsePdHappyFeetPriceList } from "@/lib/pd-happy-feet-price";
+import { parseSomersetPriceList } from "@/lib/somerset-price";
 import { layoutPdfJsItems, pdfJsItems } from "@/lib/pdf-layout";
 import { triggerImportProcessing } from "@/lib/import-worker";
 import {
@@ -98,15 +100,17 @@ function parseTextRows(text: string): PriceRow[] {
  * lines using pdf.js text-item geometry (end-of-line flags + Y position) so a
  * price list comes out one product per row — not as one giant blob.
  */
-async function pdfTextFromStorage(
-  storagePath: string,
-): Promise<{ text: string; bishop: BishopPriceBook | null }> {
+async function pdfTextFromStorage(storagePath: string): Promise<{
+  text: string;
+  book: { rows: PriceRow[]; distributor: string } | null;
+}> {
+  const empty = { text: "", book: null as { rows: PriceRow[]; distributor: string } | null };
   try {
     const supabase = await createClient();
     const { data } = await supabase.storage
       .from("documents")
       .download(storagePath);
-    if (!data) return { text: "", bishop: null };
+    if (!data) return empty;
     const buf = new Uint8Array(await data.arrayBuffer());
     const { getDocumentProxy } = await import("unpdf");
     const pdf = await getDocumentProxy(buf);
@@ -145,9 +149,16 @@ async function pdfTextFromStorage(
       }
     }
     const text = lines.join("\n");
-    return { text, bishop: parseBishopPriceList(bishopPages) };
+    const somerset = parseSomersetPriceList(bishopPages);
+    const happyFeet = parsePdHappyFeetPriceList(bishopPages);
+    const bishop = parseBishopPriceList(bishopPages);
+    const book = somerset ?? happyFeet ?? bishop;
+    return {
+      text,
+      book: book?.rows.length ? { rows: book.rows, distributor: book.distributor } : null,
+    };
   } catch {
-    return { text: "", bishop: null };
+    return empty;
   }
 }
 
@@ -173,12 +184,12 @@ export async function extractStoragePdfText(
   if (!storagePath) return { text: "", structured: null, error: "No file." };
   const extracted = await pdfTextFromStorage(storagePath);
   const text = extracted.text;
-  if (extracted.bishop?.rows.length) {
+  if (extracted.book?.rows.length) {
     return {
       text,
-      structured: extracted.bishop.rows,
+      structured: extracted.book.rows,
       preserveCategories: true,
-      distributor: extracted.bishop.distributor,
+      distributor: extracted.book.distributor,
       error: null,
     };
   }
