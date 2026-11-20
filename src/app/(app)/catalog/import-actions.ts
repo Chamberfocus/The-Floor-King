@@ -18,7 +18,8 @@ import {
   sheetLinesToPriceRows,
 } from "@/lib/price-sheet";
 import { specFieldsFor } from "@/lib/product-fields";
-import { layoutPdfJsItems } from "@/lib/pdf-layout";
+import { parseBishopPriceList, type BishopPriceBook } from "@/lib/bishop-price";
+import { layoutPdfJsItems, pdfJsItems } from "@/lib/pdf-layout";
 import { triggerImportProcessing } from "@/lib/import-worker";
 import {
   listActiveImportJobs,
@@ -97,18 +98,21 @@ function parseTextRows(text: string): PriceRow[] {
  * lines using pdf.js text-item geometry (end-of-line flags + Y position) so a
  * price list comes out one product per row — not as one giant blob.
  */
-async function pdfTextFromStorage(storagePath: string): Promise<string> {
+async function pdfTextFromStorage(
+  storagePath: string,
+): Promise<{ text: string; bishop: BishopPriceBook | null }> {
   try {
     const supabase = await createClient();
     const { data } = await supabase.storage
       .from("documents")
       .download(storagePath);
-    if (!data) return "";
+    if (!data) return { text: "", bishop: null };
     const buf = new Uint8Array(await data.arrayBuffer());
     const { getDocumentProxy } = await import("unpdf");
     const pdf = await getDocumentProxy(buf);
 
     const lines: string[] = [];
+    const bishopPages: { str: string; x: number; y: number }[][] = [];
     for (let p = 1; p <= pdf.numPages; p++) {
       const page = await pdf.getPage(p);
       const content = await page.getTextContent();
@@ -119,6 +123,7 @@ async function pdfTextFromStorage(storagePath: string): Promise<string> {
         width?: number;
         height?: number;
       }[];
+      bishopPages.push(pdfJsItems(items));
 
       // Column gaps become tabs. "12" and "00" stay $12.00, not 1200.
       // A two-column page is read left side, then right side.
@@ -139,9 +144,10 @@ async function pdfTextFromStorage(storagePath: string): Promise<string> {
         if (trimmed) lines.push(trimmed);
       }
     }
-    return lines.join("\n");
+    const text = lines.join("\n");
+    return { text, bishop: parseBishopPriceList(bishopPages) };
   } catch {
-    return "";
+    return { text: "", bishop: null };
   }
 }
 
@@ -150,6 +156,8 @@ export interface PdfTextResult {
   structured: PriceRow[] | null; // clean column layout, parsed instantly
   /** Rows already name their own category and unit. Do not lock the file to one material. */
   preserveCategories?: boolean;
+  /** Who you order this list from, when the sheet names one distributor. */
+  distributor?: string | null;
   error: string | null;
 }
 
@@ -163,7 +171,17 @@ export async function extractStoragePdfText(
   storagePath: string,
 ): Promise<PdfTextResult> {
   if (!storagePath) return { text: "", structured: null, error: "No file." };
-  const text = await pdfTextFromStorage(storagePath);
+  const extracted = await pdfTextFromStorage(storagePath);
+  const text = extracted.text;
+  if (extracted.bishop?.rows.length) {
+    return {
+      text,
+      structured: extracted.bishop.rows,
+      preserveCategories: true,
+      distributor: extracted.bishop.distributor,
+      error: null,
+    };
+  }
   if (!text || text.trim().length < 20)
     return { text: "", structured: null, error: null };
   // A price book often starts with a title, so the header is not on line 1.
@@ -173,6 +191,7 @@ export async function extractStoragePdfText(
     text,
     structured: read?.rows ?? null,
     preserveCategories: read?.preserveCategories ?? false,
+    distributor: null,
     error: null,
   };
 }
