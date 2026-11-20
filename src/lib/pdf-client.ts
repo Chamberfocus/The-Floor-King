@@ -71,6 +71,28 @@ function splitCsvLine(line: string, delim: string): string[] {
  * Parse a spreadsheet/CSV file into a grid of rows (array of string[]) in the
  * browser. The first non-empty row is the header. Fast — no AI.
  */
+/** Every sheet, including blank rows. Ohio Valley books use those blanks as section breaks. */
+export async function fileToSheets(
+  file: File,
+): Promise<{ name: string; rows: string[][] }[]> {
+  const XLSX = await import("xlsx");
+  const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+  return wb.SheetNames.map((name) => {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], {
+      header: 1,
+      raw: false,
+      defval: "",
+      blankrows: true,
+    }) as unknown[][];
+    return {
+      name,
+      rows: rows.map((r) =>
+        (Array.isArray(r) ? r : []).map((c) => String(c ?? "").replace(/\s+/g, " ").trim()),
+      ),
+    };
+  });
+}
+
 export async function fileToGrid(file: File): Promise<string[][]> {
   const name = file.name.toLowerCase();
   const isExcel =
