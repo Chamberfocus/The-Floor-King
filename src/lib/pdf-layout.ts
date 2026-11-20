@@ -87,8 +87,19 @@ function joinRow(items: PdfTextItem[]): string {
 /**
  * Prices often sit a few points lower than the product name in the same
  * table cell. Group tight baselines first, then pull a price band up onto
- * the product row when it is closer than the next product row.
+ * the product row. A band that already has a name and a price is its own row.
  */
+function isPricedProductBand(items: PdfTextItem[]): boolean {
+  let named = false;
+  let priced = false;
+  for (const it of items) {
+    const word = it.str.trim();
+    if (/[A-Za-z]{3,}/.test(word)) named = true;
+    if (/^\$?\d*\.\d{2}$/.test(word)) priced = true;
+  }
+  return named && priced;
+}
+
 function clusterRows(items: PdfTextItem[]): PdfTextItem[][] {
   const sorted = [...items].sort((a, b) => b.y - a.y || a.x - b.x);
   const bands: { y: number; items: PdfTextItem[] }[] = [];
@@ -107,8 +118,13 @@ function clusterRows(items: PdfTextItem[]): PdfTextItem[][] {
   const merged: { y: number; items: PdfTextItem[] }[] = [];
   for (const band of bands) {
     const prev = merged[merged.length - 1];
-    if (prev && prev.y - band.y <= mergeBelow) prev.items.push(...band.items);
-    else merged.push({ y: band.y, items: [...band.items] });
+    // A short page's larger gaps (a footer, a blank) inflate the pitch, and
+    // then every product row gets swallowed by the one above it. A band that
+    // already has a name and a price is its own row. Only a price that fell
+    // below its name gets pulled back up.
+    if (prev && !isPricedProductBand(band.items) && prev.y - band.y <= mergeBelow) {
+      prev.items.push(...band.items);
+    } else merged.push({ y: band.y, items: [...band.items] });
   }
   return merged.map((band) => band.items);
 }

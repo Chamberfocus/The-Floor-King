@@ -8,6 +8,7 @@
  */
 import { foldCatalogColor } from "@/lib/catalog-identity";
 import { parseColorMatrix, parseStructuredRows, unitPriceCell } from "@/lib/catalog-csv";
+import { parseEngineeredFloorsPriceList } from "@/lib/engineered-floors-price";
 import type { PriceRow } from "@/lib/extract";
 
 export interface PriceSheetLine {
@@ -614,7 +615,13 @@ function textHasCutOrRollHeader(text: string): boolean {
  * A cut/roll price sheet wins over a color-matrix book. A color matrix wins
  * over a loose style/color/price read. A normal spreadsheet is last.
  */
-export function readPriceText(text: string): { rows: PriceRow[]; sheet: boolean } | null {
+export function readPriceText(
+  text: string,
+): { rows: PriceRow[]; sheet: boolean; preserveCategories?: boolean } | null {
+  // A mill book of many products (carpet, LVP, trim) keeps each row's own
+  // category. It is not one style with a color on every line.
+  const engineered = parseEngineeredFloorsPriceList(text);
+  if (engineered?.length) return { rows: engineered, sheet: false, preserveCategories: true };
   const sheet = parsePriceSheet(text);
   const cutRoll = textHasCutOrRollHeader(text) || Boolean(sheet?.some((r) => r.rollPrice != null));
   if (sheet?.length && cutRoll) return { rows: sheetLinesToPriceRows(sheet), sheet: true };

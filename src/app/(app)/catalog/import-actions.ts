@@ -148,6 +148,8 @@ async function pdfTextFromStorage(storagePath: string): Promise<string> {
 export interface PdfTextResult {
   text: string;
   structured: PriceRow[] | null; // clean column layout, parsed instantly
+  /** Rows already name their own category and unit. Do not lock the file to one material. */
+  preserveCategories?: boolean;
   error: string | null;
 }
 
@@ -167,7 +169,12 @@ export async function extractStoragePdfText(
   // A price book often starts with a title, so the header is not on line 1.
   // Cut/roll sheets, then color-matrix books, then a normal spreadsheet.
   const read = readPriceText(text);
-  return { text, structured: read?.rows ?? null, error: null };
+  return {
+    text,
+    structured: read?.rows ?? null,
+    preserveCategories: read?.preserveCategories ?? false,
+    error: null,
+  };
 }
 
 export async function parsePriceList(formData: FormData): Promise<ParseResult> {
@@ -240,6 +247,10 @@ export async function parsePriceList(formData: FormData): Promise<ParseResult> {
   }
 
   if (text) {
+    const localBook = readPriceText(text);
+    if (localBook?.preserveCategories && localBook.rows.length) {
+      return { error: null, rows: localBook.rows };
+    }
     if (sheetMode) {
       const local = parsePriceSheet(text);
       if (local?.length) return { error: null, rows: sheetLinesToPriceRows(local) };

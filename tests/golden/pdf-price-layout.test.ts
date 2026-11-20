@@ -98,6 +98,22 @@ describe("PDF price layout", () => {
     expect(parsed?.map((row) => row.material_rate)).toEqual([1.25, 2.25, 3.25, 1.75, 2.75, 3.75]);
   });
 
+  it("keeps tight product rows apart when each row already has its price", () => {
+    const rows: PdfTextItem[] = [];
+    for (let n = 0; n < 4; n++) {
+      const y = 480 - n * 9;
+      rows.push(item(String(1200 + n), 40, y, 36));
+      rows.push(item(n === 0 ? "Yellowstone" : `Style ${n}`, 90, y, 80));
+      rows.push(item(`$${7 + n}.99`, 280, y, 36));
+      rows.push(item("SY", 340, y, 16));
+    }
+    const lines = layoutPdfPage(rows).split("\n");
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toContain("Yellowstone");
+    expect(lines[0]).not.toContain("Style 1");
+    expect(lines[3]).toContain("Style 3");
+  });
+
   it("keeps a price that sits lower in the same row", () => {
     const text = layoutPdfPage([
       item("Style Name", 40, 720, 80),
