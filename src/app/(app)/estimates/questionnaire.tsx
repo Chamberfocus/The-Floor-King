@@ -64,7 +64,14 @@ import {
 } from "@/lib/questionnaire-emit";
 import { lineTotal, lineQty, lineOrderQty, hardSurfaceAreaCartonCount } from "@/lib/estimate-calc";
 import { padRollCount } from "@/lib/job-scope";
-import { bagsNeeded, selfLevelPourThicknessIn, thicknessLabel } from "@/lib/floor-prep";
+import { bagsNeeded, selfLevelPourThicknessIn } from "@/lib/floor-prep";
+import {
+  SCHONOX_LEVELERS,
+  SCHONOX_PRIMERS,
+  SCHONOX_SUBSTRATES,
+  schonoxCount,
+  schonoxProduct,
+} from "@/lib/schonox-calculator";
 import type { Product, EstimateQuestion, EstimateEmit, CustomerArea } from "@/lib/types";
 import { isRollGoodCategory } from "@/lib/types";
 import {
@@ -479,7 +486,7 @@ type Answer =
   | { kind: "hs_stairs"; steps: string; treadRiser: boolean; product: ProductAns | null; laborRate: string; qty?: string; cover?: "treads" | "material"; riserFinish?: "white_board" | "leave" }
   | { kind: "landings"; rows: LandingRow[] }
   | { kind: "subfloor"; thickness: string }
-  | { kind: "selflevel"; thickness: string }
+  | { kind: "selflevel"; thickness: string; leveler?: string; primer?: string; primerUse?: string; substrate?: string }
   | { kind: "text"; text: string };
 
 let cgid = 0, ctid = 0, sgid = 0, ldid = 0;
@@ -832,10 +839,8 @@ export function Questionnaire({
         init[q.id] = { kind: "hs_stairs", steps: "", treadRiser: true, product: null, laborRate: "", qty: "" };
       else if (q.kind === "subfloor")
         init[q.id] = { kind: "subfloor", thickness: q.config.options?.[0]?.label ?? "" };
-      else if (q.kind === "selflevel") {
-        const pour = selfLevelPourThicknessIn(q.config);
-        init[q.id] = { kind: "selflevel", thickness: pour > 0 ? String(pour) : "" };
-      }
+      else if (q.kind === "selflevel")
+        init[q.id] = { kind: "selflevel", thickness: "", leveler: "", primer: "", primerUse: "", substrate: "" };
       else init[q.id] = { kind: "text", text: "" };
     }
     return init;
@@ -2582,47 +2587,84 @@ export function Questionnaire({
         }
         }
       } else if (q.kind === "selflevel" && a.kind === "selflevel") {
-        // Self-leveler → BAGS from area ÷ coverage-at-thickness. Coverage is
-        // carried so the builder's bag calculator stays live. (Labor is the prep
-        // question's job — no double-charge here.) TBD prep does not emit a
-        // fake bag count. Review prints the bag count — taped square feet is not a bag order.
+        // Schönox calculator: bags and primer units. Coverage rides on the line
+        // so the builder stays live. Labor stays on the prep question.
+        // A saved answer with no Schönox product still uses Settings coverage.
+        // We do not invent 1/4". TBD prep does not emit a count. Review prints
+        // the bag count — taped square feet is not a bag order.
         if (prepQuantitiesAreFinal(flooringCtx.prepConfidence)) {
-        const cov = q.config.coverage_sqft ?? 0;
-        const covT = q.config.coverage_thickness_in ?? 0;
-        const pour = selfLevelPourThicknessIn(q.config, a.thickness);
-        const bagCost = q.config.bag_cost ?? 0;
         const suffix = prepQuantitySuffix(flooringCtx.prepConfidence);
         const prepCover = plusLanding(
           q,
           questionCoverSf({ kind: q.kind, key: q.key, category: q.config.category }),
         );
-        if (cov > 0 && prepCover > 0) {
-          const bags = bagsNeeded(prepCover, cov, covT > 0 ? covT : null, covT > 0 ? pour : null);
-          if (bags > 0)
-            out.push({
-              room: null,
-              description: `Self-leveler${suffix}`,
-              category: "other",
-              measure_unit: "sqft",
-              sqft: r2(prepCover),
-              quantity: bags,
-              length_in: null,
-              width_in: null,
-              unit: "bag",
-              material_rate: sellMat(bagCost),
-              labor_rate: 0,
-              material_cost: bagCost,
-              labor_cost: 0,
-              waste_pct: 0,
-              product_id: null,
-              manufacturer: null,
-              style: null,
-              color: null,
-              from_stock: false,
-              coverage_sqft: cov,
-              coverage_thickness_in: covT > 0 ? covT : null,
-              prep_thickness_in: covT > 0 ? pour : null,
-            });
+        const pushCount = (
+          count: NonNullable<ReturnType<typeof schonoxCount>>,
+          description: string,
+        ) => {
+          const cov = count.coverageSqft;
+          out.push({
+            room: null,
+            description: `${description}${suffix}`,
+            category: "underlayment",
+            measure_unit: "sqft",
+            sqft: r2(prepCover),
+            quantity: count.units,
+            length_in: null,
+            width_in: null,
+            unit: count.unit,
+            material_rate: 0,
+            labor_rate: 0,
+            material_cost: 0,
+            labor_cost: 0,
+            waste_pct: 0,
+            product_id: null,
+            manufacturer: "Schönox",
+            style: count.name,
+            color: null,
+            from_stock: false,
+            coverage_sqft: cov,
+            coverage_thickness_in: count.thicknessIn,
+            prep_thickness_in: count.thicknessIn,
+          });
+        };
+        const level = schonoxCount(prepCover, a.leveler, a.thickness);
+        if (level) pushCount(level, `${level.name} — ${level.rowLabel}`);
+        const primer = schonoxCount(prepCover, a.primer, a.primerUse);
+        if (primer) pushCount(primer, `${primer.name} — ${primer.rowLabel}`);
+        if (!level && !primer && (a.thickness ?? "").trim()) {
+          const cov = q.config.coverage_sqft ?? 0;
+          const covT = q.config.coverage_thickness_in ?? 0;
+          const pour = selfLevelPourThicknessIn(q.config, a.thickness);
+          const bagCost = q.config.bag_cost ?? 0;
+          if (cov > 0 && prepCover > 0) {
+            const bags = bagsNeeded(prepCover, cov, covT > 0 ? covT : null, covT > 0 ? pour : null);
+            if (bags > 0)
+              out.push({
+                room: null,
+                description: `Self-leveler${suffix}`,
+                category: "other",
+                measure_unit: "sqft",
+                sqft: r2(prepCover),
+                quantity: bags,
+                length_in: null,
+                width_in: null,
+                unit: "bag",
+                material_rate: sellMat(bagCost),
+                labor_rate: 0,
+                material_cost: bagCost,
+                labor_cost: 0,
+                waste_pct: 0,
+                product_id: null,
+                manufacturer: null,
+                style: null,
+                color: null,
+                from_stock: false,
+                coverage_sqft: cov,
+                coverage_thickness_in: covT > 0 ? covT : null,
+                prep_thickness_in: covT > 0 ? pour : null,
+              });
+          }
         }
         }
       } else if (q.kind === "yesno" || q.kind === "number" || q.kind === "choice") {
@@ -3396,9 +3438,6 @@ export function Questionnaire({
       } else if (a?.kind === "selflevel") {
         // Review prints the bag count — taped square feet is not a bag order.
         if (prepQuantitiesAreFinal(flooringCtx.prepConfidence)) {
-          const cov = qq.config.coverage_sqft ?? 0;
-          const covT = qq.config.coverage_thickness_in ?? 0;
-          const pour = selfLevelPourThicknessIn(qq.config, a.thickness);
           const prepCover = r2(
             questionCoverSf({
               kind: qq.kind,
@@ -3406,16 +3445,31 @@ export function Questionnaire({
               category: qq.config.category,
             }) + landing.sqft,
           );
-          const bags =
-            cov > 0 && prepCover > 0
-              ? bagsNeeded(prepCover, cov, covT > 0 ? covT : null, covT > 0 ? pour : null)
-              : 0;
+          const level = schonoxCount(prepCover, a.leveler, a.thickness);
+          const primer = schonoxCount(prepCover, a.primer, a.primerUse);
           const bagLine = prepCountReviewLine({
-            label: "Self-leveler",
-            qty: bags,
-            unit: "bag",
+            label: level ? `${level.name} ${level.rowLabel}` : "Self-leveler",
+            qty: level
+              ? level.units
+              : (a.thickness ?? "").trim()
+                ? bagsNeeded(
+                    prepCover,
+                    qq.config.coverage_sqft ?? 0,
+                    (qq.config.coverage_thickness_in ?? 0) > 0 ? qq.config.coverage_thickness_in : null,
+                    (qq.config.coverage_thickness_in ?? 0) > 0
+                      ? selfLevelPourThicknessIn(qq.config, a.thickness)
+                      : null,
+                  )
+                : 0,
+            unit: level?.unit ?? "bag",
           });
           if (bagLine) prepCountReview.push(bagLine);
+          const primerLine = prepCountReviewLine({
+            label: primer ? `${primer.name} ${primer.rowLabel}` : "Primer",
+            qty: primer?.units ?? 0,
+            unit: primer?.unit ?? "each",
+          });
+          if (primerLine) prepCountReview.push(primerLine);
         }
       } else if (a?.kind === "subfloor") {
         // Review prints the sheet count — taped square feet is not a plywood order.
@@ -6819,47 +6873,169 @@ function QuestionBody({
     );
   }
 
-  // SELF-LEVELER → bags from area ÷ coverage-at-thickness.
+  // Schönox calculator — leveler bags and primer units from the published rows.
   if (q.kind === "selflevel" && answer?.kind === "selflevel") {
-    const cov = q.config.coverage_sqft ?? 0;
-    const covT = q.config.coverage_thickness_in ?? 0;
-    const pour = selfLevelPourThicknessIn(q.config, answer.thickness);
-    const THICKS = [
-      { v: 0.0625, l: '1/16"' }, { v: 0.125, l: '1/8"' }, { v: 0.1875, l: '3/16"' },
-      { v: 0.25, l: '1/4"' }, { v: 0.375, l: '3/8"' }, { v: 0.5, l: '1/2"' },
-    ];
-    const bags = cov > 0 && coverSf > 0 ? bagsNeeded(coverSf, cov, covT > 0 ? covT : null, covT > 0 ? pour : null) : 0;
-    const label = thicknessLabel(pour) || (covT > 0 ? "stated coverage thickness" : "");
+    const leveler = schonoxProduct(answer.leveler);
+    const primer = schonoxProduct(answer.primer);
+    const levelCount = schonoxCount(coverSf, answer.leveler, answer.thickness);
+    const primerCount = schonoxCount(coverSf, answer.primer, answer.primerUse);
+    const chip = (on: boolean) =>
+      cn(
+        "rounded-md border px-3 py-2 text-sm font-medium",
+        on ? "border-primary bg-primary/10 text-primary" : "hover:bg-muted",
+      );
+    const patch = (next: Partial<Extract<Answer, { kind: "selflevel" }>>) =>
+      update((prev) => {
+        const base =
+          prev?.kind === "selflevel"
+            ? prev
+            : { kind: "selflevel" as const, thickness: "", leveler: "", primer: "", primerUse: "", substrate: "" };
+        return { ...base, ...next, kind: "selflevel" };
+      });
     return (
-      <div className="space-y-3">
-        {covT > 0 ? (
+      <div className="space-y-4">
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">Schönox leveler</label>
+          <div className="flex flex-wrap gap-2">
+            {SCHONOX_LEVELERS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() =>
+                  update((prev) => {
+                    const base =
+                      prev?.kind === "selflevel"
+                        ? prev
+                        : { kind: "selflevel" as const, thickness: "", leveler: "", primer: "", primerUse: "", substrate: "" };
+                    return {
+                      ...base,
+                      kind: "selflevel",
+                      leveler: p.id,
+                      thickness: p.rows.some((r) => r.label === base.thickness) ? base.thickness : "",
+                    };
+                  })
+                }
+                className={chip(answer.leveler === p.id)}
+              >
+                {p.name.replace(/^Schönox /, "")}
+              </button>
+            ))}
+          </div>
+        </div>
+        {leveler ? (
           <div>
             <label className="mb-1 block text-xs text-muted-foreground">Pour thickness</label>
             <div className="flex flex-wrap gap-2">
-              {THICKS.map((t) => (
-                <button key={t.v} type="button" onClick={() => set({ kind: "selflevel", thickness: String(t.v) })}
-                  className={cn("rounded-md border px-3 py-2 text-sm font-medium", Math.abs(pour - t.v) < 1e-6 ? "border-primary bg-primary/10 text-primary" : "hover:bg-muted")}>
-                  {t.l}
+              {leveler.rows.map((row) => (
+                <button
+                  key={row.label}
+                  type="button"
+                  onClick={() => patch({ thickness: row.label })}
+                  className={chip(answer.thickness === row.label)}
+                >
+                  {row.label}
                 </button>
               ))}
             </div>
           </div>
         ) : (
-          <p className="text-xs text-muted-foreground">Flat coverage — thickness doesn&apos;t change the count.</p>
+          <p className="text-xs text-muted-foreground">Pick the leveler. The pour list is that product&apos;s calculator.</p>
         )}
-        {coverSf > 0 && cov > 0 ? (
-          prepQuantitiesAreFinal(flooringCtx.prepConfidence) ? (
-          <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
-            {Math.round(coverSf)} sq ft{covT > 0 && label ? ` at ${label}` : ""} ÷ {cov} SF/bag ={" "}
-            <span className="font-semibold tabular-nums">{bags} bag{bags === 1 ? "" : "s"}</span>
-            {prepQuantitySuffix(flooringCtx.prepConfidence)}
-            {covT > 0 && !(pour > 0) ? (
-              <span className="mt-1 block text-xs text-muted-foreground">
-                Choose a pour thickness. Bag count follows that thickness.
-                {/* We do not invent 1/4". */}
-              </span>
-            ) : null}
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">Substrate — sets the Schönox primer</label>
+          <div className="flex flex-wrap gap-2">
+            {SCHONOX_SUBSTRATES.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => patch({ substrate: s.id, primer: s.primerId, primerUse: s.row })}
+                className={chip(answer.substrate === s.id && answer.primer === s.primerId && answer.primerUse === s.row)}
+              >
+                {s.label}
+              </button>
+            ))}
           </div>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">Primer</label>
+          <div className="flex flex-wrap gap-2">
+            {SCHONOX_PRIMERS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() =>
+                  update((prev) => {
+                    const base =
+                      prev?.kind === "selflevel"
+                        ? prev
+                        : { kind: "selflevel" as const, thickness: "", leveler: "", primer: "", primerUse: "", substrate: "" };
+                    return {
+                      ...base,
+                      kind: "selflevel",
+                      substrate: "",
+                      primer: p.id,
+                      primerUse: p.rows.some((r) => r.label === base.primerUse) ? base.primerUse : "",
+                    };
+                  })
+                }
+                className={chip(answer.primer === p.id)}
+              >
+                {p.name.replace(/^Schönox /, "")}
+              </button>
+            ))}
+          </div>
+        </div>
+        {primer ? (
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">Primer use</label>
+            <div className="flex flex-wrap gap-2">
+              {primer.rows.map((row) => (
+                <button
+                  key={row.label}
+                  type="button"
+                  onClick={() => patch({ substrate: "", primerUse: row.label })}
+                  className={chip(answer.primerUse === row.label)}
+                >
+                  {row.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {coverSf > 0 ? (
+          prepQuantitiesAreFinal(flooringCtx.prepConfidence) ? (
+            <div className="space-y-1 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+              <div>
+                {Math.round(coverSf)} sq ft
+                {levelCount ? (
+                  <>
+                    {" "}
+                    · {levelCount.name} at {levelCount.rowLabel} ={" "}
+                    <span className="font-semibold tabular-nums">
+                      {levelCount.units} bag{levelCount.units === 1 ? "" : "s"}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-muted-foreground"> · pick a leveler and a pour</span>
+                )}
+              </div>
+              <div>
+                {primerCount ? (
+                  <>
+                    {primerCount.name} — {primerCount.rowLabel} ={" "}
+                    <span className="font-semibold tabular-nums">
+                      {primerCount.units} unit{primerCount.units === 1 ? "" : "s"}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-muted-foreground">Pick the substrate or a primer row.</span>
+                )}
+                {prepQuantitySuffix(flooringCtx.prepConfidence)}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Same count as the Schönox calculator. Coverage is approximate; Schönox says to allow 5–10% extra for the job. That extra is not added here.
+              </p>
+            </div>
           ) : (
             <p className="rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-200">
               Prep is Field verify / TBD — bag count is not added to the estimate. Confirm after demo.
