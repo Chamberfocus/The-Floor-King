@@ -221,6 +221,8 @@ export function SmartImporter({
 
   // import
   const [updateMode, setUpdateMode] = useState(false);
+  /** Each row already has its own mill. The distributor is the only shared fact. */
+  const [mixedBook, setMixedBook] = useState(false);
   const [importing, startImport] = useTransition();
   const [done, setDone] = useState<number | null>(null);
 
@@ -232,6 +234,7 @@ export function SmartImporter({
     setSheetRead(false);
     sheetFlag.current = false;
     preserveRef.current = false;
+    setMixedBook(false);
     setSelected(new Set());
     setShown(60);
     setStatus(null);
@@ -383,10 +386,14 @@ export function SmartImporter({
               return;
             }
             setStatus("Reading the PDF…");
-            const { text, structured, preserveCategories } = await extractStoragePdfText(path);
+            const { text, structured, preserveCategories, distributor } = await extractStoragePdfText(path);
             if (structured?.length) {
-              preserveRef.current = Boolean(preserveCategories);
-              finishRows(structured, { name: file.name, how: "pdf" }, { sheet: !preserveCategories });
+              const mixed = Boolean(preserveCategories);
+              preserveRef.current = mixed;
+              setMixedBook(mixed);
+              if (distributor) setDefSupplier((current) => current.trim() || distributor);
+              if (mixed) setUpdateMode(true);
+              finishRows(structured, { name: file.name, how: "pdf" }, { sheet: !mixed });
               return;
             }
             if (text && text.trim().length >= 20) {
@@ -562,9 +569,13 @@ export function SmartImporter({
   const sheetMode =
     !preserveRef.current &&
     (sheetRead || source?.how === "pdf" || source?.how === "image");
+  const millsAreOnTheRows =
+    mixedBook &&
+    (rows ?? []).length > 0 &&
+    (rows ?? []).every((r) => Boolean(r.manufacturer?.trim()));
   const factsReady =
-    Boolean(defManufacturer.trim()) &&
     Boolean(defSupplier.trim()) &&
+    (Boolean(defManufacturer.trim()) || millsAreOnTheRows) &&
     (!sheetMode || isCatalogProductCategory(defCategory));
   // Manufacturer, category, unit, and the note apply to the whole upload.
   // A PDF is one material, so the category replaces whatever the file guessed.
@@ -590,7 +601,7 @@ export function SmartImporter({
       }
       // Only clean rows import. Flagged rows (bad/implausible price×unit) are
       // held back — never written with a wrong or $0 price.
-      if (!defManufacturer.trim() || !defSupplier.trim()) {
+      if (!defSupplier.trim() || (!defManufacturer.trim() && !built.every((r) => r.manufacturer?.trim()))) {
         toast.error("Enter the manufacturer and the distributor for this price list.");
         return;
       }
@@ -753,14 +764,18 @@ export function SmartImporter({
         <div>
           <div className="text-sm font-medium">About this price list</div>
           <p className="mt-1 text-sm text-muted-foreground">
-            The PDF only has to contain the style, the color, the cut price, and
-            the roll price when the sheet has one. You say who makes it and who
-            you order it from. That is saved on every color in this upload.
+            {mixedBook
+              ? "Each product already has its mill, its price, and its unit. Confirm who you order it from, then import."
+              : "The PDF only has to contain the style, the color, the cut price, and the roll price when the sheet has one. You say who makes it and who you order it from. That is saved on every color in this upload."}
           </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="space-y-1 text-sm">
-            <span className="text-xs text-muted-foreground">Manufacturer — who makes it *</span>
+            <span className="text-xs text-muted-foreground">
+              {mixedBook
+                ? "Manufacturer — already on each product"
+                : "Manufacturer — who makes it *"}
+            </span>
             <Input
               value={defManufacturer}
               onChange={(e) => setDefManufacturer(e.target.value)}
