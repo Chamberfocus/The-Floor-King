@@ -124,7 +124,12 @@ export function salespersonHelpFor(q: HelpQuestion, ctx: InstallContext): string
   if (key === "laminate_expansion") return "Floating floors need a gap at walls and transitions.";
   if (key === "attached_pad") return "Some floating LVP, laminate, and engineered products already have a pad attached.";
   if (key === "hs_underlayment") return "This is separate foam under a floating floor, not carpet pad. It is billed in square feet unless the product is sold by the yard.";
-  if (key === "selflevel_needed") return "Bag count uses the coverage in Settings and the pour thickness you choose.";
+  if (q.kind === "selflevel") {
+    return "Pick the Schönox leveler, the pour thickness, and the primer. Bag and unit counts are the Schönox calculator.";
+  }
+  if (key === "selflevel_needed") {
+    return "Yes opens the Schönox self-leveler and primer calculator. The next step counts bags and primer units from the area.";
+  }
   if (key === "tile_setting") return "Thinset, grout, and backer come from the catalog. This step records that you need them.";
   if (key === "vents_registers") return "Count vents or registers in each, not in square feet.";
   if (key === "vapor_barrier") return "Often required on concrete under floating or glue-down floors. Record the need here.";
