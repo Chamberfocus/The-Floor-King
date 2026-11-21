@@ -20,6 +20,7 @@ import {
 import { specFieldsFor } from "@/lib/product-fields";
 import { parseBishopPriceList } from "@/lib/bishop-price";
 import { parsePdHappyFeetPriceList } from "@/lib/pd-happy-feet-price";
+import { parseLwFlooringPriceList } from "@/lib/lw-flooring-price";
 import { parseSomersetPriceList } from "@/lib/somerset-price";
 import { layoutPdfJsItems, pdfJsItems } from "@/lib/pdf-layout";
 import { triggerImportProcessing } from "@/lib/import-worker";
@@ -149,10 +150,11 @@ async function pdfTextFromStorage(storagePath: string): Promise<{
       }
     }
     const text = lines.join("\n");
+    const lw = parseLwFlooringPriceList(bishopPages);
     const somerset = parseSomersetPriceList(bishopPages);
     const happyFeet = parsePdHappyFeetPriceList(bishopPages);
     const bishop = parseBishopPriceList(bishopPages);
-    const book = somerset ?? happyFeet ?? bishop;
+    const book = lw ?? somerset ?? happyFeet ?? bishop;
     return {
       text,
       book: book?.rows.length ? { rows: book.rows, distributor: book.distributor } : null,
