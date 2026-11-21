@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireProfile } from "@/lib/auth";
+import { priceBookGate } from "@/lib/data/price-book";
 import { Button } from "@/components/ui/button";
 import { COMPANY_NAME } from "@/lib/nav";
 import { signout } from "@/app/(app)/actions";
@@ -16,6 +17,8 @@ export default async function PortalLayout({
 }) {
   const profile = await requireProfile();
   if (profile.role !== "customer") redirect("/dashboard");
+  const priceBook = await priceBookGate(profile.id);
+  if (priceBook) redirect("/price-book");
 
   let replyWaiting = false;
   if (profile.customer_id) {

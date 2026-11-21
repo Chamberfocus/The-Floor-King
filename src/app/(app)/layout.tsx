@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { requireProfile } from "@/lib/auth";
+import { priceBookGate } from "@/lib/data/price-book";
 import { getOrgSettings } from "@/lib/data/org";
 import { AppShell, SIDEBAR_COOKIE } from "@/components/app-shell";
 import { resolveUxShell, UX_SHELL_COOKIE } from "@/lib/nav";
@@ -16,7 +17,12 @@ export default async function AppLayout({
 }) {
   const profile = await requireProfile();
   // Customers use the dedicated portal, not the staff app.
-  if (profile.role === "customer") redirect("/portal");
+  // A price-book login is a customer with no shop record. They never enter either.
+  if (profile.role === "customer") {
+    const priceBook = await priceBookGate(profile.id);
+    if (priceBook) redirect("/price-book");
+    redirect("/portal");
+  }
   const org = await getOrgSettings();
   // Read here rather than in the client so a collapsed sidebar renders collapsed
   // on the first paint instead of flashing open.
