@@ -8,6 +8,7 @@ import {
   GitBranch,
   Ban,
   UserCog,
+  BookOpen,
   BellRing,
   Truck,
   Target,
@@ -108,6 +109,12 @@ const SECTIONS = [
     icon: UserCog,
     title: "Team & installers",
     desc: "Everyone in one place — logins & roles for staff/installers, plus subcontractor crews (no login needed).",
+  },
+  {
+    href: "/settings/price-book",
+    icon: BookOpen,
+    title: "Price book logins",
+    desc: "A login that shows only the sell price. Set the gross margin for each person. They never see your cost or the rest of the shop.",
   },
   {
     href: "/settings/samples",
