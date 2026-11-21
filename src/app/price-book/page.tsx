@@ -5,7 +5,11 @@ import { BuyerPriceList } from "./price-list";
 
 export const metadata: Metadata = { title: "Price book" };
 
-export default async function PriceBookPage() {
+export default async function PriceBookPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string }>;
+}) {
   const profile = await requireProfile();
   const gate = await priceBookGate(profile.id);
   if (!gate?.active) {
@@ -15,13 +19,7 @@ export default async function PriceBookPage() {
       </p>
     );
   }
-  const rows = await loadBuyerPrices(profile.id);
-  if (!rows) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        The price book could not be loaded. Ask the shop to check the login.
-      </p>
-    );
-  }
-  return <BuyerPriceList rows={rows} />;
+  const query = ((await searchParams).q ?? "").trim().slice(0, 80);
+  const rows = query ? await loadBuyerPrices(profile.id, query) : [];
+  return <BuyerPriceList rows={rows} query={query} />;
 }

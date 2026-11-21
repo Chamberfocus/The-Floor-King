@@ -1,6 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { buyerPriceRow, type BuyerPriceRow } from "@/lib/buyer-price";
+import { buyerPriceRow, buyerQueryMatches, type BuyerPriceRow } from "@/lib/buyer-price";
 import type { ProductVendor } from "@/lib/types";
 
 export type PriceBookAccount = {
@@ -89,48 +89,115 @@ type ProductRow = {
   material_rate: number | null;
   labor_rate: number | null;
   active: boolean | null;
+  supplier?: string | null;
+  notes?: string | null;
+  search_text?: string | null;
 };
 
-const PAGE = 1000;
+const PRODUCT_FIELDS =
+  "id, name, category, unit, sku, manufacturer, style, color, supplier, notes, search_text, material_rate, labor_rate, active";
+const SEARCH_FIELDS = ["name", "style", "color", "sku", "manufacturer", "supplier", "search_text", "notes"];
 
-/** Sell prices for one active price-book login. Cost never leaves this function. */
-export async function loadBuyerPrices(profileId: string): Promise<BuyerPriceRow[] | null> {
+function searchTokens(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/[^a-z0-9./]+/)
+    .filter((token) => token.length >= 2)
+    .slice(0, 6);
+}
+
+/** Shorter stems so "primose" still fetches the row spelled "Primrose". */
+function stemsFor(token: string): string[] {
+  const stems = [token];
+  if (token.length >= 6) stems.push(token.slice(0, token.length - 2));
+  return stems;
+}
+
+/** Sell prices for one search. Cost never leaves this function. */
+export async function loadBuyerPrices(
+  profileId: string,
+  query: string,
+): Promise<BuyerPriceRow[] | null> {
   const admin = adminOrNull();
   if (!admin) return null;
   const gate = await priceBookGate(profileId);
   if (!gate?.active) return null;
+  const tokens = searchTokens(query);
+  if (!tokens.length) return [];
 
-  const products: ProductRow[] = [];
-  for (let from = 0; ; from += PAGE) {
+  const found = new Map<string, ProductRow>();
+  const catalog = await admin.rpc("search_products", {
+    q: query,
+    lim: 40,
+    include_labor: false,
+    active_only: true,
+  });
+  if (!catalog.error) {
+    for (const row of (catalog.data ?? []) as ProductRow[]) {
+      if (row?.id) found.set(row.id, row);
+    }
+  }
+
+  const tokenHits: Set<string>[] = [];
+  for (const token of tokens) {
+    const filter = stemsFor(token)
+      .flatMap((stem) => SEARCH_FIELDS.map((field) => `${field}.ilike.%${stem}%`))
+      .join(",");
     const { data, error } = await admin
       .from("products")
-      .select("id, name, category, unit, sku, manufacturer, style, color, material_rate, labor_rate, active")
-      .order("id", { ascending: true })
-      .range(from, from + PAGE - 1);
-    if (error) return null;
+      .select(PRODUCT_FIELDS)
+      .or(filter)
+      .order("name", { ascending: true })
+      .limit(1000);
+    if (error) {
+      if (found.size === 0 && tokenHits.length === 0) return null;
+      break;
+    }
     const batch = (data ?? []) as ProductRow[];
-    products.push(...batch);
-    if (batch.length < PAGE) break;
+    const ids = new Set<string>();
+    for (const row of batch) {
+      ids.add(row.id);
+      found.set(row.id, row);
+    }
+    tokenHits.push(ids);
   }
+  let narrowed: Set<string> | null = null;
+  for (const ids of tokenHits) {
+    if (!narrowed) {
+      narrowed = ids;
+      continue;
+    }
+    const next = new Set<string>();
+    for (const id of narrowed) if (ids.has(id)) next.add(id);
+    narrowed = next;
+  }
+
+  const catalogIds = new Set(
+    ((catalog.data ?? []) as { id?: string }[]).map((row) => row.id).filter(Boolean) as string[],
+  );
+  const products = [...found.values()]
+    .filter((product) => {
+      if (product.active === false || product.category === "labor") return false;
+      if (catalogIds.has(product.id)) return true;
+      if (narrowed && !narrowed.has(product.id)) return false;
+      return buyerQueryMatches(product, query);
+    })
+    .sort((a, b) => a.name?.localeCompare(b.name ?? "") ?? 0)
+    .slice(0, 80);
 
   const vendorsByProduct = new Map<string, ProductVendor[]>();
   const ids = products.map((product) => product.id);
-  for (let i = 0; i < ids.length; i += 300) {
-    const chunk = ids.slice(i, i + 300);
-    for (let from = 0; ; from += PAGE) {
-      const { data, error } = await admin
-        .from("product_vendors")
-        .select("product_id, cost, position")
-        .in("product_id", chunk)
-        .order("product_id", { ascending: true })
-        .range(from, from + PAGE - 1);
-      if (error) return null;
-      const batch = (data ?? []) as {
+  if (ids.length) {
+    const { data, error } = await admin
+      .from("product_vendors")
+      .select("product_id, cost, position")
+      .in("product_id", ids);
+    if (!error) {
+      for (const vendor of (data ?? []) as {
         product_id: string;
         cost: number | null;
         position: number | null;
-      }[];
-      for (const vendor of batch) {
+      }[]) {
         const list = vendorsByProduct.get(vendor.product_id) ?? [];
         list.push({
           id: "",
@@ -142,7 +209,6 @@ export async function loadBuyerPrices(profileId: string): Promise<BuyerPriceRow[
         });
         vendorsByProduct.set(vendor.product_id, list);
       }
-      if (batch.length < PAGE) break;
     }
   }
 
@@ -156,7 +222,6 @@ export async function loadBuyerPrices(profileId: string): Promise<BuyerPriceRow[
 
   const rows: BuyerPriceRow[] = [];
   for (const product of products) {
-    if (product.active === false || product.category === "labor") continue;
     const priced = buyerPriceRow(
       { ...product, vendors: vendorsByProduct.get(product.id) ?? [] },
       gate.marginPct,
