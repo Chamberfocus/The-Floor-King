@@ -223,11 +223,10 @@ export function SmartImporter({
   const [shown, setShown] = useState(60);
 
   // import
-  const [updateMode, setUpdateMode] = useState(false);
   /** Each row already has its own mill. The distributor is the only shared fact. */
   const [mixedBook, setMixedBook] = useState(false);
   const [importing, startImport] = useTransition();
-  const [done, setDone] = useState<number | null>(null);
+  const [done, setDone] = useState<{ saved: number; turnedOff: number } | null>(null);
 
   const reset = () => {
     setSource(null);
@@ -375,7 +374,6 @@ export function SmartImporter({
                 preserveRef.current = true;
                 setMixedBook(true);
                 setDefSupplier(ovf.distributor);
-                setUpdateMode(true);
                 finishRows(ovf.rows, { name: file.name, how: "spreadsheet" }, { sheet: false });
                 return;
               }
@@ -407,7 +405,6 @@ export function SmartImporter({
               preserveRef.current = mixed;
               setMixedBook(mixed);
               if (distributor) setDefSupplier((current) => current.trim() || distributor);
-              if (mixed) setUpdateMode(true);
               finishRows(structured, { name: file.name, how: "pdf" }, { sheet: !mixed });
               return;
             }
@@ -631,7 +628,6 @@ export function SmartImporter({
         return;
       }
       const res = await importProducts(okOnly, {
-        update: updateMode,
         supplier: defSupplier.trim() || undefined,
         manufacturer: defManufacturer.trim() || undefined,
         category: isCatalogProductCategory(defCategory) ? defCategory : undefined,
@@ -653,6 +649,7 @@ export function SmartImporter({
       if (res.inserted != null) parts.push(`${res.inserted} new`);
       if (res.updated != null) parts.push(`${res.updated} updated`);
       if (res.unchanged) parts.push(`${res.unchanged} unchanged`);
+      if (res.retired) parts.push(`${res.retired} old prices turned off`);
       toast.success(
         parts.length
           ? `Imported: ${parts.join(" · ")}.`
@@ -664,7 +661,10 @@ export function SmartImporter({
         );
       }
       if (res.warning) toast.warning(res.warning);
-      setDone(res.count ?? okOnly.length);
+      setDone({
+        saved: res.count ?? okOnly.length,
+        turnedOff: res.retired ?? 0,
+      });
       reset();
     });
 
@@ -1311,18 +1311,11 @@ export function SmartImporter({
           {/* Import bar */}
           {finalRows.length > 0 ? (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-primary/40 bg-primary/5 p-3">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={updateMode} onChange={(e) => setUpdateMode(e.target.checked)} className="size-4 rounded border-input" />
-                Update existing products (match by name) instead of adding duplicates
-              </label>
+              <p className="text-sm text-muted-foreground">
+                This list replaces the old prices. For each manufacturer on it, colors in these categories that are not on the list are turned off.
+              </p>
               <Button type="button" onClick={doImport} disabled={importing || okCount === 0 || !factsReady}>
-                {importing
-                  ? "Importing…"
-                  : updateMode
-                    ? `Update / add ${okCount}`
-                    : sheetMode
-                      ? `Import ${okCount} colors`
-                      : `Import ${okCount} products`}
+                {importing ? "Saving prices…" : `Save ${okCount} prices`}
               </Button>
             </div>
           ) : null}
@@ -1338,11 +1331,14 @@ export function SmartImporter({
               <DialogTitle>Import complete</DialogTitle>
             </div>
             <DialogDescription>
-              Added{" "}
+              Saved{" "}
               <strong className="text-foreground">
-                {done} product{done === 1 ? "" : "s"}
-              </strong>{" "}
-              to your catalog.
+                {done?.saved ?? 0} price{(done?.saved ?? 0) === 1 ? "" : "s"}
+              </strong>
+              .
+              {(done?.turnedOff ?? 0) > 0
+                ? ` Turned off ${done?.turnedOff} old price${done?.turnedOff === 1 ? "" : "s"} that ${done?.turnedOff === 1 ? "is" : "are"} not on this list.`
+                : ""}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

@@ -205,6 +205,7 @@ export async function quickSearch(qRaw: string, limit = 6): Promise<QuickResults
       ? supabase
           .from("products")
           .select("id, name, sku, category")
+          .eq("active", true)
           .or(
             [
               `name.ilike.${like}`,

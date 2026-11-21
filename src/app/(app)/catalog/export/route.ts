@@ -17,7 +17,7 @@ export async function GET() {
     return new NextResponse("Forbidden", { status: 403 });
   }
 
-  const products = await listProducts();
+  const products = await listProducts({ activeOnly: true });
   let remnantAlerts: Awaited<ReturnType<typeof reorderAlertsFor>> = {};
   try {
     remnantAlerts = await reorderAlertsFor(products.map((p) => p.id));
