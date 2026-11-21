@@ -21,6 +21,9 @@ export type BuyerPriceSource = {
   manufacturer?: string | null;
   style?: string | null;
   color?: string | null;
+  supplier?: string | null;
+  notes?: string | null;
+  search_text?: string | null;
   material_rate?: number | string | null;
   labor_rate?: number | string | null;
   vendors?: ProductVendor[] | null;
@@ -35,7 +38,8 @@ export type BuyerPriceRow = {
   manufacturer: string | null;
   style: string | null;
   color: string | null;
-  sell: number;
+  /** Null when this product has no cost yet. The cost itself is never included. */
+  sell: number | null;
 };
 
 const PUBLIC_KEYS = [
@@ -74,7 +78,7 @@ export function buyerSellPrice(input: {
   return sell.amount;
 }
 
-/** One priced row, or null when this product has no sell price. */
+/** One catalog row for this login. Sell is null when the shop has no cost yet. */
 export function buyerPriceRow(
   product: BuyerPriceSource,
   marginPct: number,
@@ -90,7 +94,6 @@ export function buyerPriceRow(
     marginPct,
     freightMarkupPct,
   });
-  if (sell == null) return null;
   const row: BuyerPriceRow = {
     id: product.id,
     name: product.name.trim(),
@@ -107,6 +110,70 @@ export function buyerPriceRow(
   );
   if (leaked.length) return null;
   return row;
+}
+
+function wordsOf(text: string): string[] {
+  return text.toLowerCase().split(/[^a-z0-9./]+/).filter(Boolean);
+}
+
+/** One insertion, deletion, or substitution. */
+function oneEdit(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  if (a.length > b.length) return oneEdit(b, a);
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      i += 1;
+      j += 1;
+      continue;
+    }
+    edits += 1;
+    if (edits > 1) return false;
+    if (a.length === b.length) i += 1;
+    j += 1;
+  }
+  return true;
+}
+
+function wordMatches(word: string, token: string): boolean {
+  if (word.includes(token)) return true;
+  if (token.length >= 4 && word.startsWith(token)) return true;
+  if (token.length >= 5 && word.length >= 5 && oneEdit(word, token)) return true;
+  return false;
+}
+
+/**
+ * Same idea as the catalog search: every word has to show up in the name,
+ * color, style, item code, maker, or notes. A one-letter miss still counts,
+ * so "primose" finds "Primrose".
+ */
+export function buyerQueryMatches(
+  product: Pick<
+    BuyerPriceSource,
+    "name" | "sku" | "manufacturer" | "style" | "color" | "supplier" | "notes" | "search_text"
+  >,
+  query: string,
+): boolean {
+  const tokens = wordsOf(query).filter((token) => token.length >= 2);
+  if (!tokens.length) return false;
+  const words = wordsOf(
+    [
+      product.name,
+      product.manufacturer,
+      product.supplier,
+      product.style,
+      product.color,
+      product.sku,
+      product.search_text,
+      product.notes,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+  return tokens.every((token) => words.some((word) => wordMatches(word, token)));
 }
 
 /** Where a customer login lands. A price-book account never opens the portal. */

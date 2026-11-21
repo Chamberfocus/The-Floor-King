@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { catalogSellPrice } from "@/lib/catalog-pricing";
-import { buyerPriceRow, buyerSellPrice, customerHome } from "@/lib/buyer-price";
+import { buyerPriceRow, buyerQueryMatches, buyerSellPrice, customerHome } from "@/lib/buyer-price";
 
 const sql = readFileSync("supabase/migrations/0513_price_book_access.sql", "utf8");
 const list = readFileSync("src/app/price-book/price-list.tsx", "utf8");
@@ -98,6 +98,23 @@ describe("buyer sell price", () => {
     );
   });
 
+  it("finds Primrose when the search is typed Primose, including a note", () => {
+    expect(buyerQueryMatches({ name: "State Crest", color: "Primrose" }, "primose")).toBe(true);
+    expect(buyerQueryMatches({ name: "State Crest", color: "Primose" }, "primose")).toBe(true);
+    expect(
+      buyerQueryMatches({ name: "State Crest", notes: "Color Primrose" }, "primose"),
+    ).toBe(true);
+    expect(buyerQueryMatches({ name: "State Crest", color: "Sand" }, "primose")).toBe(false);
+    const hidden = buyerPriceRow(
+      { id: "p", name: "State Crest", color: "Primrose", material_rate: 4.25 },
+      40,
+      0,
+    );
+    expect(hidden?.sell).toBe(7.08);
+    expect(JSON.stringify(hidden)).not.toContain("4.25");
+    expect(JSON.stringify(hidden)).not.toContain("material_rate");
+  });
+
   it("keeps a price-book account out of the customer portal", () => {
     expect(customerHome(null)).toBe("/portal");
     expect(customerHome({ active: true })).toBe("/price-book");
@@ -138,8 +155,9 @@ describe("price-book access stays off the customer login", () => {
     expect(list).not.toContain("margin");
     expect(page).not.toContain("material_rate");
     expect(loader).toContain("buyerPriceRow");
-    expect(loader).toContain(".range(from, from + PAGE - 1)");
-    expect(loader).not.toContain('.neq("category", "labor")');
+    expect(loader).toContain("search_products");
+    expect(loader).toContain("buyerQueryMatches");
+    expect(page).toContain('searchParams');
     expect(readFileSync("src/lib/price-book.ts", "utf8")).toContain("subfloorSheetCost");
   });
 });
