@@ -41,10 +41,11 @@ interface RawRow {
   notes?: string | null;
 }
 
-/** Insert (or update-by-name) parsed rows into products. Returns how many rows
- *  were written. Uses the same import_products RPC as the foreground importer so
- *  update-mode de-duplicates by name; falls back to a plain insert if the RPC
- *  isn't present. Optionally stamps a supplier on rows that don't have one. */
+/** Insert parsed rows into products. A background chunk is only part of the
+ *  file, so a matching name is updated and nothing else is turned off. The
+ *  full-sheet import replaces a manufacturer's old prices. Falls back to a
+ *  plain insert if the RPC isn't present. Optionally stamps a supplier on
+ *  rows that don't have one. */
 async function insertProducts(
   admin: ReturnType<typeof createAdminClient>,
   rows: RawRow[],
@@ -71,10 +72,11 @@ async function insertProducts(
     });
   if (!items.length) return 0;
 
-  // Preferred: bulk RPC (insert new, update existing by name when do_update).
+  // A chunk is only part of the file, so this path updates a matching name
+  // and never turns the rest of the book off. The full-sheet import does that.
   const { data, error } = await admin.rpc("import_products", {
     items,
-    do_update: opts.update ?? false,
+    do_update: true,
   });
   let count: number;
   if (

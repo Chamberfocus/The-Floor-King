@@ -30,6 +30,11 @@ import {
   type ImportJob,
 } from "@/lib/data/import-jobs";
 import { inferUnit, parseCoverage } from "@/lib/units";
+import {
+  normalizeProductName,
+  planPriceListReplace,
+  type ExistingPriceListProduct,
+} from "@/lib/price-list-replace";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -384,6 +389,7 @@ export interface ImportResult {
   inserted?: number; // brand-new products added
   updated?: number; // existing products whose price/attrs actually changed
   unchanged?: number; // matched an existing product, nothing changed
+  retired?: number; // old prices turned off because they are not on this list
   /** The colors imported, but a follow-up (roll price, vendor link) did not. */
   warning?: string | null;
 }
@@ -465,26 +471,29 @@ async function loadProductsForNames(
   names: string[],
 ): Promise<{ id: string; name: string }[]> {
   const unique = [...new Set(names.map((n) => n.trim()).filter(Boolean))];
-  const found = new Map<string, { id: string; name: string }>();
+    const found = new Map<string, { id: string; name: string; active: boolean }>();
   for (let i = 0; i < unique.length; i += 25) {
     const slice = unique.slice(i, i + 25);
     const wanted = new Set(slice.map((n) => n.toLowerCase()));
     const ilike = await admin
       .from("products")
-      .select("id, name")
+      .select("id, name, active")
       .or(slice.map((n) => `name.ilike.${quoteExactIlike(n)}`).join(","));
     const rows = ilike.error
       ? (
-          await admin.from("products").select("id, name").in("name", slice)
+          await admin.from("products").select("id, name, active").in("name", slice)
         ).data
       : ilike.data;
     for (const row of rows ?? []) {
       const key = String(row.name ?? "").toLowerCase();
-      if (!wanted.has(key) || found.has(key)) continue;
-      found.set(key, { id: row.id as string, name: row.name as string });
+      if (!wanted.has(key)) continue;
+      const next = { id: row.id as string, name: row.name as string, active: row.active !== false };
+      const prev = found.get(key);
+      if (prev?.active && !next.active) continue;
+      found.set(key, next);
     }
   }
-  return [...found.values()];
+  return [...found.values()].map(({ id, name }) => ({ id, name }));
 }
 
 /** Roll price, the specs for this material, and the distributor you buy it from. */
@@ -640,6 +649,202 @@ async function linkDistributorCost(
   return null;
 }
 
+type ImportWriteItem = {
+  name: string;
+  category: string;
+  unit: string;
+  material_rate: number;
+  roll_rate: number | null;
+  labor_rate: number;
+  sku: string;
+  manufacturer: string;
+  style: string;
+  color: string;
+  notes: string;
+  coverage_sqft: number | null;
+  coverage_thickness_in: number | null;
+};
+
+type LoadedProduct = ExistingPriceListProduct & {
+  sku?: string | null;
+  notes?: string | null;
+  roll_rate?: number | null;
+  labor_rate?: number | null;
+};
+
+const PRODUCT_MATCH_COLUMNS =
+  "id, name, manufacturer, style, color, unit, category, sku, notes, active, updated_at, material_rate, roll_rate, labor_rate";
+
+function loadedProduct(row: Record<string, unknown>): LoadedProduct {
+  return {
+    id: String(row.id ?? ""),
+    name: String(row.name ?? ""),
+    manufacturer: (row.manufacturer as string | null) ?? null,
+    style: (row.style as string | null) ?? null,
+    color: (row.color as string | null) ?? null,
+    unit: (row.unit as string | null) ?? null,
+    category: (row.category as string | null) ?? null,
+    sku: (row.sku as string | null) ?? null,
+    notes: (row.notes as string | null) ?? null,
+    active: row.active !== false,
+    updated_at: (row.updated_at as string | null) ?? null,
+    material_rate: row.material_rate == null ? null : Number(row.material_rate),
+    roll_rate: row.roll_rate == null || row.roll_rate === undefined ? null : Number(row.roll_rate),
+    labor_rate: row.labor_rate == null ? null : Number(row.labor_rate),
+  };
+}
+
+function textSame(left: string | null | undefined, right: string | null | undefined): boolean {
+  return (left ?? "").trim().toLowerCase() === (right ?? "").trim().toLowerCase();
+}
+
+/** The kept row already has this list's name and price. */
+function priceAlreadyCurrent(row: LoadedProduct, item: ImportWriteItem): boolean {
+  if (row.active === false) return false;
+  if (row.name.trim().replace(/\s+/g, " ") !== item.name.trim().replace(/\s+/g, " ")) return false;
+  if (Number(row.material_rate ?? 0) !== Number(item.material_rate)) return false;
+  if ((row.roll_rate ?? null) !== (item.roll_rate ?? null)) return false;
+  if (item.style.trim() && !textSame(row.style, item.style)) return false;
+  if (item.color.trim() && !textSame(row.color, item.color)) return false;
+  if (!textSame(row.unit, item.unit)) return false;
+  if (!textSame(row.category, item.category)) return false;
+  if (item.manufacturer.trim() && !textSame(row.manufacturer, item.manufacturer)) return false;
+  if (item.sku.trim() && !textSame(row.sku, item.sku)) return false;
+  if (item.notes.trim() && !textSame(row.notes, item.notes)) return false;
+  return true;
+}
+
+function replacementPatch(item: ImportWriteItem): Record<string, unknown> {
+  const patch: Record<string, unknown> = {
+    name: item.name,
+    category: item.category,
+    unit: item.unit,
+    material_rate: item.material_rate,
+    roll_rate: item.roll_rate,
+    sku: item.sku.trim() || null,
+    manufacturer: item.manufacturer.trim() || null,
+    style: item.style.trim() || null,
+    color: item.color.trim() || null,
+    notes: item.notes.trim() || null,
+    active: true,
+  };
+  if (item.labor_rate > 0) patch.labor_rate = item.labor_rate;
+  if (item.coverage_sqft != null) patch.coverage_sqft = item.coverage_sqft;
+  if (item.coverage_thickness_in != null) patch.coverage_thickness_in = item.coverage_thickness_in;
+  return patch;
+}
+
+async function readProductPage(
+  columns: string,
+  load: (columns: string) => PromiseLike<{ data: unknown; error: { message: string } | null }>,
+): Promise<{ rows: Record<string, unknown>[]; columns: string }> {
+  let activeColumns = columns;
+  let result = await load(activeColumns);
+  if (result.error && /roll_rate/i.test(result.error.message)) {
+    activeColumns = PRODUCT_MATCH_COLUMNS.replace(", roll_rate", "");
+    result = await load(activeColumns);
+  }
+  if (result.error) throw new Error(result.error.message);
+  const data = Array.isArray(result.data) ? result.data : [];
+  return { rows: data as Record<string, unknown>[], columns: activeColumns };
+}
+
+/** Products this list can match: that manufacturer, plus any row with the same name. */
+async function loadCatalogForReplace(
+  admin: ReturnType<typeof createAdminClient>,
+  items: ImportWriteItem[],
+): Promise<LoadedProduct[]> {
+  const found = new Map<string, LoadedProduct>();
+  let columns = PRODUCT_MATCH_COLUMNS;
+  const keep = (rows: Record<string, unknown>[]) => {
+    for (const row of rows) {
+      const loaded = loadedProduct(row);
+      if (loaded.id) found.set(loaded.id, loaded);
+    }
+  };
+
+  const makers = [...new Set(items.map((item) => item.manufacturer.trim()).filter(Boolean))];
+  for (const maker of makers) {
+    for (let from = 0; ; from += 1000) {
+      const page = await readProductPage(columns, (cols) =>
+        admin.from("products").select(cols).ilike("manufacturer", maker).range(from, from + 999),
+      );
+      columns = page.columns;
+      keep(page.rows);
+      if (page.rows.length < 1000) break;
+    }
+  }
+
+  const names = [...new Set(items.map((item) => item.name.trim()).filter(Boolean))];
+  for (let i = 0; i < names.length; i += 25) {
+    const slice = names.slice(i, i + 25);
+    const page = await readProductPage(columns, (cols) =>
+      admin
+        .from("products")
+        .select(cols)
+        .or(slice.map((name) => `name.ilike.${quoteExactIlike(name)}`).join(",")),
+    );
+    columns = page.columns;
+    keep(page.rows);
+  }
+  return [...found.values()];
+}
+
+async function writeReplacementPrices(
+  admin: ReturnType<typeof createAdminClient>,
+  existing: LoadedProduct[],
+  items: ImportWriteItem[],
+  updates: { id: string; index: number }[],
+): Promise<{ updated: number; unchanged: number }> {
+  const byId = new Map(existing.map((row) => [row.id, row]));
+  let updated = 0;
+  let unchanged = 0;
+  const jobs = updates.map((update) => ({
+    id: update.id,
+    item: items[update.index],
+    current: byId.get(update.id),
+  }));
+  for (let i = 0; i < jobs.length; i += 20) {
+    const slice = jobs.slice(i, i + 20);
+    const results = await Promise.all(
+      slice.map(async (job) => {
+        if (job.current && priceAlreadyCurrent(job.current, job.item)) return "unchanged" as const;
+        const patch = replacementPatch(job.item);
+        const { error } = await admin.from("products").update(patch).eq("id", job.id);
+        if (error && /roll_rate/i.test(error.message)) {
+          const { roll_rate, ...rest } = patch;
+          void roll_rate;
+          const retry = await admin.from("products").update(rest).eq("id", job.id);
+          if (retry.error) throw new Error(retry.error.message);
+          return "updated" as const;
+        }
+        if (error) throw new Error(error.message);
+        return "updated" as const;
+      }),
+    );
+    for (const result of results) {
+      if (result === "updated") updated += 1;
+      else unchanged += 1;
+    }
+  }
+  return { updated, unchanged };
+}
+
+async function turnOffOldPrices(
+  admin: ReturnType<typeof createAdminClient>,
+  ids: string[],
+): Promise<number> {
+  const unique = [...new Set(ids)];
+  for (let i = 0; i < unique.length; i += 200) {
+    const { error } = await admin
+      .from("products")
+      .update({ active: false })
+      .in("id", unique.slice(i, i + 200));
+    if (error) throw new Error(error.message);
+  }
+  return unique.length;
+}
+
 /**
  * Import reviewed products DIRECTLY and synchronously — one request, no
  * background worker, no self-calls, no polling. This is the reliable path: it
@@ -647,11 +852,14 @@ async function linkDistributorCost(
  * stale session or RLS can never silently swallow the rows. Everything is
  * wrapped so the action can never throw (a thrown Server Action is what can
  * bounce the page). Returns a clear count or a clear error — nothing in between.
+ *
+ * A new price list replaces that manufacturer's old prices. Matching products
+ * get the new cost. Colors in the same categories that are not on the list
+ * are turned off. Rows are not deleted.
  */
 export async function importProducts(
   rows: PriceRow[],
   opts: {
-    update?: boolean;
     /** Distributor — who this upload is ordered from. Applied to every color. */
     supplier?: string;
     /** Manufacturer name, remembered as a supplier so the next upload can pick it. */
@@ -735,89 +943,63 @@ export async function importProducts(
     // Service-role client: the caller is verified staff above, so bypass RLS to
     // guarantee the write lands (no silent RLS/session failures).
     const admin = createAdminClient();
+    const sheetManufacturer = (opts.manufacturer ?? "").trim();
+    const priced: ImportWriteItem[] = items.map((item) => ({
+      ...item,
+      name: item.name.trim().replace(/\s+/g, " "),
+      manufacturer: item.manufacturer.trim() || sheetManufacturer,
+    }));
 
-    // Preferred path: one bulk RPC that inserts new products and (when
-    // update=true) updates any product whose name already matches — no
-    // duplicates. If the RPC isn't present, fall back to a plain insert.
-    let count = 0;
+    // The new list is the price. Update the matching row, add only what is
+    // new, then turn off this manufacturer's colors that the list left off.
+    const existing = await loadCatalogForReplace(admin, priced);
+    const plan = planPriceListReplace(existing, priced);
+    const written = await writeReplacementPrices(admin, existing, priced, plan.updates);
+
     let inserted = 0;
-    let updated = 0;
-    let unchanged = 0;
-    let rpcUnavailable = false;
-    for (let i = 0; i < items.length; i += 1000) {
-      const batch = items.slice(i, i + 1000);
-      const { data, error } = await admin.rpc("import_products", {
-        items: batch,
-        do_update: opts.update ?? false,
+    const updated = written.updated;
+    const unchanged = written.unchanged;
+    const fresh = plan.inserts.map((index) => priced[index]);
+    const toNull = (v: string) => (v && v.trim() ? v.trim() : null);
+    const insertRows = fresh.map((it) => ({
+      name: it.name,
+      category: it.category,
+      unit: it.unit,
+      material_rate: it.material_rate,
+      roll_rate: it.roll_rate,
+      labor_rate: it.labor_rate,
+      sku: toNull(it.sku),
+      manufacturer: toNull(it.manufacturer),
+      style: toNull(it.style),
+      color: toNull(it.color),
+      notes: toNull(it.notes),
+      coverage_sqft: it.coverage_sqft ?? null,
+      coverage_thickness_in: it.coverage_thickness_in ?? null,
+    }));
+    let dropRoll = false;
+    for (let i = 0; i < insertRows.length; i += 500) {
+      const batch = insertRows.slice(i, i + 500).map((row) => {
+        if (!dropRoll) return row;
+        const { roll_rate, ...rest } = row;
+        void roll_rate;
+        return rest;
       });
-      if (error) {
-        if (
-          error.code === "PGRST202" ||
-          error.code === "42883" ||
-          /import_products|function|schema cache/i.test(error.message)
-        ) {
-          rpcUnavailable = true;
-          break;
-        }
-        return { error: error.message, count };
+      const { error } = await admin.from("products").insert(batch);
+      if (error && /roll_rate/i.test(error.message) && !dropRoll) {
+        dropRoll = true;
+        i -= 500;
+        continue;
       }
-      // Newer RPC (0100) returns a breakdown object; the older one returns a
-      // bare int. Handle both so this works before and after the migration.
-      if (data && typeof data === "object") {
-        const d = data as { inserted?: number; updated?: number; unchanged?: number; total?: number };
-        inserted += d.inserted ?? 0;
-        updated += d.updated ?? 0;
-        unchanged += d.unchanged ?? 0;
-        count += d.total ?? batch.length;
-      } else {
-        count += (data as number) ?? batch.length;
-      }
+      if (error) return { error: error.message, count: inserted + updated + unchanged, skipped };
+      inserted += batch.length;
     }
 
-    if (rpcUnavailable) {
-      const toNull = (v: string) => (v && v.trim() ? v.trim() : null);
-      const insertRows = items.map((it) => ({
-        name: it.name,
-        category: it.category,
-        unit: it.unit,
-        material_rate: it.material_rate,
-        roll_rate: it.roll_rate,
-        labor_rate: it.labor_rate,
-        sku: toNull(it.sku),
-        manufacturer: toNull(it.manufacturer),
-        style: toNull(it.style),
-        color: toNull(it.color),
-        notes: toNull(it.notes),
-        coverage_sqft: it.coverage_sqft ?? null,
-        coverage_thickness_in: it.coverage_thickness_in ?? null,
-      }));
-      count = 0;
-      let dropRoll = false;
-      for (let i = 0; i < insertRows.length; i += 500) {
-        const batch = insertRows.slice(i, i + 500).map((row) => {
-          if (!dropRoll) return row;
-          const { roll_rate, ...rest } = row;
-          void roll_rate;
-          return rest;
-        });
-        const { error } = await admin.from("products").insert(batch);
-        if (error && /roll_rate/i.test(error.message) && !dropRoll) {
-          dropRoll = true;
-          i -= 500;
-          continue;
-        }
-        if (error) return { error: error.message, count };
-        count += batch.length;
-      }
-      inserted = count; // fallback path only ever inserts
-      updated = 0;
-      unchanged = 0;
-    }
-
-    const warning = await stampImportedSheet(admin, items, opts);
+    const retired = await turnOffOldPrices(admin, plan.retire);
+    const warning = await stampImportedSheet(admin, priced, opts);
+    const count = inserted + updated + unchanged;
 
     revalidatePath("/catalog");
-    return { error: null, count, skipped, inserted, updated, unchanged, warning };
+    return { error: null, count, skipped, inserted, updated, unchanged, retired, warning };
   } catch (e) {
     return {
       error: e instanceof Error ? e.message : "Import failed unexpectedly.",
