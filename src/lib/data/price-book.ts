@@ -1,6 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { buyerPriceRow, buyerQueryMatches, type BuyerPriceRow } from "@/lib/buyer-price";
+import { buyerMatchRank, buyerPriceRow, buyerSearchPatterns, type BuyerPriceRow } from "@/lib/buyer-price";
 import type { ProductVendor } from "@/lib/types";
 
 export type PriceBookAccount = {
@@ -96,7 +96,7 @@ type ProductRow = {
 
 const PRODUCT_FIELDS =
   "id, name, category, unit, sku, manufacturer, style, color, supplier, notes, search_text, material_rate, labor_rate, active";
-const SEARCH_FIELDS = ["name", "style", "color", "sku", "manufacturer", "supplier", "search_text", "notes"];
+const EXACT_FIELDS = ["search_text", "name", "style", "color", "sku", "manufacturer", "notes"];
 
 function searchTokens(query: string): string[] {
   return query
@@ -106,11 +106,14 @@ function searchTokens(query: string): string[] {
     .slice(0, 6);
 }
 
-/** Shorter stems so "primose" still fetches the row spelled "Primrose". */
-function stemsFor(token: string): string[] {
-  const stems = [token];
-  if (token.length >= 6) stems.push(token.slice(0, token.length - 2));
-  return stems;
+function tokenFilter(token: string): string {
+  const parts = EXACT_FIELDS.map((field) => `${field}.ilike.%${token}%`);
+  for (const pattern of buyerSearchPatterns(token)) {
+    if (pattern === token) continue;
+    parts.push(`search_text.ilike.%${pattern}%`);
+    parts.push(`notes.ilike.%${pattern}%`);
+  }
+  return parts.join(",");
 }
 
 /** Sell prices for one search. Cost never leaves this function. */
@@ -125,65 +128,18 @@ export async function loadBuyerPrices(
   const tokens = searchTokens(query);
   if (!tokens.length) return [];
 
-  const found = new Map<string, ProductRow>();
-  const catalog = await admin.rpc("search_products", {
-    q: query,
-    lim: 40,
-    include_labor: false,
-    active_only: true,
-  });
-  if (!catalog.error) {
-    for (const row of (catalog.data ?? []) as ProductRow[]) {
-      if (row?.id) found.set(row.id, row);
-    }
-  }
+  let request = admin.from("products").select(PRODUCT_FIELDS).eq("active", true);
+  for (const token of tokens) request = request.or(tokenFilter(token));
+  const { data, error } = await request.limit(100);
+  if (error) return null;
 
-  const tokenHits: Set<string>[] = [];
-  for (const token of tokens) {
-    const filter = stemsFor(token)
-      .flatMap((stem) => SEARCH_FIELDS.map((field) => `${field}.ilike.%${stem}%`))
-      .join(",");
-    const { data, error } = await admin
-      .from("products")
-      .select(PRODUCT_FIELDS)
-      .or(filter)
-      .order("name", { ascending: true })
-      .limit(1000);
-    if (error) {
-      if (found.size === 0 && tokenHits.length === 0) return null;
-      break;
-    }
-    const batch = (data ?? []) as ProductRow[];
-    const ids = new Set<string>();
-    for (const row of batch) {
-      ids.add(row.id);
-      found.set(row.id, row);
-    }
-    tokenHits.push(ids);
-  }
-  let narrowed: Set<string> | null = null;
-  for (const ids of tokenHits) {
-    if (!narrowed) {
-      narrowed = ids;
-      continue;
-    }
-    const next = new Set<string>();
-    for (const id of narrowed) if (ids.has(id)) next.add(id);
-    narrowed = next;
-  }
-
-  const catalogIds = new Set(
-    ((catalog.data ?? []) as { id?: string }[]).map((row) => row.id).filter(Boolean) as string[],
-  );
-  const products = [...found.values()]
-    .filter((product) => {
-      if (product.active === false || product.category === "labor") return false;
-      if (catalogIds.has(product.id)) return true;
-      if (narrowed && !narrowed.has(product.id)) return false;
-      return buyerQueryMatches(product, query);
-    })
-    .sort((a, b) => a.name?.localeCompare(b.name ?? "") ?? 0)
-    .slice(0, 80);
+  const products = ((data ?? []) as ProductRow[])
+    .filter((product) => product.category !== "labor" && buyerMatchRank(product, query) > 0)
+    .sort(
+      (a, b) =>
+        buyerMatchRank(b, query) - buyerMatchRank(a, query) ||
+        (a.name ?? "").localeCompare(b.name ?? ""),
+    );
 
   const vendorsByProduct = new Map<string, ProductVendor[]>();
   const ids = products.map((product) => product.id);
@@ -229,6 +185,5 @@ export async function loadBuyerPrices(
     );
     if (priced) rows.push(priced);
   }
-  rows.sort((a, b) => a.name.localeCompare(b.name));
   return rows;
 }

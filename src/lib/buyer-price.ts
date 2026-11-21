@@ -138,28 +138,21 @@ function oneEdit(a: string, b: string): boolean {
   return true;
 }
 
-function wordMatches(word: string, token: string): boolean {
-  if (word.includes(token)) return true;
-  if (token.length >= 4 && word.startsWith(token)) return true;
-  if (token.length >= 5 && word.length >= 5 && oneEdit(word, token)) return true;
-  return false;
+function wordRank(word: string, token: string): number {
+  if (word === token) return 100;
+  if (word.includes(token)) return 80;
+  if (token.length >= 4 && word.startsWith(token)) return 60;
+  if (token.length >= 5 && word.length >= 5 && oneEdit(word, token)) return 40;
+  return 0;
 }
 
-/**
- * Same idea as the catalog search: every word has to show up in the name,
- * color, style, item code, maker, or notes. A one-letter miss still counts,
- * so "primose" finds "Primrose".
- */
-export function buyerQueryMatches(
+function productWords(
   product: Pick<
     BuyerPriceSource,
     "name" | "sku" | "manufacturer" | "style" | "color" | "supplier" | "notes" | "search_text"
   >,
-  query: string,
-): boolean {
-  const tokens = wordsOf(query).filter((token) => token.length >= 2);
-  if (!tokens.length) return false;
-  const words = wordsOf(
+): string[] {
+  return wordsOf(
     [
       product.name,
       product.manufacturer,
@@ -173,7 +166,54 @@ export function buyerQueryMatches(
       .filter(Boolean)
       .join(" "),
   );
-  return tokens.every((token) => words.some((word) => wordMatches(word, token)));
+}
+
+/**
+ * Higher is a closer match. 0 means it is not a match.
+ * The typed letters have to appear, or miss by one letter. "primary" and
+ * "promise" are not matches for "primose". "Primrose" is.
+ */
+export function buyerMatchRank(
+  product: Pick<
+    BuyerPriceSource,
+    "name" | "sku" | "manufacturer" | "style" | "color" | "supplier" | "notes" | "search_text"
+  >,
+  query: string,
+): number {
+  const tokens = wordsOf(query).filter((token) => token.length >= 2);
+  if (!tokens.length) return 0;
+  const words = productWords(product);
+  let total = 0;
+  for (const token of tokens) {
+    let best = 0;
+    for (const word of words) best = Math.max(best, wordRank(word, token));
+    if (best === 0) return 0;
+    total += best;
+  }
+  return total;
+}
+
+/** Every typed word is in the product, allowing one letter off. */
+export function buyerQueryMatches(
+  product: Pick<
+    BuyerPriceSource,
+    "name" | "sku" | "manufacturer" | "style" | "color" | "supplier" | "notes" | "search_text"
+  >,
+  query: string,
+): boolean {
+  return buyerMatchRank(product, query) > 0;
+}
+
+/**
+ * Patterns for one indexed lookup. The token itself, plus a single-character
+ * gap so "primose" can see "Primrose". Not a chopped stem like "primo".
+ */
+export function buyerSearchPatterns(token: string): string[] {
+  const patterns = [token];
+  if (token.length >= 5 && token.length <= 20) {
+    for (let i = 0; i <= token.length; i++) patterns.push(`${token.slice(0, i)}_${token.slice(i)}`);
+  }
+  return patterns;
 }
 
 /** Where a customer login lands. A price-book account never opens the portal. */
