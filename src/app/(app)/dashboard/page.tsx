@@ -36,6 +36,7 @@ import { RepostToBoardButton } from "./repost-to-board-button";
 import { STAGE_COLOR_BADGE } from "@/lib/types";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { BallWatch } from "@/components/ball-watch";
 import { DayBriefing } from "./day-briefing";
 import { AskBusiness } from "./ask-business";
 import { OpsToday } from "./ops-today";
@@ -167,6 +168,7 @@ export default async function DashboardPage() {
         </Card>
       ) : null}
 
+      <BallWatch />
       <OpsToday queues={opsQueues} />
       <MyOfficeTasksCard
         buckets={officeTaskBuckets}

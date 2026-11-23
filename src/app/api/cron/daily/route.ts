@@ -14,6 +14,8 @@ import {
   balanceReminderText,
   pickBalanceReminderCustomers,
 } from "@/lib/in-home-close";
+import { employeeNudge, oversightNudge } from "@/lib/ball-watch";
+import { isTaskOverdue } from "@/lib/office-task";
 import { triggerImportProcessing } from "@/lib/import-worker";
 import { advanceToNamedStage } from "@/lib/workflow-engine";
 import { dayTaskCollectAmountDue } from "@/lib/payment-safety";
@@ -436,6 +438,7 @@ export async function GET(request: NextRequest) {
   // A client past its stage's time limit alerts BOTH the current handler and its
   // salesperson (so a passed-down client never falls off the salesperson's
   // radar), and every admin (owner + Debbie) gets a full oversight digest.
+  // Overdue office tasks go in that same note, so a late task is not a second email.
   let nudges = 0;
   const { data: overdue } = await admin
     .from("customers")
@@ -446,8 +449,6 @@ export async function GET(request: NextRequest) {
     .lt("next_action_due", new Date(now).toISOString());
 
   type StuckLead = { name: string; stage: string; action: string };
-  const rowHtml = (l: StuckLead) =>
-    `<li><strong>${l.name}</strong> — ${l.stage}: ${l.action}</li>`;
 
   // Admins (owner + Debbie) get the full digest; skip them in the per-person
   // alerts so they aren't double-emailed.
@@ -482,7 +483,47 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  for (const [uid, leads] of byRecipient) {
+  const clock = new Date(now);
+  const { data: lateTasks } = await admin
+    .from("office_tasks")
+    .select("id, title, assigned_to, due_at, status")
+    .in("status", ["open", "in_progress"])
+    .not("due_at", "is", null)
+    .lt("due_at", clock.toISOString())
+    .limit(200);
+  const tasksByUser = new Map<string, { title: string }[]>();
+  const allLate: { title: string }[] = [];
+  for (const t of lateTasks ?? []) {
+    if (
+      !isTaskOverdue({
+        status: String(t.status ?? ""),
+        dueAt: (t.due_at as string | null) ?? null,
+        now: clock,
+      })
+    ) {
+      continue;
+    }
+    const title = String(t.title ?? "").trim() || "Task";
+    allLate.push({ title });
+    const uid = (t.assigned_to as string | null) ?? "";
+    if (!uid || adminIds.has(uid)) continue;
+    const mine = tasksByUser.get(uid) ?? [];
+    mine.push({ title });
+    tasksByUser.set(uid, mine);
+  }
+
+  const nudged = new Set<string>([...byRecipient.keys(), ...tasksByUser.keys()]);
+  for (const uid of nudged) {
+    const leads = byRecipient.get(uid) ?? [];
+    const nudge = employeeNudge({
+      customers: leads.map((lead) => ({
+        name: lead.name,
+        stage: lead.stage,
+        action: lead.action,
+      })),
+      tasks: tasksByUser.get(uid) ?? [],
+    });
+    if (!nudge) continue;
     const { data: prof } = await admin
       .from("profiles")
       .select("email")
@@ -491,30 +532,34 @@ export async function GET(request: NextRequest) {
     if (!prof?.email) continue;
     await sendEmail({
       to: prof.email as string,
-      subject: `${leads.length} client${leads.length === 1 ? "" : "s"} need your attention`,
-      html: emailLayout(
-        "Clients waiting on you",
-        `<p>These clients are past their target time for the next step:</p>
-         <ul>${leads.map(rowHtml).join("")}</ul>`,
-        { label: "See what's past due", url: `${siteUrl()}/client-status?who=mine&overdue=1` },
-      ),
+      subject: nudge.subject,
+      html: emailLayout(nudge.heading, nudge.innerHtml, {
+        label: nudge.label,
+        url: `${siteUrl()}${nudge.path}`,
+      }),
     });
     nudges += 1;
   }
 
-  // Full oversight digest to each admin (owner + Debbie).
-  if (allStuck.length) {
+  // Full oversight digest to each admin (owner + Debbie), including overdue tasks.
+  const oversight = oversightNudge({
+    customers: allStuck.map((lead) => ({
+      name: lead.name,
+      stage: lead.stage,
+      action: lead.action,
+    })),
+    tasks: allLate,
+  });
+  if (oversight) {
     for (const p of adminProfs ?? []) {
       if (!p.email) continue;
       await sendEmail({
         to: p.email as string,
-        subject: `${allStuck.length} client${allStuck.length === 1 ? "" : "s"} stuck too long`,
-        html: emailLayout(
-          "Clients stuck too long — full view",
-          `<p>These clients are past their stage's time limit across the whole team, so nothing falls through the cracks:</p>
-           <ul>${allStuck.map(rowHtml).join("")}</ul>`,
-          { label: "See what's past due", url: `${siteUrl()}/client-status?overdue=1` },
-        ),
+        subject: oversight.subject,
+        html: emailLayout(oversight.heading, oversight.innerHtml, {
+          label: oversight.label,
+          url: `${siteUrl()}${oversight.path}`,
+        }),
       });
       nudges += 1;
     }
