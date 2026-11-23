@@ -6,7 +6,6 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Menu,
   Search,
-  LogOut,
   MoreHorizontal,
   SlidersHorizontal,
   ChevronDown,
@@ -43,7 +42,7 @@ import {
   type UxShellMode,
 } from "@/lib/nav";
 import { ROLE_LABELS, type OrgSettings, type Profile } from "@/lib/types";
-import { signout } from "@/app/(app)/actions";
+import { SignOutButton } from "@/components/sign-out-button";
 
 function initials(profile: Profile) {
   const source = profile.full_name?.trim() || profile.email;
@@ -333,17 +332,7 @@ function UserCard({ profile, shell }: { profile: Profile; shell: UxShellMode }) 
         </Button>
       ) : null}
       <ShellSwitch shell={shell} />
-      <form action={signout}>
-        <Button
-          type="submit"
-          variant="ghost"
-          size="sm"
-          className="mt-1 w-full justify-start text-muted-foreground"
-        >
-          <LogOut className="size-4" />
-          Sign out
-        </Button>
-      </form>
+      <SignOutButton className="mt-1 w-full" />
     </div>
   );
 }

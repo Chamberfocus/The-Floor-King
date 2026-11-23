@@ -29,7 +29,7 @@ export default async function LoginPage({
       </CardHeader>
       <CardContent>
         {configured ? (
-          <LoginForm next={next ?? "/dashboard"} />
+          <LoginForm next={next && next.startsWith("/") && !next.startsWith("//") ? next : "/"} />
         ) : (
           <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
             <p className="font-medium text-foreground">Almost there.</p>
