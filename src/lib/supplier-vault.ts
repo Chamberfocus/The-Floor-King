@@ -1,8 +1,9 @@
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto";
 import type { UserRole } from "@/lib/types";
 
-/** Who may open a manufacturer or pay site and receive its password. */
-export const SUPPLIER_SITE_OPEN_ROLES: readonly UserRole[] = ["admin", "office"];
+/** Who may open a manufacturer or pay site and receive its password.
+ *  The owner signs in as admin. Salespeople and the office cannot. */
+export const SUPPLIER_SITE_OPEN_ROLES: readonly UserRole[] = ["admin"];
 
 /** Who may save, change, or remove a site and its password. */
 export const SUPPLIER_SITE_SAVE_ROLES: readonly UserRole[] = ["admin"];

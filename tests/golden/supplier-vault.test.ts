@@ -16,6 +16,7 @@ import {
 const root = join(__dirname, "../..");
 const actions = readFileSync(join(root, "src/app/(app)/supplier-sites/actions.ts"), "utf8");
 const sql = readFileSync(join(root, "supabase/migrations/0516_supplier_site_vault.sql"), "utf8");
+const adminOnly = readFileSync(join(root, "supabase/migrations/0517_supplier_sites_admin_only.sql"), "utf8");
 
 describe("supplier site vault", () => {
   const key = supplierVaultKey("floor-king-vault-test-key");
@@ -63,31 +64,30 @@ describe("supplier site vault", () => {
     expect(SUPPLIER_SITE_LIST_COLUMNS).not.toContain("password");
   });
 
-  it("lets the owner save and the office open, and nobody else", () => {
+  it("lets an admin open and save, and keeps everyone else out", () => {
     expect(SUPPLIER_SITE_SAVE_ROLES).toEqual(["admin"]);
-    expect(SUPPLIER_SITE_OPEN_ROLES).toEqual(["admin", "office"]);
+    expect(SUPPLIER_SITE_OPEN_ROLES).toEqual(["admin"]);
     expect(actions).toContain("assertRole([...SUPPLIER_SITE_SAVE_ROLES])");
     expect(actions).toContain("assertRole([...SUPPLIER_SITE_OPEN_ROLES])");
     expect(actions).not.toContain("console.");
-    for (const role of ["salesman", "sales_manager", "scheduler", "crew", "warehouse", "customer"] as const) {
+    for (const role of ["office", "salesman", "sales_manager", "scheduler", "crew", "warehouse", "customer"] as const) {
       const hrefs = new Set(
         shellSectionsForRole(role).flatMap((section) => section.items.map((item) => item.href)),
       );
       expect(hrefs.has("/supplier-sites"), role).toBe(false);
     }
-    for (const role of ["admin", "office"] as const) {
-      const hrefs = new Set(
-        shellSectionsForRole(role).flatMap((section) => section.items.map((item) => item.href)),
-      );
-      expect(hrefs.has("/supplier-sites"), role).toBe(true);
-    }
+    const adminHrefs = new Set(
+      shellSectionsForRole("admin").flatMap((section) => section.items.map((item) => item.href)),
+    );
+    expect(adminHrefs.has("/supplier-sites")).toBe(true);
   });
 
   it("stores the password where a signed-in user cannot read it", () => {
     expect(sql).toContain("revoke all on public.supplier_site_secrets from public, anon, authenticated");
     expect(sql).toContain("revoke all on public.supplier_site_opens from public, anon, authenticated");
     expect(sql).not.toContain("policy supplier_site_secrets");
-    expect(sql).toContain("public.user_role(auth.uid())::text in ('admin', 'office')");
+    expect(adminOnly).toContain("public.user_role(auth.uid())::text = 'admin'");
+    expect(adminOnly).not.toContain("'office'");
     expect(sql).toContain("public.user_role(auth.uid())::text = 'admin'");
     expect(supplierSiteTableMissing("Could not find the table 'public.supplier_sites' in the schema cache")).toBe(
       true,

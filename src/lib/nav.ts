@@ -184,7 +184,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "True-up", href: "/commissions", icon: BarChart3, roles: OFFICE_PLUS },
       { label: "My commission", href: "/commissions/statement", icon: Receipt, roles: ["salesman"] },
       { label: "Bills (A/P)", href: "/bills", icon: Wallet, roles: OFFICE_PLUS },
-      { label: "Supplier sites", href: "/supplier-sites", icon: KeyRound, roles: OFFICE_PLUS },
+      { label: "Supplier sites", href: "/supplier-sites", icon: KeyRound, roles: ADMIN },
       {
         label: "Accounting",
         href: "/accounting",

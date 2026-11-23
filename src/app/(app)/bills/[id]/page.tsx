@@ -89,7 +89,7 @@ export default async function BillPage({
 
       <div className="mb-4 flex flex-wrap items-center gap-3 text-sm">
         <span className="rounded-full bg-muted px-2 py-0.5 text-xs">{sourceBadge(bill)}</span>
-        {bill.supplier_id ? (
+        {bill.supplier_id && profile.role === "admin" ? (
           <Link href={`/supplier-sites?vendor=${bill.supplier_id}&purpose=pay`} className="text-primary hover:underline">
             Their pay site
           </Link>

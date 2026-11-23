@@ -88,7 +88,7 @@ export default async function PurchaseOrderPage({
               </>
             ) : null}
             Created {formatDate(po.created_at)}
-            {po.supplier_id && (profile.role === "admin" || profile.role === "office") ? (
+            {po.supplier_id && profile.role === "admin" ? (
               <>
                 {" · "}
                 <Link
