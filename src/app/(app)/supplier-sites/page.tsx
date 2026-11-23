@@ -84,17 +84,13 @@ export default async function SupplierSitesPage({
 
       {ready && !vaultReady ? (
         <p className="rounded-lg border p-4 text-sm text-muted-foreground">
-          {canSave
-            ? "Passwords stay off this page until SUPPLIER_VAULT_KEY is set on the server. You can still save the website and the username."
-            : "Passwords are locked until the vault key is set. You can still open the website."}
+          Passwords stay off this page until SUPPLIER_VAULT_KEY is set on the server. You can still save the website and the username.
         </p>
       ) : null}
 
       {ready && vaultReady ? (
         <p className="text-sm text-muted-foreground">
-          {canSave
-            ? "You save the password. You and the office can open the site. A password is encrypted, and it is not shown in this list. Salespeople never see this page."
-            : "Open copies the password. You cannot change a saved password. That stays with the owner."}
+          Only an admin can open these logins. Salespeople and the office do not see this page. The password is encrypted, and it is not shown in the list.
         </p>
       ) : null}
 

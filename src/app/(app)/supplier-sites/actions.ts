@@ -193,7 +193,7 @@ export async function openSupplierSite(id: string): Promise<OpenSupplierSiteResu
   try {
     profile = await assertRole([...SUPPLIER_SITE_OPEN_ROLES]);
   } catch {
-    return { error: "You can't open supplier sites." };
+    return { error: "Only an admin can open supplier sites." };
   }
   if (!id) return { error: "That site is missing." };
 

@@ -17,7 +17,6 @@ const LINKS: { href: string; label: string }[] = [
   { href: "/purchase-orders", label: "Purchase orders" },
   { href: "/warehouse", label: "Warehouse" },
   { href: "/bills", label: "Bills" },
-  { href: "/supplier-sites", label: "Supplier sites" },
   { href: "/accounting", label: "Accounting" },
   { href: "/reports/statements", label: "Statements" },
   { href: "/reports/sales-tax", label: "Sales tax" },
