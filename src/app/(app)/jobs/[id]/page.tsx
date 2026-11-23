@@ -63,6 +63,8 @@ import { loadSignoffPriceAlert } from "@/lib/data/signoff-sheet";
 import { paymentChoiceLabel, signoffPriceAlertCopy } from "@/lib/signoff-sheet";
 import { setJobShowPrices, setJobCollectsBalance } from "./wo-actions";
 import { JobMeasurementUpload } from "./measurement-upload";
+import { DrawingTakeoff } from "@/app/(app)/customers/[id]/drawing-review";
+import { canTakeoffDrawing } from "@/lib/drawing-takeoff";
 import { requireProfile } from "@/lib/auth";
 import { MaterialNoticeCard } from "@/components/material-notice-card";
 import { materialSignalsForCustomer } from "@/lib/data/material-notices";
@@ -1462,6 +1464,17 @@ export default async function JobPage({
             <JobMeasurementUpload jobId={job.id} />
           </CardHeader>
           <CardContent>
+            {job.customer_id && canTakeoffDrawing(profile.role) ? (
+              <div className="mb-4 space-y-2">
+                <DrawingTakeoff customerId={job.customer_id} />
+                <Link
+                  href={`/estimates/guided?customer=${job.customer_id}${job.service_address_id ? `&site=${job.service_address_id}` : ""}`}
+                  className="text-sm font-medium text-primary underline underline-offset-2 hover:underline"
+                >
+                  Open the estimate. Saved rooms and notes are on it.
+                </Link>
+              </div>
+            ) : null}
             {measureDocs.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No measurement diagram yet. Snap a photo of the field measurements

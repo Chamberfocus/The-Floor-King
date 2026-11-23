@@ -92,7 +92,14 @@ export async function moveCustomerArea(formData: FormData): Promise<void> {
  *  when an estimate is generated, so the dashboard reflects what was measured). */
 export async function replaceCustomerAreas(
   customerId: string,
-  rooms: { name: string; length_in: number | null; width_in: number | null; sqft: number | null; differs: boolean }[],
+  rooms: {
+    name: string;
+    length_in: number | null;
+    width_in: number | null;
+    sqft: number | null;
+    differs: boolean;
+    note?: string | null;
+  }[],
 ): Promise<void> {
   if (!customerId) return;
   const supabase = await createClient();
@@ -116,7 +123,10 @@ export async function replaceCustomerAreas(
       length_in: r.length_in,
       width_in: r.width_in,
       sqft: r.sqft,
-      note: notes.get((r.name || "").trim().toLowerCase()) ?? null,
+      note:
+        r.note !== undefined
+          ? r.note?.trim() || null
+          : notes.get((r.name || "").trim().toLowerCase()) ?? null,
       differs: r.differs,
     }));
   if (rows.length) await supabase.from("customer_areas").insert(rows);
