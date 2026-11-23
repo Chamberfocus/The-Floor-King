@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { BallCompanion } from "@/components/ball-companion";
+import { ballItemsFromPeople } from "@/lib/ball-watch";
 import type { HomeCommandBoard } from "@/lib/data/home-center";
 import type { HomePerson } from "@/lib/home-people";
 
@@ -56,6 +58,7 @@ export function HomeCenterView({
           <h2 id="home-people-heading" className="text-sm font-semibold">
             Who needs you
           </h2>
+          <BallCompanion items={ballItemsFromPeople(people)} showList={false} />
           <ul className="mt-2 flex flex-col gap-2">
             {people.map((person) => (
               <li key={person.href}>

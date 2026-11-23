@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { BallWatch } from "@/components/ball-watch";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireRole } from "@/lib/auth";
@@ -44,6 +45,8 @@ export default async function OfficePage() {
           You can see the whole job, the salesperson, and the warehouse. Settings and Business Pulse stay with the owner.
         </p>
       )}
+
+      <BallWatch />
 
       <nav className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
         {LINKS.map((link) => (

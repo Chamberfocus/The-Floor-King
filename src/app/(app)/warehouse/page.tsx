@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
+import { BallWatch } from "@/components/ball-watch";
 import { PageHeader } from "@/components/page-header";
 import { IncomingDeliveries, type IncomingPo } from "./incoming-deliveries";
 import { listIncomingPos } from "./receiving-actions";
@@ -538,6 +539,9 @@ export default async function WarehousePage({
         title="Warehouse"
         description="What's on order, what's landed, and what to prep for upcoming jobs."
       />
+      <div className="print:hidden">
+        <BallWatch />
+      </div>
       <div className="mb-4 flex flex-wrap gap-4 text-sm print:hidden">
         <Link href="/warehouse/morning" className="font-medium text-primary hover:underline">
           Tomorrow&apos;s sheet

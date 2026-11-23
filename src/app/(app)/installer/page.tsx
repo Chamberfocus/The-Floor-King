@@ -13,6 +13,7 @@ import {
   Phone,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BallWatch } from "@/components/ball-watch";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
@@ -230,6 +231,7 @@ export default async function InstallerHomePage({
         title={`Hi, ${profile.full_name?.split(" ")[0] || "there"}`}
         description="Your jobs, the board, days off, and the work on site."
       />
+      <BallWatch />
 
       <nav className="sticky top-0 z-20 -mx-1 flex gap-2 overflow-x-auto bg-background/95 py-2 backdrop-blur">
         {HUB_TABS.map((item) => (
