@@ -59,6 +59,8 @@ export interface WorkUnit {
   site: string | null;
   stageId: string | null;
   ownerId: string | null;
+  /** The salesperson the account is assigned to. The current handler stays on ownerId. */
+  salespersonId: string | null;
   dueAt: string | null;
   /** True when this unit is standing in for the account itself. */
   preJob: boolean;
@@ -86,6 +88,7 @@ export function jobWorkUnit(job: JobLike, customer: CustomerLike): WorkUnit {
     stageId: job.workflow_stage_id ?? customer.workflow_stage_id ?? null,
     ownerId:
       job.workflow_owner_id ?? customer.workflow_owner_id ?? customer.assigned_to ?? null,
+    salespersonId: customer.assigned_to ?? null,
     dueAt: job.next_action_due ?? customer.next_action_due ?? null,
     preJob: false,
   };
@@ -103,6 +106,7 @@ export function customerWorkUnit(customer: CustomerLike): WorkUnit {
     site: null,
     stageId: customer.workflow_stage_id ?? null,
     ownerId: customer.workflow_owner_id ?? customer.assigned_to ?? null,
+    salespersonId: customer.assigned_to ?? null,
     dueAt: customer.next_action_due ?? null,
     preJob: true,
   };

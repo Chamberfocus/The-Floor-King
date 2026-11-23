@@ -194,6 +194,36 @@ export function BrandingForm({ org }: { org: OrgSettings }) {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">PNC ACH</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5 sm:col-span-2">
+            <p className="text-sm text-muted-foreground">
+              These are the numbers PNC gave you for ACH files. An invoice downloads a file for PINACLE.
+              The invoice stays unpaid until the office marks the deposit settled.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ach_destination_routing">PNC routing number</Label>
+            <Input id="ach_destination_routing" name="ach_destination_routing" defaultValue={org.ach_destination_routing ?? ""} inputMode="numeric" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ach_odfi_routing">Originating routing number</Label>
+            <Input id="ach_odfi_routing" name="ach_odfi_routing" defaultValue={org.ach_odfi_routing ?? ""} inputMode="numeric" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ach_company_id">Company id</Label>
+            <Input id="ach_company_id" name="ach_company_id" defaultValue={org.ach_company_id ?? ""} placeholder="1 plus the 9-digit EIN" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ach_company_name">Name on the ACH file</Label>
+            <Input id="ach_company_name" name="ach_company_name" defaultValue={org.ach_company_name ?? ""} placeholder={org.company_name} />
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="flex justify-end">
         <Button type="submit" disabled={saving}>
           {saving ? "Saving…" : "Save branding"}

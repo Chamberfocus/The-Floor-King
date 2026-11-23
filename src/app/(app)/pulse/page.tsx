@@ -20,6 +20,8 @@ import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { getBusinessPulse } from "@/lib/data/pulse";
+import { loadClientWork } from "@/lib/data/client-work";
+import { salespersonBooks } from "@/lib/salesperson-board";
 import { getPipelineForecast } from "@/lib/data/finance";
 import { getAPSummary } from "@/lib/data/bills";
 import { getDeadStock } from "@/lib/data/product-performance";
@@ -62,12 +64,20 @@ export default async function PulsePage() {
   const profile = await requireProfile();
   if (profile.role !== "admin") redirect("/");
 
-  const [pulse, forecast, ap, dead] = await Promise.all([
+  const [pulse, forecast, ap, dead, clientWork] = await Promise.all([
     getBusinessPulse(),
     getPipelineForecast(),
     getAPSummary(),
     getDeadStock(90),
+    loadClientWork().catch(() => null),
   ]);
+  const books = clientWork
+    ? salespersonBooks({
+        units: clientWork.units,
+        stageById: new Map(clientWork.stages.map((stage) => [stage.id, stage])),
+        names: clientWork.names,
+      })
+    : [];
   const remnantAlerts = await reorderAlertsFor(dead.map((d) => d.product.id));
   const mixedDeadSkus = dead.filter((d) => {
     const remnantItems = remnantAlerts[d.product.id]?.items ?? [];
@@ -111,6 +121,53 @@ export default async function PulsePage() {
           </Link>
         </div>
       </PageHeader>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="text-base">Where the salespeople are</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {books.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No live clients are assigned right now.</p>
+          ) : (
+            books.map((book) => (
+              <div key={book.ownerId ?? "none"} className="rounded-md border p-3">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <Link
+                    href={`/client-status?view=people#${book.ownerId ?? "none"}`}
+                    className="font-semibold hover:underline"
+                  >
+                    {book.name}
+                  </Link>
+                  <span className={cn("text-xs", book.stuck ? "font-semibold text-destructive" : "text-muted-foreground")}>
+                    {book.clients.length} live{book.stuck ? ` · ${book.stuck} stuck` : ""}
+                  </span>
+                </div>
+                <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+                  {book.clients.slice(0, 4).map((client) => (
+                    <li key={client.key}>
+                      <Link href={client.href} className="hover:underline">
+                        {client.customerName}
+                      </Link>
+                      {" — "}
+                      {client.stageName}
+                      {client.stuck ? " · stuck" : ""}
+                    </li>
+                  ))}
+                </ul>
+                {book.clients.length > 4 ? (
+                  <Link
+                    href={`/client-status?view=people#${book.ownerId ?? "none"}`}
+                    className="mt-2 inline-block text-xs font-medium text-primary hover:underline"
+                  >
+                    {book.clients.length - 4} more
+                  </Link>
+                ) : null}
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
 
       {/* Headline numbers */}
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

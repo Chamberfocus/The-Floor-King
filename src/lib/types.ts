@@ -36,6 +36,10 @@ export interface OrgSettings {
   financing_url: string | null;
   google_review_url: string | null;
   card_processing_url: string | null; // external card processor / virtual terminal
+  ach_destination_routing?: string | null;
+  ach_company_id?: string | null;
+  ach_odfi_routing?: string | null;
+  ach_company_name?: string | null;
   fuel_surcharge_pct: number;
   freight_markup_pct: number; // single all-in freight & fees markup on material cost
   quote_valid_days: number;

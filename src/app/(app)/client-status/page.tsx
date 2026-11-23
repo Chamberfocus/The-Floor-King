@@ -5,11 +5,10 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { buttonVariants } from "@/components/ui/button";
 import { requireProfile } from "@/lib/auth";
-import { listCustomers, getProfileNames } from "@/lib/data/customers";
-import { listOpenJobsForPipeline } from "@/lib/data/jobs";
-import { workUnitsFor, type WorkUnit } from "@/lib/work-stage";
-import { listWorkflowStages } from "@/lib/data/workflow";
+import { loadClientWork } from "@/lib/data/client-work";
+import type { WorkUnit } from "@/lib/work-stage";
 import { CLIENT_STATUS_LANES, clientStatusLane, type ClientLane } from "@/lib/client-status-lanes";
+import { SALESPERSON_BOARD_ROLES, salespersonBooks, workIsPastDue } from "@/lib/salesperson-board";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -35,20 +34,22 @@ export const dynamic = "force-dynamic";
  * it has no job. src/lib/work-stage.ts is the rule; this just renders it.
  */
 
-/** Past due = the next step's due date has already gone by. Shared so the
- *  "?overdue=1" filter and the "Stuck" badge can never disagree. */
+/** Past due = the next step's due date has already gone by. Shared with the
+ *  salesperson book so the "?overdue=1" filter and the "Stuck" badge agree. */
 function isPastDue(u: { dueAt?: string | null }): boolean {
-  return !!u.dueAt && new Date(u.dueAt).getTime() < Date.now();
+  return workIsPastDue(u.dueAt);
 }
 
 export default async function ClientStatusPage({
   searchParams,
 }: {
-  searchParams: Promise<{ who?: string; overdue?: string }>;
+  searchParams: Promise<{ who?: string; overdue?: string; view?: string }>;
 }) {
   const profile = await requireProfile();
   const sp = await searchParams;
   const mine = sp.who === "mine";
+  const bySalesperson =
+    sp.view === "people" && SALESPERSON_BOARD_ROLES.includes(profile.role);
   /**
    * "?overdue=1" — the filter the daily email and the dashboard badge have been
    * asking for all along. Both linked to /pipeline?mine=1&overdue=1; /pipeline
@@ -59,35 +60,22 @@ export default async function ClientStatusPage({
    */
   const overdueOnly = sp.overdue === "1";
 
-  const stages = await listWorkflowStages();
+  const loaded = await loadClientWork();
+  const stages = loaded.stages;
   const stageById = new Map(stages.map((s) => [s.id, s] as const));
-  const all = (await listCustomers()).filter((c) => !c.cancelled_at);
+  const allUnits = loaded.units;
 
   /**
-   * One card per piece of WORK, not per account.
-   *
-   * This listed customers, so a contractor with three jobs running appeared
-   * once, in the lane of whichever job happened to own the account's stage —
-   * the other two invisible. Every job now carries its own stage, so the board
-   * shows each of them, and an account with no job yet still shows once for the
-   * lead itself. See src/lib/work-stage.ts.
+   * One card per piece of WORK, not per account. See src/lib/work-stage.ts.
+   * A contractor with three jobs shows three times.
    */
-  const jobs = await listOpenJobsForPipeline();
-  const jobsByCustomer = new Map<string, typeof jobs>();
-  for (const j of jobs) {
-    const arr = jobsByCustomer.get(j.customer_id) ?? [];
-    arr.push(j);
-    jobsByCustomer.set(j.customer_id, arr);
-  }
-
-  const units = all.flatMap((c) => workUnitsFor(c, jobsByCustomer.get(c.id) ?? []));
-  const mineOnly = mine
-    ? units.filter((u) => u.ownerId === profile.id)
-    : units;
+  const mineOnly = mine ? allUnits.filter((u) => u.ownerId === profile.id) : allUnits;
   const work = overdueOnly ? mineOnly.filter(isPastDue) : mineOnly;
 
-  const ownerIds = [...new Set(work.map((u) => u.ownerId).filter(Boolean))] as string[];
-  const owners = ownerIds.length ? await getProfileNames(ownerIds) : {};
+  const owners = loaded.names;
+  const books = bySalesperson
+    ? salespersonBooks({ units: work, stageById, names: loaded.names })
+    : [];
 
   const byLane = new Map<ClientLane, typeof work>();
   let closed = 0;
@@ -164,9 +152,11 @@ export default async function ClientStatusPage({
       <PageHeader
         title="Client status"
         description={
-          overdueOnly
-            ? "Only clients whose next step is past due."
-            : "Every live client by where they stand — the whole book on one screen, newest work first."
+          bySalesperson
+            ? "Every live client under the salesperson the account is assigned to."
+            : overdueOnly
+              ? "Only clients whose next step is past due."
+              : "Every live client by where they stand — the whole book on one screen, newest work first."
         }
       >
         <Link href="/customers/new" className={buttonVariants({ size: "lg" })}>
@@ -203,8 +193,17 @@ export default async function ClientStatusPage({
             label: "Everyone",
             href: overdueOnly ? "/client-status?overdue=1" : "/client-status",
           },
+          ...(SALESPERSON_BOARD_ROLES.includes(profile.role)
+            ? [
+                {
+                  key: "people",
+                  label: "By salesperson",
+                  href: `/client-status?view=people${overdueOnly ? "&overdue=1" : ""}`,
+                },
+              ]
+            : []),
         ].map((t) => {
-          const active = (t.key === "mine") === mine;
+          const active = bySalesperson ? t.key === "people" : (t.key === "mine") === mine;
           return (
             <Link
               key={t.key}
@@ -221,7 +220,64 @@ export default async function ClientStatusPage({
         })}
       </div>
 
-      {live === 0 ? (
+      {bySalesperson ? (
+        books.length === 0 ? (
+          <EmptyState
+            title="Nothing live"
+            description={overdueOnly ? "Nothing is past due." : "No salesperson has a live client."}
+          />
+        ) : (
+          <div className="space-y-8">
+            {books.map((book) => (
+              <section key={book.ownerId ?? "none"} id={book.ownerId ?? "none"}>
+                <div className="mb-2 flex items-baseline gap-2">
+                  <h2 className="text-lg font-bold">{book.name}</h2>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold">
+                    {book.clients.length}
+                  </span>
+                  {book.stuck ? (
+                    <span className="text-xs font-semibold text-destructive">{book.stuck} stuck</span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">On time</span>
+                  )}
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {book.clients.map((client) => (
+                    <Link
+                      key={client.key}
+                      href={client.href}
+                      className="block rounded-xl border bg-card p-3.5 transition-colors hover:border-primary/40"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-base font-semibold">{client.customerName}</div>
+                          {client.site ? (
+                            <div className="truncate text-sm font-medium text-violet-700 dark:text-violet-300">
+                              {client.site}
+                            </div>
+                          ) : null}
+                          <div className="truncate text-sm text-muted-foreground">
+                            {client.laneTitle ? `${client.laneTitle} · ` : ""}
+                            {client.stageName}
+                          </div>
+                        </div>
+                        {client.stuck ? (
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-semibold text-destructive">
+                            <AlertTriangle className="size-3" /> Stuck
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
+                        {client.next} <ArrowRight className="size-3" />
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        )
+      ) : live === 0 ? (
         <EmptyState
           title="Nothing live"
           description={
