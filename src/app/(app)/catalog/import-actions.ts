@@ -18,6 +18,7 @@ import {
   sheetLinesToPriceRows,
 } from "@/lib/price-sheet";
 import { specFieldsFor } from "@/lib/product-fields";
+import { parseAllSurfacesRlPriceList } from "@/lib/all-surfaces-rl-price";
 import { parseBishopPriceList } from "@/lib/bishop-price";
 import { parsePdHappyFeetPriceList } from "@/lib/pd-happy-feet-price";
 import { parseLwFlooringPriceList } from "@/lib/lw-flooring-price";
@@ -155,11 +156,12 @@ async function pdfTextFromStorage(storagePath: string): Promise<{
       }
     }
     const text = lines.join("\n");
-    const lw = parseLwFlooringPriceList(bishopPages);
-    const somerset = parseSomersetPriceList(bishopPages);
-    const happyFeet = parsePdHappyFeetPriceList(bishopPages);
-    const bishop = parseBishopPriceList(bishopPages);
-    const book = lw ?? somerset ?? happyFeet ?? bishop;
+    const surfaces = parseAllSurfacesRlPriceList(bishopPages);
+    const lw = surfaces ? null : parseLwFlooringPriceList(bishopPages);
+    const somerset = surfaces ? null : parseSomersetPriceList(bishopPages);
+    const happyFeet = surfaces ? null : parsePdHappyFeetPriceList(bishopPages);
+    const bishop = surfaces ? null : parseBishopPriceList(bishopPages);
+    const book = surfaces ?? lw ?? somerset ?? happyFeet ?? bishop;
     return {
       text,
       book: book?.rows.length ? { rows: book.rows, distributor: book.distributor } : null,
