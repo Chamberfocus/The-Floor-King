@@ -60,6 +60,12 @@ export default async function VendorPage({ params }: { params: Promise<{ id: str
         >
           <Plug className="size-4" /> Connect prices, stock, and specs
         </Link>
+        <Link
+          href={`/supplier-sites?vendor=${vendor.id}`}
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+        >
+          Ordering and pay sites
+        </Link>
       </div>
 
       {/* Contact + terms */}

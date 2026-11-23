@@ -27,6 +27,7 @@ import {
   ListTodo,
   MessageSquare,
   Landmark,
+  KeyRound,
   type LucideIcon,
 } from "lucide-react";
 import { SHOP_TALK_ROLES } from "@/lib/shop-talk";
@@ -183,6 +184,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "True-up", href: "/commissions", icon: BarChart3, roles: OFFICE_PLUS },
       { label: "My commission", href: "/commissions/statement", icon: Receipt, roles: ["salesman"] },
       { label: "Bills (A/P)", href: "/bills", icon: Wallet, roles: OFFICE_PLUS },
+      { label: "Supplier sites", href: "/supplier-sites", icon: KeyRound, roles: OFFICE_PLUS },
       {
         label: "Accounting",
         href: "/accounting",
@@ -395,6 +397,7 @@ const SHELL_BLUEPRINT: {
     label: "Money",
     items: [
       { href: "/bills", label: "Bills" },
+      { href: "/supplier-sites", label: "Supplier sites" },
       { href: "/commissions/statement", label: "My commission" },
       { href: "/pulse", label: "Business pulse" },
     ],
