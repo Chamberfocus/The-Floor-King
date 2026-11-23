@@ -37,6 +37,11 @@ export async function login(
   }
 
   const supabase = await createClient();
+  try {
+    await supabase.auth.signOut({ scope: "local" });
+  } catch {
+    // No session to replace.
+  }
   const { error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
@@ -74,6 +79,11 @@ export async function loginWithPhone(
   if (!email) return { error: "No login found for that phone number." };
 
   const supabase = await createClient();
+  try {
+    await supabase.auth.signOut({ scope: "local" });
+  } catch {
+    // No session to replace.
+  }
   const { error } = await supabase.auth.signInWithPassword({
     email,
     password: pin,

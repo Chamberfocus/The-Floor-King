@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { skipsSessionRefresh } from "@/lib/auth-session";
 import { getSupabaseEnv, isSupabaseConfigured } from "@/lib/env";
 
 /**
@@ -21,13 +22,19 @@ function isPublicPath(pathname: string) {
 /**
  * Refreshes the Supabase auth session on every request and enforces auth:
  * unauthenticated users are redirected to /login; signed-in users hitting
- * /login are sent to the dashboard. Based on the official @supabase/ssr pattern,
- * adapted for the Next.js 16 `proxy` convention.
+ * /login are sent home. Sign-in and sign-out posts skip the refresh so the
+ * old session cannot be written back.
  */
 export async function updateSession(request: NextRequest) {
   // Before real credentials are configured, don't gate anything — let the app
   // render its "finish setup" state instead of erroring on every request.
   if (!isSupabaseConfigured()) {
+    return NextResponse.next({ request });
+  }
+
+  // Sign-out and sign-in write the session cookies themselves. Refreshing
+  // first was restoring the person who was already signed in.
+  if (skipsSessionRefresh(request.method, request.nextUrl.pathname)) {
     return NextResponse.next({ request });
   }
 
@@ -67,7 +74,7 @@ export async function updateSession(request: NextRequest) {
 
   if (user && pathname === "/login") {
     const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/dashboard";
+    redirectUrl.pathname = "/";
     redirectUrl.search = "";
     return NextResponse.redirect(redirectUrl);
   }

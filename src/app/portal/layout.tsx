@@ -1,9 +1,8 @@
 import { redirect } from "next/navigation";
 import { requireProfile } from "@/lib/auth";
 import { priceBookGate } from "@/lib/data/price-book";
-import { Button } from "@/components/ui/button";
 import { COMPANY_NAME } from "@/lib/nav";
-import { signout } from "@/app/(app)/actions";
+import { SignOutButton } from "@/components/sign-out-button";
 import { LiveSync } from "@/components/live-sync";
 import { createClient } from "@/lib/supabase/server";
 import { PortalNav } from "./portal-nav";
@@ -45,11 +44,7 @@ export default async function PortalLayout({
             <span className="truncate font-semibold">{COMPANY_NAME}</span>
           </div>
           <PortalNav replyWaiting={replyWaiting} />
-          <form action={signout}>
-            <Button variant="ghost" size="sm">
-              Sign out
-            </Button>
-          </form>
+          <SignOutButton />
         </div>
       </header>
       <main className="mx-auto w-full max-w-4xl flex-1 p-4 pb-24 md:p-8 md:pb-8">
