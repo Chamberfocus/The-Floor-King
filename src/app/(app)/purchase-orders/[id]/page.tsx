@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/format";
 import { PoBuilder } from "../po-builder";
 import { ReorderAlerts } from "@/components/reorder-alert";
+import { requireProfile } from "@/lib/auth";
 import { deletePurchaseOrder, resyncPoCarpet } from "../actions";
 
 export const metadata: Metadata = { title: "Purchase Order" };
@@ -29,6 +30,7 @@ export default async function PurchaseOrderPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const profile = await requireProfile();
   const { id } = await params;
   // Safety net: keep this PO's carpet yardage in lockstep with the estimate's
   // live cuts before rendering (idempotent — writes only on real drift).
@@ -86,6 +88,17 @@ export default async function PurchaseOrderPage({
               </>
             ) : null}
             Created {formatDate(po.created_at)}
+            {po.supplier_id && (profile.role === "admin" || profile.role === "office") ? (
+              <>
+                {" · "}
+                <Link
+                  href={`/supplier-sites?vendor=${po.supplier_id}&purpose=order`}
+                  className="hover:underline"
+                >
+                  Their ordering site
+                </Link>
+              </>
+            ) : null}
             {po.job_id ? (
               <>
                 {" · "}

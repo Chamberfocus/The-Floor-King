@@ -18,6 +18,7 @@ import {
   Rows3,
   SlidersHorizontal,
   Megaphone,
+  KeyRound,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
@@ -73,6 +74,12 @@ const SECTIONS = [
     icon: DollarSign,
     title: "Default pricing & add-ons",
     desc: "Your rates by flooring type, plus every estimate add-on (tear-out, subfloor, baseboards, stairs…) — add custom ones and set prices. These are the add-ons the estimate builder offers.",
+  },
+  {
+    href: "/supplier-sites",
+    icon: KeyRound,
+    title: "Supplier sites",
+    desc: "Ordering websites and pay sites. The password is encrypted. Open copies it so you can paste it on their sign-in page.",
   },
   {
     href: "/settings/suppliers",
