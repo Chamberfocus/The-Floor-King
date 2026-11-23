@@ -255,7 +255,7 @@ export function parseDrawingLine(line: string): DrawingRoom | null {
       writtenSqft: null,
       floor: /carpet/i.test(raw) ? "carpet" : "",
       stairs: Number(stairsOnly[2]),
-      note: "",
+      note: leftoverNote(raw.replace(String(stairsOnly[2]), " ").replace(/stairs?|steps?/i, " ")),
     };
   }
   if (!pair || pair.index == null) {
@@ -293,16 +293,109 @@ export function parseDrawingLine(line: string): DrawingRoom | null {
     writtenSqft: written ? round2(Number(written[1])) : null,
     floor: floorOf(rest),
     stairs: stair ? Number(stair[1]) : null,
-    note: "",
+    note: leftoverNote(rest),
   };
 }
 
+export interface DrawingRead {
+  rooms: DrawingRoom[];
+  /** Lines the sheet marked as notes, not rooms. */
+  sheetNotes: string[];
+  /** Writing that was not copied. It is not on the estimate. */
+  unread: string[];
+}
+
+/** Rooms, sheet notes, and any line that was not copied. */
+export function readDrawingText(text: string): DrawingRead {
+  const rooms: DrawingRoom[] = [];
+  const sheetNotes: string[] = [];
+  const unread: string[] = [];
+  for (const line of text.replace(/\r\n?/g, "\n").split("\n")) {
+    const raw = line.replace(/\u00a0/g, " ").trim();
+    if (!raw || /^(total|grand total|page)\b/i.test(raw)) continue;
+    const noted = /^(?:notes?|n)\s*[:\-–—]\s*/i.test(raw);
+    const body = raw.replace(/^(?:notes?|n)\s*[:\-–—]\s*/i, "").trim();
+    const room = body ? parseDrawingLine(body) : null;
+    if (room) rooms.push(room);
+    else if (noted && body) sheetNotes.push(body);
+    else unread.push(raw);
+  }
+  return { rooms, sheetNotes, unread };
+}
+
 export function parseDrawing(text: string): DrawingRoom[] {
-  return text
-    .replace(/\r\n?/g, "\n")
-    .split("\n")
-    .map(parseDrawingLine)
-    .filter((r): r is DrawingRoom => !!r);
+  return readDrawingText(text).rooms;
+}
+
+/** Width × length does not match a square footage written on that room. */
+export function sqftConflict(room: DrawingRoom): string | null {
+  const width = feetOf(room.widthFt, room.widthIn);
+  const length = feetOf(room.lengthFt, room.lengthIn);
+  if (!(width > 0) || !(length > 0) || !(room.writtenSqft && room.writtenSqft > 0)) return null;
+  const fromSides = round2(width * length);
+  if (Math.abs(fromSides - room.writtenSqft) <= 1) return null;
+  return `${room.name}: width × length is ${fromSides} sq ft and the drawing shows ${room.writtenSqft} sq ft. Fix one before this room is priced.`;
+}
+
+/** Square footage used for a price. Null when the sides and the written total disagree, or when the line is only a stair count. */
+export function priceableSqft(room: DrawingRoom): number | null {
+  if (sqftConflict(room)) return null;
+  const width = feetOf(room.widthFt, room.widthIn);
+  const length = feetOf(room.lengthFt, room.lengthIn);
+  if (width > 0 && length > 0) return round2(width * length);
+  if ((room.stairs ?? 0) > 0) return null;
+  if (room.writtenSqft && room.writtenSqft > 0) return round2(room.writtenSqft);
+  return null;
+}
+
+export function isStairCountOnly(room: DrawingRoom): boolean {
+  return (room.stairs ?? 0) > 0 && priceableSqft(room) == null && sqftConflict(room) == null && !(feetOf(room.widthFt, room.widthIn) > 0);
+}
+
+const FLOOR_LABEL: Record<Exclude<DrawingFloor, "">, string> = {
+  carpet: "carpet",
+  lvp: "LVP",
+  hardwood: "hardwood",
+  laminate: "laminate",
+  tile: "tile",
+  vinyl: "vinyl",
+};
+
+/** The words from the drawing that belong on the estimate. Carpet math is not included. */
+export function roomNoteForEstimate(room: DrawingRoom): string {
+  const bits = [room.note.trim()];
+  if (room.floor) {
+    const label = FLOOR_LABEL[room.floor];
+    if (label && !room.note.toLowerCase().includes(label.toLowerCase())) bits.push(`Drawing says ${label}.`);
+  }
+  if ((room.stairs ?? 0) > 0) {
+    bits.push(
+      `${room.stairs} stair${room.stairs === 1 ? "" : "s"}. Stair square footage is not included until it is measured.`,
+    );
+  }
+  return bits.filter(Boolean).join(" ");
+}
+
+/** Handwritten notes for the estimate. One line per room, then the sheet notes. */
+export function drawingNotesForEstimate(rooms: DrawingRoom[], sheetNotes: string[] = []): string {
+  const lines = [...sheetNotes.map((note) => note.trim()).filter(Boolean)];
+  for (const room of rooms) {
+    const note = roomNoteForEstimate(room);
+    if (note) lines.push(`${room.name}: ${note}`);
+  }
+  return lines.join("\n");
+}
+
+function leftoverNote(rest: string): string {
+  let text = ` ${rest} `;
+  text = text.replace(/\d+(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf)\b/gi, " ");
+  text = text.replace(/\d{1,3}\s*(?:stairs?|steps?)\b/gi, " ");
+  text = text.replace(
+    /\b(?:carpet\s+tile|modular\s+carpet|broadloom|hardwood|laminate|ceramic|porcelain|vinyl|carpet|lvp|lvt|spc|plank|wood|tile)\b/gi,
+    " ",
+  );
+  text = text.replace(/[=,;:–—\-]+/g, " ");
+  return text.replace(/\s+/g, " ").trim();
 }
 
 export function normalizeExtractedRoom(input: {
@@ -388,13 +481,19 @@ export function areaRowFromCheck(check: RoomCheck): {
   const widthIn = drawingInches(check.room.widthFt, check.room.widthIn);
   const lengthIn = drawingInches(check.room.lengthFt, check.room.lengthIn);
   const fromSides = sqftFromInches(widthIn, lengthIn);
-  const sqft = fromSides > 0 ? fromSides : check.measuredSqft > 0 ? check.measuredSqft : null;
+  const sqft = sqftConflict(check.room)
+    ? null
+    : fromSides > 0
+      ? fromSides
+      : check.measuredSqft > 0
+        ? check.measuredSqft
+        : null;
   return {
     name: check.room.name.trim(),
     length_in: lengthIn > 0 ? lengthIn : null,
     width_in: widthIn > 0 ? widthIn : null,
     sqft,
-    note: drawingRoomNote(check) || null,
+    note: roomNoteForEstimate(check.room) || null,
   };
 }
 

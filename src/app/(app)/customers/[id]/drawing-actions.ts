@@ -11,6 +11,7 @@ import {
   matchAreaId,
   normalizeExtractedRoom,
   reviewDrawing,
+  sqftConflict,
   type DrawingFloor,
   type DrawingRoom,
 } from "@/lib/drawing-takeoff";
@@ -121,6 +122,8 @@ export async function saveDrawingRooms(formData: FormData): Promise<DrawingSaveR
   if (!rooms.length) return { error: "Add a room name before saving." };
 
   const review = reviewDrawing(rooms);
+  const disputed = review.rooms.map((check) => sqftConflict(check.room)).find((conflict) => conflict);
+  if (disputed) return { error: disputed };
   const supabase = await createClient();
   const { data: existing, error: listError } = await supabase
     .from("customer_areas")

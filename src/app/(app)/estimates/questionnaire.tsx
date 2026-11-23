@@ -1,6 +1,13 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
+import { DrawingTakeoff } from "@/app/(app)/customers/[id]/drawing-review";
+import {
+  isStairCountOnly,
+  roomNoteForEstimate,
+  sqftConflict,
+  type DrawingRoom,
+} from "@/lib/drawing-takeoff";
 import { billedQtyToSqft, catalogRateToBillingUnit, isAreaUnit, lineDisplayUnit, lineSkipsAreaCartonMath, normalizeUnit, pickedProductUnit, unitIsSqyd, unitLabel } from "@/lib/units";
 import { lineColorFromCatalog } from "@/lib/catalog-identity";
 import { productLabel } from "@/lib/product-label";
@@ -274,6 +281,10 @@ interface AreaRow {
   override: string; // total sq ft from the area calculator (irregular rooms)
   differs: boolean; // this room needs different prep than the job default
   sections?: AreaSection[];
+  /** Words copied from the drawing. They go on the estimate with the room. */
+  note?: string;
+  /** Set when the drawing's own total does not match width × length. The room is not priced. */
+  hold?: string | null;
 }
 const feetIn = (ft: string, inch: string) => numv(ft) + numv(inch) / 12;
 const sectionSqft = (s: Pick<AreaSection, "lf" | "li" | "wf" | "wi">): number =>
@@ -642,10 +653,17 @@ function nextRoomName(rooms: { name: string }[], label: string): string {
 
 const newRow = (name = ""): AreaRow => ({
   id: `a${rid++}`, name, lf: "", li: "", wf: "", wi: "", override: "", differs: false, sections: [],
+  note: "", hold: null,
 });
 /** A saved customer area → an editable questionnaire row (prefill). */
 const savedToRow = (sa: CustomerArea): AreaRow => {
   const hasLW = !!(sa.length_in && sa.width_in);
+  const fromSides = hasLW ? r2((Number(sa.length_in) / 12) * (Number(sa.width_in) / 12)) : 0;
+  const savedSqft = Number(sa.sqft);
+  const hold =
+    hasLW && savedSqft > 0 && Math.abs(fromSides - savedSqft) > 1
+      ? `${sa.name}: width × length is ${fromSides} sq ft and the saved total is ${savedSqft} sq ft. Fix one before this room is priced.`
+      : null;
   return {
     id: `a${rid++}`,
     name: sa.name || "",
@@ -656,6 +674,8 @@ const savedToRow = (sa: CustomerArea): AreaRow => {
     override: !hasLW && sa.sqft ? String(sa.sqft) : "",
     differs: !!sa.differs,
     sections: [],
+    note: sa.note ?? "",
+    hold,
   };
 };
 
@@ -869,6 +889,7 @@ export function Questionnaire({
   const [cashCarry, setCashCarry] = useState<boolean>(
     (draft as { cashCarry?: boolean } | undefined)?.cashCarry ?? false,
   );
+  const [drawingSheetNotes, setDrawingSheetNotes] = useState<string[]>([]);
 
   const set = (id: string, a: Answer) => setAnswers((p) => ({ ...p, [id]: a }));
 
@@ -1153,6 +1174,7 @@ export function Questionnaire({
       const a = answers[q.id];
       if (a?.kind !== "areas") continue;
       for (const r of a.rooms) {
+        if (r.hold) continue;
         const sf = rowSqft(r);
         if (sf <= 0) continue;
         const usingCalc = numv(r.override) > 0;
@@ -3676,6 +3698,7 @@ export function Questionnaire({
   const answered = (qq: EstimateQuestion): boolean => {
     const a = answers[qq.id];
     if (qq.kind === "areas") {
+      if (a?.kind === "areas" && a.rooms.some((r) => r.hold)) return false;
       if (a?.kind === "areas" && a.rooms.some((r) => rowSqft(r) > 0)) return true;
       if (areaPageCollectsLandings(flooringCtx) && landingTakeoffFromAnswers(answers).sqft > 0) return true;
       return (
@@ -3720,6 +3743,11 @@ export function Questionnaire({
         const aa = answers[qq.id];
         if (aa?.kind === "areas") areaRooms.push(...aa.rooms);
       }
+      const held = areaRooms.find((room) => room.hold);
+      if (held?.hold) {
+        toast.error(held.hold);
+        return;
+      }
       const usable = areaRooms.filter((r) => rowSqft(r) > 0 || r.name.trim());
       if (usable.length) {
         await replaceCustomerAreas(
@@ -3732,14 +3760,24 @@ export function Questionnaire({
               width_in: usingCalc ? null : Math.round(feetIn(r.wf, r.wi) * 12) || null,
               sqft: rowSqft(r) || null,
               differs: r.differs,
+              note: r.note?.trim() || null,
             };
           }),
         );
       }
       // Active flags ride inside salespersonReview.warnings → reviewToJobNotes.
       // Do not concatenate a second "Flags to confirm" block.
+      const roomNotes = areaRooms
+        .map((room) => {
+          const note = room.note?.trim();
+          if (!note) return "";
+          return `${room.name || "Room"}: ${note}`;
+        })
+        .filter(Boolean);
       const takeoffText = reviewToJobNotes(salespersonReview);
-      const jobDesc = [notes.trim(), takeoffText].filter(Boolean).join("\n\n");
+      const jobDesc = [notes.trim(), [...roomNotes, ...drawingSheetNotes].filter(Boolean).join("\n"), takeoffText]
+        .filter(Boolean)
+        .join("\n\n");
       const res = await createSmartEstimate({
         customerId,
         title: `Flooring for ${customerName}`,
@@ -3968,6 +4006,8 @@ export function Questionnaire({
               flooringCtx={flooringCtx}
               questions={questions}
               onAnswer={(id, a) => set(id, a)}
+              customerId={customerId}
+              onDrawingNotes={setDrawingSheetNotes}
               hsTransitionTrims={hsTransitionTrims}
               hsBaseTrims={hsBaseTrims}
               doorwayTransitionsAsked={doorwayTransitionsAsked}
@@ -4355,6 +4395,8 @@ function QuestionBody({
   doorwayTransitionsAsked = false,
   questions = [],
   onAnswer,
+  customerId,
+  onDrawingNotes,
 }: {
   q: EstimateQuestion;
   answer: Answer | undefined;
@@ -4389,6 +4431,9 @@ function QuestionBody({
   questions?: EstimateQuestion[];
   /** Write another question's answer. Stairs and landings on the area page use this. */
   onAnswer?: (questionId: string, answer: Answer) => void;
+  customerId?: string;
+  /** Sheet notes that are not tied to one room. */
+  onDrawingNotes?: (notes: string[]) => void;
 }) {
   // How many stairs? — seeded from hs_plank_stairs when the salesperson already
   // counted steps. Declared unconditionally so hook order is stable across kinds.
@@ -4424,8 +4469,55 @@ function QuestionBody({
     const rooms = answer.rooms;
     const upd = (rs: AreaRow[]) => set({ kind: "areas", rooms: rs });
     const patch = (id: string, p: Partial<AreaRow>) =>
-      upd(rooms.map((x) => (x.id === id ? { ...x, ...p } : x)));
-    const total = rooms.reduce((t, r) => t + rowSqft(r), 0);
+      upd(
+        rooms.map((x) => {
+          if (x.id !== id) return x;
+          const next = { ...x, ...p };
+          if ("wf" in p || "wi" in p || "lf" in p || "li" in p || "override" in p) next.hold = null;
+          return next;
+        }),
+      );
+    const useDrawing = (payload: { rooms: DrawingRoom[]; sheetNotes: string[] }) => {
+      const areas: AreaRow[] = [];
+      const stairCounts: number[] = [];
+      for (const room of payload.rooms) {
+        if (isStairCountOnly(room)) {
+          if (room.stairs) stairCounts.push(room.stairs);
+          continue;
+        }
+        const hasSides = room.widthFt > 0 || room.widthIn > 0 || room.lengthFt > 0 || room.lengthIn > 0;
+        areas.push({
+          id: `a${rid++}`,
+          name: room.name,
+          wf: room.widthFt ? String(room.widthFt) : "",
+          wi: room.widthIn ? String(room.widthIn) : "",
+          lf: room.lengthFt ? String(room.lengthFt) : "",
+          li: room.lengthIn ? String(room.lengthIn) : "",
+          override: !hasSides && room.writtenSqft ? String(room.writtenSqft) : "",
+          differs: false,
+          sections: [],
+          note: roomNoteForEstimate(room),
+          hold: sqftConflict(room),
+        });
+      }
+      if (areas.length) upd(areas);
+      onDrawingNotes?.(payload.sheetNotes);
+      if (stairCounts.length === 1) {
+        const count = String(stairCounts[0]);
+        for (const sq of questions) {
+          if (sq.kind === "stairs") onAnswer?.(sq.id, { kind: "stairs", groups: [{ ...newStairGroup(), count }] });
+          if (sq.kind === "hs_stairs") {
+            const prev = jobAnswers[sq.id];
+            const base =
+              prev?.kind === "hs_stairs"
+                ? prev
+                : { kind: "hs_stairs" as const, steps: "", treadRiser: true, product: null, laborRate: "" };
+            onAnswer?.(sq.id, { ...base, steps: count });
+          }
+        }
+      }
+    };
+    const total = rooms.reduce((t, r) => t + (r.hold ? 0 : rowSqft(r)), 0);
     const showLandings = areaPageCollectsLandings(flooringCtx);
     const showStairSqft = areaPageCollectsStairAllowance(flooringCtx);
     const landingQuestion = showLandings
@@ -4465,8 +4557,11 @@ function QuestionBody({
     return (
       <div className="space-y-3">
         <p className="text-xs text-muted-foreground">
-          Width, then length, in feet and inches. Totals follow the square feet / square yards switch — flip it anytime and the measurement stays.
+          Width, then length, in feet and inches. Square footage is width times length. A total written on the drawing is priced only when it matches. Totals follow the square feet / square yards switch — flip it anytime and the measurement stays.
         </p>
+        {customerId ? (
+          <DrawingTakeoff customerId={customerId} onUse={useDrawing} />
+        ) : null}
         {rooms.map((r, i) => {
           const usingCalc = numv(r.override) > 0;
           const sf = rowSqft(r);
@@ -4493,6 +4588,17 @@ function QuestionBody({
                 ) : null}
               </div>
 
+              {r.hold ? (
+                <p className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-sm text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+                  {r.hold}
+                </p>
+              ) : null}
+              <Input
+                value={r.note ?? ""}
+                onChange={(e) => patch(r.id, { note: e.target.value })}
+                placeholder="Note from the drawing"
+                className="h-10 text-sm"
+              />
               <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
                 <FtInField label="Width" ft={r.wf} inch={r.wi} disabled={usingCalc}
                   onFt={(v) => patch(r.id, { wf: v })} onIn={(v) => patch(r.id, { wi: v })} />

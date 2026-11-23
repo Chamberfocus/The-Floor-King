@@ -5,10 +5,14 @@ import {
   areaRowFromCheck,
   canTakeoffDrawing,
   carpetPlan,
+  drawingNotesForEstimate,
   drawingRoomNote,
   matchAreaId,
   parseDrawing,
+  priceableSqft,
+  readDrawingText,
   reviewDrawing,
+  sqftConflict,
 } from "@/lib/drawing-takeoff";
 
 const SHEET = `Living room 12'6" x 18'4" carpet
@@ -70,8 +74,8 @@ describe("drawing takeoff", () => {
     const review = reviewDrawing(parseDrawing("Living room 12'6\" x 18'4\" carpet\nBedroom 8 x 10 carpet"));
     const living = areaRowFromCheck(review.rooms[0]);
     expect(living).toMatchObject({ width_in: 150, length_in: 220, sqft: 229.17 });
-    expect(living.note).toContain("12 ft goods");
-    expect(living.note).toContain("15 ft");
+    expect(living.note).toContain("Drawing says carpet");
+    expect(living.note).not.toContain("12 ft goods");
     const used = new Set<string>();
     const first = matchAreaId("Bedroom", [{ id: "a", name: "bedroom" }, { id: "b", name: "Hall" }], used);
     expect(first).toBe("a");
@@ -88,5 +92,29 @@ describe("drawing takeoff", () => {
     expect(sql).toContain("sales_manager");
     expect(sql).not.toMatch(/crew/);
     expect(sql.toLowerCase()).not.toContain("posting_enabled");
+  });
+
+  it("keeps the written note and does not price a square footage that disagrees", () => {
+    const read = readDrawingText(
+      `Living room 12'6" x 18'4" carpet, closet off the hall\nKitchen 12 x 14 LVP = 200 sq ft move the fridge\nNote: no seam in the hall\nStairs 13 customer has a cat\nTotal 500 sq ft\nsee attached`,
+    );
+    expect(read.rooms[0].note).toBe("closet off the hall");
+    expect(read.rooms[1].note).toBe("move the fridge");
+    expect(read.sheetNotes).toEqual(["no seam in the hall"]);
+    expect(read.unread).toEqual(["see attached"]);
+    expect(priceableSqft(read.rooms[0])).toBe(229.17);
+    expect(priceableSqft(read.rooms[1])).toBeNull();
+    expect(sqftConflict(read.rooms[1])).toContain("168");
+    expect(sqftConflict(read.rooms[1])).toContain("200");
+    expect(priceableSqft(read.rooms[2])).toBeNull();
+    const notes = drawingNotesForEstimate(read.rooms, read.sheetNotes);
+    expect(notes).toContain("Living room: closet off the hall");
+    expect(notes).toContain("no seam in the hall");
+    expect(notes).toContain("13 stairs");
+    expect(notes).not.toContain("500");
+    expect(notes).not.toContain("12 ft goods");
+    const review = reviewDrawing(read.rooms);
+    expect(review.totalSqft).toBe(397.17);
+    expect(areaRowFromCheck(review.rooms[1]).sqft).toBeNull();
   });
 });

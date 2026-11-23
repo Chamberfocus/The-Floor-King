@@ -10,8 +10,9 @@ import { Label } from "@/components/ui/label";
 import { MeasureAreaReadout } from "@/components/measure-area-unit";
 import { pdfToText, spreadsheetToText } from "@/lib/pdf-client";
 import {
-  parseDrawing,
+  readDrawingText,
   reviewDrawing,
+  sqftConflict,
   type DrawingFloor,
   type DrawingRoom,
 } from "@/lib/drawing-takeoff";
@@ -58,27 +59,45 @@ function dimNumber(raw: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-export function DrawingTakeoff({ customerId }: { customerId: string }) {
+export function DrawingTakeoff({
+  customerId,
+  onUse,
+}: {
+  customerId: string;
+  /** Checked rooms go onto the estimate the salesperson is building. */
+  onUse?: (payload: { rooms: DrawingRoom[]; sheetNotes: string[] }) => void;
+}) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [rooms, setRooms] = useState<DraftRoom[] | null>(null);
+  const [sheetNotes, setSheetNotes] = useState<string[]>([]);
+  const [unread, setUnread] = useState<string[]>([]);
   const [reading, startReading] = useTransition();
   const [saving, startSaving] = useTransition();
 
   const review = useMemo(() => (rooms ? reviewDrawing(rooms) : null), [rooms]);
+  const disputed = review?.rooms.some((check) => sqftConflict(check.room)) ?? false;
+  const blocked = disputed || unread.length > 0;
 
-  const applyRooms = (next: DrawingRoom[], source?: string) => {
-    if (!next.length) {
+  const applyRead = (next: DrawingRoom[], notes: string[], missed: string[], source?: string) => {
+    if (!next.length && !notes.length) {
       toast.error("No rooms in that drawing. Include each room with its width and length.");
       return;
     }
     if (source != null) setText(source);
+    setSheetNotes(notes);
+    setUnread(missed);
     setRooms(draftRooms(next));
   };
 
-  const readText = () => applyRooms(parseDrawing(text));
+  const applyRooms = (next: DrawingRoom[], source?: string) => applyRead(next, [], [], source);
+
+  const readText = () => {
+    const read = readDrawingText(text);
+    applyRead(read.rooms, read.sheetNotes, read.unread);
+  };
 
   const readFile = (picked: File | null) => {
     if (!picked) return;
@@ -90,9 +109,9 @@ export function DrawingTakeoff({ customerId }: { customerId: string }) {
         if (!image && (name.endsWith(".pdf") || picked.type === "application/pdf")) {
           try {
             const body = (await pdfToText(picked)).text;
-            const parsed = parseDrawing(body);
-            if (parsed.length) {
-              applyRooms(parsed, body);
+            const read = readDrawingText(body);
+            if (read.rooms.length || read.sheetNotes.length) {
+              applyRead(read.rooms, read.sheetNotes, read.unread, body);
               return;
             }
           } catch {
@@ -100,11 +119,13 @@ export function DrawingTakeoff({ customerId }: { customerId: string }) {
           }
         } else if (!image && (name.endsWith(".csv") || name.endsWith(".xlsx") || name.endsWith(".xls"))) {
           const body = await spreadsheetToText(picked);
-          applyRooms(parseDrawing(body), body);
+          const read = readDrawingText(body);
+          applyRead(read.rooms, read.sheetNotes, read.unread, body);
           return;
         } else if (!image && (picked.type.startsWith("text/") || name.endsWith(".txt"))) {
           const body = await picked.text();
-          applyRooms(parseDrawing(body), body);
+          const read = readDrawingText(body);
+          applyRead(read.rooms, read.sheetNotes, read.unread, body);
           return;
         }
         const fd = new FormData();
@@ -155,6 +176,8 @@ export function DrawingTakeoff({ customerId }: { customerId: string }) {
       toast.success(`Saved ${res.saved ?? rooms.length} rooms on this customer.`);
       if (res.fileError) toast.error(res.fileError);
       setRooms(null);
+      setSheetNotes([]);
+      setUnread([]);
       setText("");
       setFile(null);
       if (fileRef.current) fileRef.current.value = "";
@@ -226,6 +249,33 @@ export function DrawingTakeoff({ customerId }: { customerId: string }) {
               </p>
             ) : null}
           </div>
+
+          {unread.length ? (
+            <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+              <p>These lines were not copied. They are not on the estimate until you keep them as notes or rewrite them as rooms.</p>
+              <ul className="list-disc pl-4">
+                {unread.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setSheetNotes((current) => [...current, ...unread]);
+                  setUnread([]);
+                }}
+              >
+                Keep these as notes
+              </Button>
+            </div>
+          ) : null}
+          {sheetNotes.length ? (
+            <p className="text-sm">
+              Notes from the drawing: {sheetNotes.join(" · ")}
+            </p>
+          ) : null}
 
           {review.checks.length ? (
             <ul className="space-y-1 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
@@ -313,6 +363,28 @@ export function DrawingTakeoff({ customerId }: { customerId: string }) {
                   onChange={(e) => updateRoom(room.key, { note: e.target.value })}
                   placeholder="Note from the drawing"
                 />
+                {check && sqftConflict(room) ? (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => updateRoom(room.key, { writtenSqft: null })}
+                    >
+                      Price width × length ({check.measuredSqft} sq ft)
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        updateRoom(room.key, { widthFt: 0, widthIn: 0, lengthFt: 0, lengthIn: 0 })
+                      }
+                    >
+                      Price the {room.writtenSqft} sq ft written on the drawing
+                    </Button>
+                  </div>
+                ) : null}
                 {check?.carpet12 && check.carpet15 ? (
                   <div className="space-y-1 text-sm">
                     <CarpetLine plan={check.carpet12} suggested={check.suggestedRoll === 12} />
@@ -327,15 +399,30 @@ export function DrawingTakeoff({ customerId }: { customerId: string }) {
             <Button type="button" variant="outline" size="sm" onClick={() => setRooms((current) => [...(current ?? []), blankRoom()])}>
               <Plus className="size-3.5" /> Add a room
             </Button>
-            <Button type="button" size="sm" onClick={save} disabled={saving || rooms.length === 0}>
+            <Button type="button" size="sm" onClick={save} disabled={saving || rooms.length === 0 || blocked}>
               {saving ? "Saving…" : "Save checked rooms"}
             </Button>
+            {onUse ? (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => {
+                  onUse({ rooms, sheetNotes });
+                  toast.success("Rooms and notes are on this estimate. The price uses width × length.");
+                }}
+                disabled={blocked || rooms.length === 0}
+              >
+                Use these rooms on the estimate
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="ghost"
               size="sm"
               onClick={() => {
                 setRooms(null);
+                setSheetNotes([]);
+                setUnread([]);
                 setFile(null);
               }}
             >
