@@ -32,6 +32,9 @@ import {
   emailInvoice,
 } from "../actions";
 import { PaymentIdempotencyField } from "../payment-idempotency-field";
+import { AchPncForm } from "../ach-pnc-form";
+import { cancelAchPull, settleAchPull } from "../ach-actions";
+import { listAchPulls } from "@/lib/data/ach-pulls";
 import { applyCreditToInvoice, issueGoodwillCredit, writeOffInvoiceBalance } from "@/app/(app)/credits/actions";
 import { getCustomerCreditSummary, memoAvailable } from "@/lib/data/credits";
 
@@ -45,10 +48,10 @@ export default async function InvoicePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ print?: string; preview?: string; payment_error?: string; payment_notice?: string; credit_error?: string; notify?: string; notify_detail?: string }>;
+  searchParams: Promise<{ print?: string; preview?: string; payment_error?: string; payment_notice?: string; credit_error?: string; notify?: string; notify_detail?: string; ach_error?: string; ach_notice?: string }>;
 }) {
   const { id } = await params;
-  const { print, preview: previewParam, payment_error: paymentError, payment_notice: paymentNotice, credit_error: creditError, notify, notify_detail: notifyDetail } = await searchParams;
+  const { print, preview: previewParam, payment_error: paymentError, payment_notice: paymentNotice, credit_error: creditError, notify, notify_detail: notifyDetail, ach_error: achError, ach_notice: achNotice } = await searchParams;
   const preview = previewParam === "1";
   const invoice = await getInvoice(id);
   if (!invoice) notFound();
@@ -82,6 +85,9 @@ export default async function InvoicePage({
   const availableCredits = (creditSummary?.memos ?? []).filter(
     (m) => m.status === "issued" && memoAvailable(m) > 0.005,
   );
+  const canPrepareAch = ["admin", "office", "sales_manager", "salesman"].includes(profile.role);
+  const canSettleAch = profile.role === "admin" || profile.role === "office";
+  const achPulls = !preview && canPrepareAch ? await listAchPulls(invoice.id) : [];
   // Owner-only profit view (fuel + car + commission), same structure as the
   // estimate. Never computed for non-owners; never shown on the printed invoice.
 
@@ -518,6 +524,75 @@ export default async function InvoicePage({
           </form>
         </CardContent>
       </Card>
+      ) : null}
+
+      {!preview && canPrepareAch && invoice.status !== "void" ? (
+        <Card className="mt-4 print:hidden">
+          <CardHeader>
+            <CardTitle className="text-base">ACH through PNC</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {achError ? (
+              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {achError}
+              </p>
+            ) : null}
+            {achNotice ? (
+              <p className="rounded-md border px-3 py-2 text-sm">{achNotice}</p>
+            ) : null}
+            <p className="text-sm text-muted-foreground">
+              Download a file and upload it in PNC PINACLE. The balance stays until the deposit shows at the bank and someone here marks it settled.
+            </p>
+            {achPulls.filter((pull) => pull.status === "ready").map((pull) => (
+              <div key={pull.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
+                <div>
+                  <div className="font-medium">{formatMoney(Number(pull.amount))} waiting on PNC</div>
+                  <div className="text-xs text-muted-foreground">
+                    {pull.account_holder} · {pull.account_type} · ending {pull.account_last4}
+                  </div>
+                </div>
+                {canSettleAch ? (
+                  <div className="flex gap-2">
+                    <form action={settleAchPull}>
+                      <input type="hidden" name="invoice_id" value={invoice.id} />
+                      <input type="hidden" name="pull_id" value={pull.id} />
+                      <ConfirmButton
+                        size="sm"
+                        title="Mark this ACH settled?"
+                        description="Records the payment on this invoice for the amount in the PNC file. Do this when the deposit is in the bank."
+                        confirmLabel="Record the deposit"
+                      >
+                        PNC settled this
+                      </ConfirmButton>
+                    </form>
+                    <form action={cancelAchPull}>
+                      <input type="hidden" name="invoice_id" value={invoice.id} />
+                      <input type="hidden" name="pull_id" value={pull.id} />
+                      <ConfirmButton
+                        size="sm"
+                        variant="outline"
+                        title="Cancel this ACH file?"
+                        description="The invoice stays unpaid. Do not upload that file to PNC."
+                        confirmLabel="Cancel the file"
+                      >
+                        Cancel the file
+                      </ConfirmButton>
+                    </form>
+                  </div>
+                ) : (
+                  <span className="text-xs text-muted-foreground">Office marks it settled after PNC shows the deposit.</span>
+                )}
+              </div>
+            ))}
+            {effective.amountDue > 0.005 ? (
+              <AchPncForm
+                invoiceId={invoice.id}
+                amount={effective.amountDue}
+                holder={customer?.full_name ?? ""}
+              />
+            ) : null}
+          </CardContent>
+        </Card>
       ) : null}
 
       {!preview ? (
