@@ -94,9 +94,35 @@ export function CustomerTabs({
       const h = window.location.hash.replace("#", "");
       if (h && tabs.includes(h as CustomerTab)) setActive(h as CustomerTab);
     };
+    // Next's link handler uses pushState, which does not fire hashchange.
+    // Capture the click first so a job-progress link to #activity or #jobs
+    // actually opens that section.
+    const onClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const anchor = target.closest("a");
+      if (!anchor) return;
+      const raw = anchor.getAttribute("href");
+      if (!raw || raw.startsWith("mailto:") || raw.startsWith("tel:")) return;
+      let url: URL;
+      try {
+        url = new URL(raw, window.location.href);
+      } catch {
+        return;
+      }
+      if (url.pathname !== window.location.pathname) return;
+      const hash = url.hash.replace("#", "");
+      if (hash && tabs.includes(hash as CustomerTab)) setActive(hash as CustomerTab);
+    };
     applyHash();
     window.addEventListener("hashchange", applyHash);
-    return () => window.removeEventListener("hashchange", applyHash);
+    window.addEventListener("popstate", applyHash);
+    document.addEventListener("click", onClick, true);
+    return () => {
+      window.removeEventListener("hashchange", applyHash);
+      window.removeEventListener("popstate", applyHash);
+      document.removeEventListener("click", onClick, true);
+    };
   }, [tabs]);
 
   // Keep the chosen section in view inside the single scrolling row.

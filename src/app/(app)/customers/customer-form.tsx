@@ -17,8 +17,8 @@ import {
 } from "@/lib/types";
 import { createCustomer, updateCustomer, type CustomerFormState } from "./actions";
 import { SegmentedField } from "@/components/ui/segmented-field";
-import { SearchPicker } from "@/components/ui/search-picker";
 import { SourceFields } from "./source-fields";
+import { LeadAssignFields } from "./lead-assign-fields";
 
 export interface CustomerPrefill {
   full_name?: string;
@@ -115,6 +115,8 @@ export function CustomerForm({
           />
         </div>
 
+        {!isEdit ? <LeadAssignFields assignees={assignees} /> : null}
+
         <AddressFields
           defaults={{
             street: customer?.street ?? seed?.street,
@@ -134,21 +136,6 @@ export function CustomerForm({
             referred_by_customer_id: customer?.referred_by_customer_id,
           }}
         />
-
-        {!isEdit && assignees.length ? (
-          <div className="space-y-2 sm:col-span-2">
-            <Label>Assign to</Label>
-            <SearchPicker
-              name="assigned_to"
-              allowClear
-              placeholder="Choose a salesperson"
-              options={assignees.map((m) => ({ value: m.id, label: m.name }))}
-            />
-            <p className="text-xs text-muted-foreground">
-              They accept the lead before they write the estimate.
-            </p>
-          </div>
-        ) : null}
 
         {!isEdit ? (
           <div className="space-y-2">

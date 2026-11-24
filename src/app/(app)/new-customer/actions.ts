@@ -9,6 +9,14 @@ import {
   type DuplicateConfidence,
   type DuplicateReason,
 } from "@/lib/customer-duplicate";
+import {
+  assignedLeadOwner,
+  canAssignLead,
+  leadStageForVisit,
+  leadVisitAddress,
+  parseLeadEstimateVisit,
+} from "@/lib/lead-intake";
+import { saveLeadEstimateVisit } from "@/lib/data/lead-visit";
 
 export type SafeDuplicateMatch = {
   id: string;
@@ -248,8 +256,18 @@ export async function createCustomerSafe(
   const source_detail_id = nullable(formData.get("source_detail_id"));
   const source_detail_text = nullable(formData.get("source_detail_text"));
   const referred_by_customer_id = nullable(formData.get("referred_by_customer_id"));
+  const visitParsed = parseLeadEstimateVisit({
+    date: str(formData.get("estimate_date")),
+    time: str(formData.get("estimate_time")),
+    end: str(formData.get("estimate_end")),
+  });
+  if (visitParsed && "error" in visitParsed) return { error: visitParsed.error };
+  const visit = visitParsed && "date" in visitParsed ? visitParsed : null;
   const stageInput = str(formData.get("stage")) || "new";
-  const stage = ALLOWED_STAGES.has(stageInput) ? stageInput : "new";
+  const stage = leadStageForVisit(
+    ALLOWED_STAGES.has(stageInput) ? stageInput : "new",
+    !!visit,
+  );
   const force = str(formData.get("force_create")) === "1";
   const overrideReason = str(formData.get("duplicate_override_reason"));
 
@@ -304,6 +322,23 @@ export async function createCustomerSafe(
       ? source.key
       : null;
 
+  const requestedAssignee = nullable(formData.get("assigned_to"));
+  let requestedRole: string | null = null;
+  if (requestedAssignee && requestedAssignee !== profile.id && canAssignLead(profile.role)) {
+    const { data: assignee } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", requestedAssignee)
+      .maybeSingle();
+    requestedRole = typeof assignee?.role === "string" ? assignee.role : null;
+  }
+  const { assignedTo, acceptance } = assignedLeadOwner({
+    actorId: profile.id,
+    actorRole: profile.role,
+    requestedId: requestedAssignee,
+    requestedRole,
+  });
+
   const { data, error } = await supabase
     .from("customers")
     .insert({
@@ -323,7 +358,9 @@ export async function createCustomerSafe(
       source_detail_text,
       referred_by_customer_id,
       created_by: profile.id,
-      assigned_to: profile.id,
+      assigned_to: assignedTo,
+      ...(assignedTo !== profile.id ? { workflow_owner_id: assignedTo } : {}),
+      ...(acceptance ?? {}),
     })
     .select("id")
     .single();
@@ -337,7 +374,10 @@ export async function createCustomerSafe(
     };
   }
 
-  if (profile.role === "salesman" || profile.role === "sales_manager") {
+  if (
+    (profile.role === "salesman" || profile.role === "sales_manager") &&
+    assignedTo === profile.id
+  ) {
     await supabase
       .from("customers")
       .update({
@@ -346,6 +386,21 @@ export async function createCustomerSafe(
         lead_assigned_by: profile.id,
       })
       .eq("id", data.id);
+  }
+
+  if (visit) {
+    const visitError = await saveLeadEstimateVisit(supabase, {
+      customerId: String(data.id),
+      salespersonId: assignedTo,
+      createdBy: profile.id,
+      visit,
+      address: leadVisitAddress([street, city, state, zip]),
+    });
+    if (visitError) {
+      redirect(
+        `/customers/${data.id}?new=1&schedule_error=${encodeURIComponent(visitError)}`,
+      );
+    }
   }
 
   redirect(`/customers/${data.id}?new=1`);

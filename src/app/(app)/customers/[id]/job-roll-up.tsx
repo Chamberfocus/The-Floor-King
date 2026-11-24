@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
 import { ArrowRight, Check, MapPin, Wrench, FileText, Trash2 } from "lucide-react";
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { deleteJob } from "@/app/(app)/jobs/actions";
@@ -89,7 +88,7 @@ export function JobRollUp({
             ) : null}
           </span>
         </summary>
-        <div className="space-y-3 border-t p-3">
+        <div className="relative z-10 space-y-3 border-t p-3">
         <JobChecklist
           steps={only.steps}
           stageName={(only.jobId && jobStageNames?.[only.jobId]) || stageName}
@@ -100,12 +99,12 @@ export function JobRollUp({
           override={canOverride ? { customerId, jobId: only.jobId } : undefined}
         />
         {only.jobId ? (
-          <Link
+          <a
             href={`/jobs/${only.jobId}`}
             className={cn(buttonVariants({ variant: "outline", size: "sm" }), "w-full min-h-11")}
           >
             <Wrench className="size-3.5" /> Open the work order
-          </Link>
+          </a>
         ) : null}
         </div>
       </details>
@@ -149,9 +148,9 @@ export function JobRollUp({
                     <FileText className="size-4 shrink-0 text-blue-600 dark:text-blue-400" />
                   )}
                   {j.jobId ? (
-                    <Link href={`/jobs/${j.jobId}`} className="min-w-0 break-words text-sm font-semibold hover:underline">
+                    <a href={`/jobs/${j.jobId}`} className="min-w-0 break-words text-sm font-semibold hover:underline">
                       {j.title}
-                    </Link>
+                    </a>
                   ) : (
                     <span className="min-w-0 break-words text-sm font-semibold">{j.title}</span>
                   )}
@@ -213,13 +212,13 @@ export function JobRollUp({
                     </form>
                   ) : null}
                   {href ? (
-                    <Link
+                    <a
                       href={href}
                       className={cn(buttonVariants({ size: "sm", variant: "outline" }), "min-h-11")}
                     >
                       {j.jobId ? "Open the job" : (j.current?.linkLabel ?? "Open")}{" "}
                       <ArrowRight className="size-3.5" />
-                    </Link>
+                    </a>
                   ) : null}
                 </span>
               </div>
@@ -231,7 +230,7 @@ export function JobRollUp({
                   <span className="group-open/steps:hidden">Show the steps</span>
                   <span className="hidden group-open/steps:inline">Hide the steps</span>
                 </summary>
-                <div className="mt-2">
+                <div className="relative z-10 mt-2">
                   <JobChecklist
                     steps={j.steps}
                     actionSlots={actionSlots}

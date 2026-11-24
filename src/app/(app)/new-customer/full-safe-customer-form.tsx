@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { SearchPicker } from "@/components/ui/search-picker";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { AddressFields } from "../customers/address-fields";
+import { LeadAssignFields } from "../customers/lead-assign-fields";
 import {
   createCustomerSafe,
   loadSafeCustomerOptions,
@@ -28,7 +29,11 @@ const STAGES = [
   ["lost", "Lost"],
 ] as const;
 
-export function FullSafeCustomerForm() {
+export function FullSafeCustomerForm({
+  assignees = [],
+}: {
+  assignees?: { id: string; name: string }[];
+}) {
   const [state, formAction, pending] = useActionState(createCustomerSafe, initialState);
   const [sources, setSources] = useState<SafeLeadSource[]>([]);
   const [referrers, setReferrers] = useState<{ id: string; full_name: string }[]>([]);
@@ -91,6 +96,8 @@ export function FullSafeCustomerForm() {
           <Label htmlFor="company">Company (optional)</Label>
           <Input id="company" name="company" placeholder="For commercial / builder accounts" />
         </div>
+
+        <LeadAssignFields assignees={assignees} />
 
         <AddressFields />
 

@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { listHandoffMembers } from "@/lib/data/workflow";
 import { listLeadSources } from "@/lib/data/lead-sources";
-import { seesEveryLead } from "@/lib/lead-acceptance";
+import { canAssignLead, canOwnSalesLead } from "@/lib/lead-intake";
 import { NewCustomerForm } from "../new-customer-form";
 
 export const metadata: Metadata = { title: "Add customer" };
@@ -13,9 +13,9 @@ export const metadata: Metadata = { title: "Add customer" };
 export default async function NewCustomerPage() {
   const profile = await requireProfile();
   const sources = await listLeadSources({ activeOnly: true });
-  const assignees = seesEveryLead(profile.role)
+  const assignees = canAssignLead(profile.role)
     ? (await listHandoffMembers())
-        .filter((m) => m.role === "salesman" || m.role === "sales_manager")
+        .filter((m) => canOwnSalesLead(m.role))
         .map((m) => ({ id: m.id, name: m.name }))
     : [];
   return (
@@ -28,7 +28,7 @@ export default async function NewCustomerPage() {
       </Link>
       <PageHeader
         title="Add customer"
-        description="Paste a Facebook or website lead, or type the customer in. A name and a source are required."
+        description="Paste a Facebook or website lead, or type the customer in. A name and a source are required. Assign the salesperson and book the estimate visit on this form."
       />
       <NewCustomerForm sources={sources} assignees={assignees} />
     </div>

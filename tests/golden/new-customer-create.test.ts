@@ -436,4 +436,80 @@ describe("POST /customers/new createCustomer", () => {
     });
     expect(harness.store.tables.activities?.[0]?.body).toMatch(/Sam Seller/);
   });
+
+  it("assigns the owner as the salesperson without waiting on lead acceptance", async () => {
+    harness.store.tables.profiles = [
+      {
+        id: "owner-1",
+        full_name: "Owner",
+        email: "owner@floorking.test",
+        phone: null,
+        role: "admin",
+      },
+    ];
+    const result = await submit({
+      full_name: "Owner Lead",
+      source_id: SOURCE,
+      assigned_to: "owner-1",
+    });
+    expect(result.redirect).toBe("/customers/cust-1?new=1");
+    expect(harness.store.tables.customers[0]).toMatchObject({
+      assigned_to: "owner-1",
+      workflow_owner_id: "owner-1",
+    });
+    expect(harness.store.tables.customers[0]?.lead_acceptance).toBeUndefined();
+    expect(harness.store.tables.appointments ?? []).toHaveLength(0);
+  });
+
+  it("books the estimate visit with the lead and moves the stage", async () => {
+    harness.store.tables.profiles = [
+      {
+        id: "rep-1",
+        full_name: "Sam Seller",
+        email: "sam@floorking.test",
+        phone: null,
+        role: "salesman",
+      },
+    ];
+    const result = await submit({
+      full_name: "Visit Person",
+      source_id: SOURCE,
+      street: "1 Main",
+      city: "Cleveland",
+      state: "OH",
+      zip: "44114",
+      assigned_to: "rep-1",
+      estimate_date: "2026-12-02",
+      estimate_time: "10:00",
+      estimate_end: "12:00",
+    });
+    expect(result.redirect).toBe("/customers/cust-1?new=1");
+    expect(harness.store.tables.customers[0]).toMatchObject({
+      stage: "estimate_scheduled",
+      assigned_to: "rep-1",
+    });
+    expect(harness.store.tables.appointments?.[0]).toMatchObject({
+      customer_id: "cust-1",
+      salesperson_id: "rep-1",
+      kind: "estimate",
+      starts_at: "2026-12-02T10:00:00+00",
+      ends_at: "2026-12-02T12:00:00+00",
+      status: "scheduled",
+      address: "1 Main, Cleveland, OH, 44114",
+    });
+  });
+
+  it("refuses a backwards estimate window and does not create the customer", async () => {
+    const result = await submit({
+      full_name: "Bad Window",
+      source_id: SOURCE,
+      estimate_date: "2026-12-02",
+      estimate_time: "15:00",
+      estimate_end: "09:00",
+    });
+    expect(result.state).toEqual({
+      error: "The estimate window has to end after it starts.",
+    });
+    expect(harness.store.tables.customers).toHaveLength(0);
+  });
 });

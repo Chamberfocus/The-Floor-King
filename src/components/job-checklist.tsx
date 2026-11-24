@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
 import { Check, Circle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -103,15 +102,28 @@ export function JobChecklist({
               </span>
 
               <span className="min-w-0 flex-1">
-                <span
-                  className={cn(
-                    "block text-sm",
-                    isDone && "text-muted-foreground",
-                    isOpen && "font-medium",
-                  )}
-                >
-                  {s.title}
-                </span>
+                {s.href ? (
+                  <a
+                    href={s.href}
+                    className={cn(
+                      "block min-h-11 py-2 text-sm hover:underline",
+                      isDone && "text-muted-foreground",
+                      isOpen && "font-medium",
+                    )}
+                  >
+                    {s.title}
+                  </a>
+                ) : (
+                  <span
+                    className={cn(
+                      "block text-sm",
+                      isDone && "text-muted-foreground",
+                      isOpen && "font-medium",
+                    )}
+                  >
+                    {s.title}
+                  </span>
+                )}
                 {s.override ? (
                   <span className="mt-0.5 block text-xs font-medium text-amber-600">
                     Marked done{s.override.by ? ` by ${s.override.by}` : ""} — no
@@ -136,13 +148,13 @@ export function JobChecklist({
                       />
                     ) : null}
                     {s.extras.map((x) => (
-                      <Link
+                      <a
                         key={x.href + x.label}
                         href={x.href}
-                        className="rounded-full border px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                        className="inline-flex min-h-11 items-center rounded-full border px-3 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
                       >
                         {x.label}
-                      </Link>
+                      </a>
                     ))}
                   </span>
                 ) : null}
@@ -152,15 +164,12 @@ export function JobChecklist({
                   the invoice is what you do most, and hiding the link once it's
                   done is exactly what made this hard to navigate. */}
               {s.href ? (
-                <Link
+                <a
                   href={s.href}
-                  className={cn(
-                    "shrink-0 self-center text-xs font-medium hover:underline",
-                    "text-muted-foreground",
-                  )}
+                  className="inline-flex min-h-11 shrink-0 items-center self-center px-2 text-sm font-medium text-primary hover:underline"
                 >
                   {s.linkLabel ?? "Open"}
-                </Link>
+                </a>
               ) : (
                 <Circle className="mt-1 size-3 shrink-0 text-muted-foreground/30" />
               )}
