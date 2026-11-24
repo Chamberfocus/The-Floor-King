@@ -8,7 +8,15 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { employeeDbError } from "@/lib/employee-error";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
-import { isSalesBookRole, leadAcceptanceForAssignment, seesEveryLead } from "@/lib/lead-acceptance";
+import { leadAcceptanceForAssignment, seesEveryLead } from "@/lib/lead-acceptance";
+import {
+  assignedLeadOwner,
+  canAssignLead,
+  leadStageForVisit,
+  leadVisitAddress,
+  parseLeadEstimateVisit,
+} from "@/lib/lead-intake";
+import { saveLeadEstimateVisit } from "@/lib/data/lead-visit";
 import {
   notifyOwnerLeadDeclined,
   notifySalespersonOfLead,
@@ -197,37 +205,40 @@ export async function createCustomer(
   const force = str(formData.get("force_create")) === "1";
   const overrideReason = str(formData.get("duplicate_override_reason"));
 
-  const stage = (str(formData.get("stage")) || "new") as LeadStage;
+  const visitParsed = parseLeadEstimateVisit({
+    date: str(formData.get("estimate_date")),
+    time: str(formData.get("estimate_time")),
+    end: str(formData.get("estimate_end")),
+  });
+  if (visitParsed && "error" in visitParsed) return { error: visitParsed.error };
+  const visit = visitParsed && "date" in visitParsed ? visitParsed : null;
+  const stage = leadStageForVisit(str(formData.get("stage")) || "new", !!visit) as LeadStage;
   const source = await legacyEnumFor(supabase, fields.source_id);
   const requestedAssignee = nullable(formData.get("assigned_to"));
 
-  let assignedTo = profile.id;
   let assigneeEmail: string | null = null;
   let assigneePhone: string | null = null;
   let assigneeName: string | null = null;
-  let acceptance: ReturnType<typeof leadAcceptanceForAssignment> = null;
-  if (
-    requestedAssignee &&
-    requestedAssignee !== profile.id &&
-    seesEveryLead(profile.role)
-  ) {
+  let requestedRole: string | null = null;
+  if (requestedAssignee && requestedAssignee !== profile.id && canAssignLead(profile.role)) {
     const { data: assignee } = await supabase
       .from("profiles")
       .select("full_name, email, phone, role")
       .eq("id", requestedAssignee)
       .maybeSingle();
-    if (assignee && isSalesBookRole(assignee.role as string)) {
-      assignedTo = requestedAssignee;
+    if (assignee) {
+      requestedRole = (assignee.role as string) ?? null;
       assigneeEmail = (assignee.email as string | null) ?? null;
       assigneePhone = (assignee.phone as string | null) ?? null;
       assigneeName = (assignee.full_name as string | null) ?? null;
-      acceptance = leadAcceptanceForAssignment({
-        actorId: profile.id,
-        assigneeId: assignedTo,
-        assigneeIsSales: true,
-      });
     }
   }
+  const { assignedTo, acceptance } = assignedLeadOwner({
+    actorId: profile.id,
+    actorRole: profile.role,
+    requestedId: requestedAssignee,
+    requestedRole,
+  });
 
   const matchInput = {
     fullName: fields.full_name,
@@ -291,6 +302,19 @@ export async function createCustomer(
         lead_assigned_by: profile.id,
       })
       .eq("id", id);
+  }
+  if (resolved.action === "created" && visit) {
+    const visitError = await saveLeadEstimateVisit(supabase, {
+      customerId: id,
+      salespersonId: assignedTo,
+      createdBy: profile.id,
+      visit,
+      address: leadVisitAddress([fields.street, fields.city, fields.state, fields.zip]),
+    });
+    if (visitError) {
+      refreshCustomerViews();
+      redirect(`/customers/${id}?new=1&schedule_error=${encodeURIComponent(visitError)}`);
+    }
   }
   if (force) {
     try {

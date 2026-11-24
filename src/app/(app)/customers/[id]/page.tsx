@@ -154,6 +154,7 @@ import { listLeadSources } from "@/lib/data/lead-sources";
 import { NewEstimate } from "@/components/new-estimate";
 import { QualifyDialog } from "./qualify-dialog";
 import { QuickActions } from "./quick-actions";
+import { ScheduleVisitDialog } from "./schedule-visit-dialog";
 import { CustomerSwitcher } from "./customer-switcher";
 import { DocumentShortcuts, type DocJob } from "./document-shortcuts";
 import { getCustomerJobCosting, type CustomerCosting } from "@/lib/data/job-costing";
@@ -1300,7 +1301,7 @@ export default async function CustomerPage({
                   installScheduler={
                     installScheduleProps ? <InstallSchedule {...installScheduleProps} /> : null
                   }
-                  openOnLoad={openScheduler}
+                  openOnLoad={openScheduler === "install" ? "install" : null}
                   compact
                   plainLabels
                   showValues={false}
@@ -1401,6 +1402,14 @@ export default async function CustomerPage({
         </div>
       ) : null}
 
+      <ScheduleVisitDialog
+        open={openScheduler === "estimate"}
+        customerId={customer.id}
+        customerName={customer.full_name}
+        customerEmail={customer.email}
+        reps={repOptions}
+        defaultRep={customer.assigned_to}
+      />
       <RecordActionCenter model={customerAction} />
       {jobs
         .filter((job) => {

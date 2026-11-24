@@ -167,12 +167,12 @@ export function QuickActions({
   };
 
   /**
-   * Deep-link straight into a dialog. The checklist's "Schedule it" step links
-   * to "?schedule=estimate", which lands here and opens the scheduler — the
-   * step used to drop you on the page and leave you to find the button.
+   * Deep-link straight into a dialog. Install scheduling still opens here.
+   * The estimate visit opens in ScheduleVisitDialog, outside this panel, so a
+   * closed "Handle this customer" section cannot hide it.
    *
-   * The param is stripped once it has done its job so a refresh, or coming back
-   * with the back button, doesn't reopen a dialog you already dealt with.
+   * The query stays until the dialog is closed. Stripping it on open reloaded
+   * the page and shut the dialog before it could be used.
    */
   const deepLinked = useRef(false);
   useEffect(() => {
@@ -181,10 +181,16 @@ export function QuickActions({
     setView(openOnLoad);
     setReason("");
     setOpen(true);
+  }, [openOnLoad]);
+
+  const closeDialog = (next: boolean) => {
+    setOpen(next);
+    if (next || !openOnLoad) return;
     const url = new URL(window.location.href);
+    if (!url.searchParams.has("schedule")) return;
     url.searchParams.delete("schedule");
     router.replace(`${url.pathname}${url.search}${url.hash}`, { scroll: false });
-  }, [openOnLoad, router]);
+  };
 
   const targetStage = stages.find((s) => s.id === toStage);
   const isLost = stageIsLost(targetStage);
@@ -331,7 +337,7 @@ export function QuickActions({
         ) : null}
       </div>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={closeDialog}>
         <DialogContent
           className={cn(
             "sm:max-w-lg",
@@ -401,7 +407,7 @@ export function QuickActions({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={() => setOpen(false)}
+                    onClick={() => closeDialog(false)}
                   >
                     Cancel
                   </Button>
@@ -459,7 +465,7 @@ export function QuickActions({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={() => setOpen(false)}
+                    onClick={() => closeDialog(false)}
                   >
                     Cancel
                   </Button>
@@ -591,7 +597,7 @@ export function QuickActions({
                       type="button"
                       variant="ghost"
                       size="sm"
-                      onClick={() => setOpen(false)}
+                      onClick={() => closeDialog(false)}
                     >
                       Cancel
                     </Button>
@@ -611,7 +617,7 @@ export function QuickActions({
                   <Link
                     href="#jobs"
                     className="text-primary hover:underline"
-                    onClick={() => setOpen(false)}
+                    onClick={() => closeDialog(false)}
                   >
                     Jobs
                   </Link>{" "}

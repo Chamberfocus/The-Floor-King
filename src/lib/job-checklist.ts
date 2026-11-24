@@ -77,6 +77,38 @@ const money = (n: number) =>
   `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /**
+ * A step with nowhere to go rendered a dead circle. Every step opens the tool
+ * that unblocks it: the estimate, a new job, or the invoice.
+ */
+function openDestination(
+  key: string,
+  input: ChecklistInput,
+): { href: string; linkLabel: string } | null {
+  const start = `/estimates/start?customer=${input.customerId}`;
+  const openJob = `/jobs/new?customer=${input.customerId}`;
+  const jobSteps = new Set(["workorder", "staging", "schedule", "install", "signoff", "closeout"]);
+  if (input.approvedEstimateId && jobSteps.has(key)) {
+    return { href: openJob, linkLabel: "Open a job" };
+  }
+  if (input.approvedEstimateId && (key === "balance" || key === "deposit")) {
+    return {
+      href: `/estimates/${input.approvedEstimateId}/invoice`,
+      linkLabel: key === "deposit" ? "Raise the deposit invoice" : "Raise the invoice",
+    };
+  }
+  if (input.approvedEstimateId && key === "order") {
+    return { href: `/estimates/${input.approvedEstimateId}/order`, linkLabel: "Review & raise POs" };
+  }
+  if (input.estimate && key !== "contact" && key !== "measure") {
+    return { href: `/estimates/${input.estimate.id}`, linkLabel: "Open the estimate" };
+  }
+  if (key !== "contact" && key !== "measure") {
+    return { href: start, linkLabel: "Start the estimate" };
+  }
+  return null;
+}
+
+/**
  * Build the checklist.
  *
  * A step is `done` when the RECORD proving it exists — not when someone ticked
@@ -284,12 +316,15 @@ export function buildChecklist(i: ChecklistInput): ChecklistStep[] {
   const currentIdx = raw.findIndex((s, idx) => !done[s.key] && idx > lastDone);
 
   return raw.map((s, idx) => {
+    const destination = s.href ? null : openDestination(s.key, i);
     // Only an override that's actually carrying the step is worth saying out
     // loud. Once the real record turns up — the payment lands, the PO is
     // raised — the row goes back to reporting the record.
     const override = !proven[s.key] ? (overrides[s.key] ?? null) : null;
     return {
       ...s,
+      href: destination?.href ?? s.href,
+      linkLabel: destination?.linkLabel ?? s.linkLabel,
       detail: override ? null : (detail[s.key] ?? null),
       extras: extras[s.key] ?? [],
       override,
