@@ -269,16 +269,24 @@ export interface InsertionStop {
 
 export interface InsertionChoice {
   startMin: number;
+  /** When this visit stops blocking the day. A snapped window holds through the window. */
+  endMin: number;
   arriveDrive: number | null;
   detour: number | null;
   miles: number | null;
   reason: string | null;
 }
 
+export interface ArrivalWindowMinutes {
+  start: number;
+  end: number;
+}
+
 /**
  * Least added drive for one estimate on one day, measured from the store
- * (or whatever base the caller names). Added minutes are the extra route,
- * not the one-way distance standing alone.
+ * (or whatever base the caller names). The rep cannot be at the house until
+ * drive time plus the travel buffer have elapsed. When the shop has arrival
+ * windows, the booked time is the earliest allotted window that still fits.
  */
 export function chooseEstimateInsertion(opts: {
   dayStart: number;
@@ -288,12 +296,16 @@ export function chooseEstimateInsertion(opts: {
   stops: InsertionStop[];
   drive: (from: string, to: string) => { minutes: number; miles: number } | null;
   baseLabel?: string;
+  /** Shop arrival windows. Omit to keep the earliest minute that fits. */
+  windows?: ArrivalWindowMinutes[];
+  /** Do not leave before this minute. Stops today from offering a window that already passed. */
+  notBefore?: number;
 }): InsertionChoice | null {
   const { dayStart, dayEnd, dur, buffer, stops, drive } = opts;
   const baseLabel = opts.baseLabel ?? "the store";
   const gap = (from: string, to: string) => {
     const leg = drive(from, to);
-    return leg ? Math.max(buffer, leg.minutes) : buffer;
+    return leg ? leg.minutes + buffer : buffer;
   };
   const round1 = (n: number) => Math.round(n * 10) / 10;
   const clock = (min: number) => to12(minutesToHM(min));
@@ -305,7 +317,7 @@ export function chooseEstimateInsertion(opts: {
     if (!direct) return { minutes: out.minutes + back.minutes, miles: round1(out.miles + back.miles) };
     return {
       minutes: out.minutes + back.minutes - direct.minutes,
-      miles: round1(out.miles + back.miles - direct.miles),
+      miles: round1(out.miles + back.miles - direct.minutes),
     };
   };
   const placeAt = (index: number, step: -1 | 1): string => {
@@ -315,14 +327,45 @@ export function chooseEstimateInsertion(opts: {
     }
     return "base";
   };
+  const windows = (opts.windows ?? [])
+    .filter((w) => w.end > w.start)
+    .sort((a, b) => a.start - b.start);
+  const earliestFrom = (afterMin: number, from: string) =>
+    Math.max(afterMin, opts.notBefore ?? afterMin) + gap(from, "new");
+  const fits = (earliest: number, nextLimit: number | null, nextPlace: string) => {
+    if (earliest + dur > dayEnd) return false;
+    if (nextLimit != null && earliest + dur + gap("new", nextPlace) > nextLimit) return false;
+    return true;
+  };
+  const snap = (earliest: number, nextLimit: number | null, nextPlace: string) => {
+    if (!windows.length) return { start: earliest, end: earliest + dur };
+    for (const w of windows) {
+      if (w.start < dayStart || w.start < earliest) continue;
+      if (w.start + dur > dayEnd) continue;
+      const holdEnd = Math.max(w.end, w.start + dur);
+      if (nextLimit != null && holdEnd + gap("new", nextPlace) > nextLimit) continue;
+      return { start: w.start, end: holdEnd };
+    }
+    return null;
+  };
 
   type C = InsertionChoice;
   const cands: C[] = [];
-  const push = (startMin: number, from: string, to: string, reason: string) => {
+  const push = (
+    earliest: number,
+    from: string,
+    to: string,
+    reason: string,
+    nextLimit: number | null,
+  ) => {
+    if (!fits(earliest, nextLimit, to)) return;
+    const slot = snap(earliest, nextLimit, to);
+    if (!slot) return;
     const det = added(from, to);
     const arrive = drive(from, "new");
     cands.push({
-      startMin,
+      startMin: slot.start,
+      endMin: slot.end,
       arriveDrive: arrive?.minutes ?? null,
       detour: det?.minutes ?? null,
       miles: det?.miles ?? null,
@@ -331,32 +374,39 @@ export function chooseEstimateInsertion(opts: {
   };
 
   if (stops.length === 0) {
-    if (dayStart + dur <= dayEnd) {
-      push(dayStart, "base", "base", `Round trip from ${baseLabel}`);
-    }
+    push(earliestFrom(dayStart, "base"), "base", "base", `Round trip from ${baseLabel}`, null);
   } else {
     const first = stops[0];
     const firstPlace = placeAt(0, 1);
-    if (dayStart + dur + gap("new", firstPlace) <= first.startMin && dayStart + dur <= dayEnd) {
-      push(dayStart, "base", firstPlace, `Before your ${clock(first.startMin)} stop`);
-    }
+    push(
+      earliestFrom(dayStart, "base"),
+      "base",
+      firstPlace,
+      `Before your ${clock(first.startMin)} stop`,
+      first.startMin,
+    );
     for (let i = 0; i < stops.length - 1; i++) {
       const prev = stops[i];
       const next = stops[i + 1];
       const from = placeAt(i, -1);
       const to = placeAt(i + 1, 1);
-      const arrive = prev.endMin + gap(from, "new");
-      const leave = arrive + dur + gap("new", to);
-      if (arrive + dur <= dayEnd && leave <= next.startMin) {
-        push(arrive, from, to, `Between your ${clock(prev.startMin)} & ${clock(next.startMin)} stops`);
-      }
+      push(
+        earliestFrom(prev.endMin, from),
+        from,
+        to,
+        `Between your ${clock(prev.startMin)} & ${clock(next.startMin)} stops`,
+        next.startMin,
+      );
     }
     const last = stops[stops.length - 1];
     const lastPlace = placeAt(stops.length - 1, -1);
-    const arriveLast = last.endMin + gap(lastPlace, "new");
-    if (arriveLast + dur <= dayEnd) {
-      push(arriveLast, lastPlace, "base", `After your ${clock(last.startMin)} stop, back to ${baseLabel}`);
-    }
+    push(
+      earliestFrom(last.endMin, lastPlace),
+      lastPlace,
+      "base",
+      `After your ${clock(last.startMin)} stop, back to ${baseLabel}`,
+      null,
+    );
   }
 
   if (!cands.length) return null;
@@ -367,4 +417,50 @@ export function chooseEstimateInsertion(opts: {
     return x.startMin - y.startMin;
   });
   return cands[0];
+}
+
+/**
+ * Days an installer cannot take a job between two dates.
+ * Approved time off, a posted busy/off block, and an explicit day off always close the day.
+ * A saved weekday shift book also closes weekdays with no shift, unless that date has custom hours.
+ */
+export function installerClosedRanges(args: {
+  from: string;
+  through: string;
+  hasShiftSchedule: boolean;
+  shiftWeekdays: ReadonlySet<number>;
+  overrides: Record<string, { off: boolean } | undefined>;
+  timeOff: { start: string; end: string }[];
+  blocks: { start: string; end: string }[];
+}): DateRange[] {
+  const closed: string[] = [];
+  let cursor = args.from;
+  for (let i = 0; i < 420 && cursor <= args.through; i++) {
+    const override = args.overrides[cursor];
+    const covered =
+      args.timeOff.some((t) => t.start <= cursor && cursor <= t.end) ||
+      args.blocks.some((b) => b.start <= cursor && cursor <= b.end);
+    const shiftGap =
+      !override && args.hasShiftSchedule && !args.shiftWeekdays.has(dow(cursor));
+    if (covered || override?.off === true || shiftGap) closed.push(cursor);
+    cursor = addDaysYmd(cursor, 1);
+  }
+  return collapseDates(closed);
+}
+
+function collapseDates(dates: string[]): DateRange[] {
+  if (!dates.length) return [];
+  const out: DateRange[] = [];
+  let start = dates[0];
+  let prev = dates[0];
+  for (let i = 1; i < dates.length; i++) {
+    if (dates[i] === addDaysYmd(prev, 1)) {
+      prev = dates[i];
+      continue;
+    }
+    out.push({ start, end: prev });
+    start = prev = dates[i];
+  }
+  out.push({ start, end: prev });
+  return out;
 }
